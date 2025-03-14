@@ -1,0 +1,163 @@
+load("@kleaf//build/kernel/kleaf:kernel.bzl", "ddk_headers", "ddk_module")
+
+ddk_headers(
+	name = "w2_comm_headers",
+	hdrs = glob([
+		"aml_drv/aml_bus/*.h",
+		"aml_drv/fullmac/*.h",
+		"aml_drv/*.h",
+		"common/fw/*.h",
+		"common/*.h",
+	]),
+	linux_includes = [
+		"aml_drv/aml_bus",
+		"aml_drv/fullmac",
+		"aml_drv",
+		"common/fw",
+		"common",
+	],
+	visibility = ["//visibility:public"],
+)
+
+ddk_module(
+	name = "w2_comm",
+	srcs = [
+			"aml_drv/aml_bus/aml_interface.c",
+			"aml_drv/aml_bus/usb_common.c",
+			"aml_drv/aml_bus/sdio_common.c",
+			"aml_drv/aml_bus/aml_w2_pci.c",
+			"aml_drv/aml_bus/aml_w2_v7.c",
+			"aml_drv/aml_bus/w2_sdio.c",
+			"aml_drv/aml_bus/aml_static_buf.c",
+			"aml_drv/aml_bus/w2_usb.c",
+	],
+	hdrs = [
+		"//common_drivers:soc_headers",
+		"//driver_modules/wifi_bt/wifi/amlogic/w2:w2_comm_headers",
+	],
+	copts = [
+		"-Wno-sometimes-uninitialized",
+		"-Wno-uninitialized",
+		"-Wno-format",
+		"-Wno-incompatible-pointer-types",
+		"-Wno-strict-prototypes",
+		"-Wno-macro-redefined",
+		"-Wno-unused-variable",
+		"-Wno-extra-tokens",
+	],
+	out = "w2_comm.ko",
+	kernel_build = "//common_drivers:amlogic",
+	visibility = ["//visibility:public"],
+	deps = [
+		"//common_drivers/drivers/mmc/host:amlogic-mmc",
+		"//common_drivers/drivers/wireless:amlogic-wireless",
+	],
+)
+
+ddk_module(
+	name = "w2",
+	srcs = [
+			"aml_drv/fullmac/aml_rx.c",
+			"aml_drv/fullmac/aml_tx.c",
+			"aml_drv/fullmac/aml_tdls.c",
+			"aml_drv/fullmac/aml_mesh.c",
+			"aml_drv/fullmac/aml_main.c",
+			"aml_drv/aml_reorder.c",
+			"aml_drv/aml_msg_tx.c",
+			"aml_drv/aml_msg_rx.c",
+			"aml_drv/aml_utils.c",
+			"aml_drv/aml_cmds.c",
+			"aml_drv/aml_irqs.c",
+			"aml_drv/aml_cfg.c",
+			"aml_drv/aml_strs.c",
+			"aml_drv/aml_txq.c",
+			"aml_drv/aml_mod_params.c",
+			"aml_drv/aml_platform.c",
+			"aml_drv/aml_dini.c",
+			"aml_drv/ipc_host.c",
+			"aml_drv/hal_desc.c",
+			"aml_drv/aml_prealloc.c",
+			"aml_drv/aml_regdom.c",
+			"aml_drv/aml_android.c",
+			"aml_drv/aml_iwpriv_cmds.c",
+			"aml_drv/aml_p2p.c",
+			"aml_drv/aml_scc.c",
+			"aml_drv/aml_wq.c",
+			"aml_drv/aml_recy.c",
+			"aml_drv/aml_tcp_ack.c",
+			"aml_drv/aml_task.c",
+			"aml_drv/aml_rps.c",
+			"aml_drv/aml_sap.c",
+			"aml_drv/aml_mdns_offload.c",
+	],
+	conditional_srcs = {
+		"CONFIG_AML_RADAR": {
+			True: [ "aml_drv/aml_radar.c"],
+		},
+		"CONFIG_DEBUG_FS": {
+			True: [
+				"aml_drv/aml_debugfs.c",
+				"aml_drv/aml_fw_dump.c",
+				"aml_drv/aml_fw_trace.c",
+			],
+		},
+		"CONFIG_NL80211_TESTMODE": {
+			True: [ "aml_drv/aml_testmode.c"],
+		},
+		"CONFIG_AML_BFMER": {
+			True: [ "aml_drv/aml_bfmer.c"],
+		},
+		"CONFIG_AML_MUMIMO_TX": {
+			True: [ "aml_drv/aml_mu_group.c"],
+		},
+	},
+	hdrs = [
+		"//common_drivers:soc_headers",
+		"//driver_modules/wifi_bt/wifi/amlogic/w2:w2_comm_headers",
+	],
+	local_defines = [
+		"CONFIG_AML_FULLMAC",
+		"NX_VIRT_DEV_MAX=4",    # FW VARS
+		"NX_REMOTE_STA_MAX=10", # FW VARS
+		"NX_MU_GROUP_MAX=62",   # FW VARS
+		"NX_TX_MAX_RATES=4",    # FW VARS
+		"NX_CHAN_CTXT_CNT=3",   # FW VARS
+		"NX_TXQ_CNT=CONFIG_NX_TXQ_CNT",
+		"DEBUG_CODE",
+		"DRV_P2P_SCC_MODE",  # drv scc mode for p2p
+		"SCC_STA_SOFTAP",  #hostapd cannot handle sta+softap scc mode,so do sta_softap scc in fw&drv
+	],
+	copts = [
+		"-Wno-sometimes-uninitialized",
+		"-Wno-uninitialized",
+		"-Wno-format",
+		"-Wno-incompatible-pointer-types",
+		"-Wno-strict-prototypes",
+		"-Wno-macro-redefined",
+		"-Wno-unused-variable",
+		"-Wno-int-to-pointer-cast",
+		"-Wno-implicit-fallthrough",
+		"-Wno-switch",
+		"-Wno-parentheses",
+		"-Wno-unused-label",
+		"-Wno-implicit-function-declaration",
+		"-Wno-attribute-warning",
+		"-Wno-pointer-type-mismatch",
+		"-Wno-unused-function",
+		"-Wno-shift-count-overflow",
+		"-Wno-return-type",
+		"-Wno-frame-larger-than",
+		"-Wno-excess-initializers",
+		"-Wno-extra-tokens",
+	],
+	out = "w2.ko",
+	defconfig  = "defconfig",
+	kconfig = "Kconfig",
+	kernel_build = "//common_drivers:amlogic",
+	visibility = ["//visibility:public"],
+	deps = [
+		"//common_drivers/drivers/mmc/host:amlogic-mmc",
+		"//common_drivers/drivers/wireless:amlogic-wireless",
+		"//driver_modules/wifi_bt/wifi/amlogic/w2:w2_comm",
+	],
+)

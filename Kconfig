@@ -1,0 +1,175 @@
+# SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+
+config AML_FULLMAC
+	tristate "W2 AML_FULLMAC"
+	default m
+
+config AML_SDM
+	bool "W2 FW ARCH"
+	default n
+
+config AML_TL4
+	bool "W2 FW ARCH"
+	default n
+
+config AML_BCMC
+	bool "W2 AML_BCMC"
+	default y
+
+config AML_OLD_IPC
+	bool "W2 IPC version"
+	default n
+
+config AML_SPLIT_TX_BUF
+	bool "W2 AML_SPLIT_TX_BUF"
+	default y
+
+config AML_P2P_DEBUGFS
+	bool "Support of P2P DebugFS for enabling/disabling NoA and OppPS"
+	default y
+
+config AML_FPGA_PCIE
+	bool "Need open it when use FPGA pcie version"
+	default n
+
+config BUILDROOT
+	bool "W2 BUILDROOT"
+	default n
+
+config AML_PLATFORM_ANDROID
+	bool "Amlogic specified android(/w Kernel) platform depends"
+	default y
+
+config AML_PLATFORM_RANDOM_MAC
+	bool "Use platform random mac"
+	default n
+
+config AML_PREALLOC_BUF_STATIC
+	bool "Support to use preallocing static buffer for wlan driver reloadable"
+	default y
+
+config AML_PREALLOC_BUF_SKB
+	bool "Support to use preallocing buffer for debug SKB alloc failed"
+	default n
+
+config AML_WFA_CERT_MODE
+	bool "Config to enable WFA certification mode"
+	default n
+
+config AML_POWER_SAVE_MODE
+	bool "Config to enable Power_Save mode"
+	default n
+
+config AML_WOW_GOOGLE_CAST_EN
+	bool "Config to enable GOOGLE_CAST wake host"
+	default n
+
+config AML_WOW_MAGIC_PACKET_EN
+	bool "Config to enable MAGIC_PKT wake host"
+	default n
+
+config AML_USE_TASK
+	bool "Support to use tasks to process IRQ Handlers"
+	default y
+
+config AML_RECOVERY
+	bool "Support recovery function"
+	default y
+
+config AML_RX_MINISIZE
+	bool "Support rx minisize function"
+	default n
+
+config AML_NAPI
+	bool "support NAPI"
+	default y
+
+config MDNS_OFFLOAD_FEATURE
+	bool "support MDNS_OFFLOAD feature"
+	default y
+
+config CUSTOMER_11D_FORBIDDEN
+	bool "support customer 11d forbidden"
+	default y
+
+config SDIO_TX_ENH
+	bool "W2 SDIO_TX_ENH"
+	default y
+
+config ANDROID_GKI
+	bool "ANDROID_GKI"
+	default y
+
+config AML_ANDROID
+	string "AML_ANDROID version"
+	default "14"
+
+config AML_DEBUGFS
+	bool "AML_DEBUGFS"
+	depends on DEBUG_FS
+
+config AML_UM_HELPER_DFLT
+	string "AML_UM_HELPER_DFLT"
+	depends on DEBUG_FS
+	default "/usr/bin/aml_umh.sh"
+
+config AML_AMSDUS_TX
+	bool "Select this TO send AMSDU"
+	depends on AML_SPLIT_TX_BUF
+	default y
+
+config AML_BFMER
+	bool "Enable BFMER support (need FW support)"
+	default y
+
+config AML_SUSPEND
+	bool "Enable suspend mode"
+	default y
+
+config AML_RADAR
+	bool "Enable handling of radar event"
+	default y
+
+config AML_MON_DATA
+	bool "Enable Monitor+Data interface support (need FW support)"
+	default n
+
+config AML_RX_SG
+	bool "Enable Rx Scatter-Gather"
+	default n
+
+config AML_SW_PROFILING
+	bool "extra DEBUG config"
+	default n
+
+config AML_DBG
+	bool "extra DEBUG config"
+	default n
+
+config AML_LA
+	bool "Enable LA (for non-PCIE platform only)"
+	default n
+	help
+		should make PROJ=SDIO VER=LA for firmware also
+
+config AML_CSA_MODE
+	bool "CSA mode scc"
+	default y
+
+config AML_USB_LARGE_PAGE
+	bool "usb large page"
+	default y
+
+config AML_MUMIMO_TX
+	bool "Support of MU-MIMO transmission (need FW support)"
+	default n
+
+config USER_MAX
+	int "USER_MAX"
+	default 2 if AML_MUMIMO_TX
+	default 1 if !AML_MUMIMO_TX
+
+config NX_TXQ_CNT
+	int "NX_TXQ_CNT"
+	default 5 if AML_BCMC
+	default 4 if !AML_BCMC
