@@ -58,6 +58,7 @@ extern struct pcie_mem_map_struct pcie_ep_addr_range[PCIE_TABLE_NUM];
 #endif
 
 struct pci_dev *g_pci_dev = NULL;
+struct aml_hw *g_aml_hw = NULL;
 
 int wifi_fw_download(char *firmware_filename);
 int start_wifi(void);
@@ -2429,6 +2430,8 @@ int aml_platform_register_usb_drv(void)
 
     aml_platform_init(aml_plat, &drv_data);
     dev_set_drvdata(&aml_plat->usb_dev->dev, drv_data);
+    // if usb disconnect, system can't get @drv_data from dev, so we save it
+    g_aml_hw = drv_data;
     bus_state_detect.is_drv_load_finished = 1;
     aml_log_nl_init();
     return ret;
@@ -2442,8 +2445,16 @@ void aml_platform_unregister_usb_drv(void)
     AML_DBG(AML_FN_ENTRY_STR);
     aml_log_nl_destroy();
     aml_hw = dev_get_drvdata(&g_udev->dev);
-    if (aml_hw == NULL)
-        goto err_drvdata;
+    // if usb disconnect, system can't get @drv_data from dev
+    if (aml_hw == NULL) {
+        if (g_aml_hw) {
+            aml_hw = g_aml_hw;
+            g_aml_hw = NULL;
+        } else {
+            AML_INFO("can't get aml_hw, need to check\n");
+            goto err_drvdata;
+        }
+    }
 
     aml_plat = aml_hw->plat;
     aml_platform_deinit(aml_hw);
@@ -2556,6 +2567,7 @@ int aml_platform_register_sdio_drv(void)
        return 0;
     }
     dev_set_drvdata(&func->dev, drv_data);
+    g_aml_hw = drv_data;
 
 #ifdef CONFIG_AML_RX_SG
     g_mmc_misc = kmalloc(sizeof(struct mmc_misc) * RXDESC_CNT_READ_ONCE, GFP_ATOMIC);
@@ -2575,8 +2587,15 @@ void aml_platform_unregister_sdio_drv(void)
     AML_DBG(AML_FN_ENTRY_STR);
     aml_log_nl_destroy();
     aml_hw = dev_get_drvdata(&func->dev);
-    if (aml_hw == NULL)
-        goto err_drvdata;
+    if (aml_hw == NULL) {
+        if (g_aml_hw) {
+            aml_hw = g_aml_hw;
+            g_aml_hw = NULL;
+        } else {
+            AML_INFO("can't get aml_hw, need to check\n");
+            goto err_drvdata;
+        }
+    }
 
     aml_plat = aml_hw->plat;
     aml_platform_deinit(aml_hw);
@@ -2869,6 +2888,7 @@ int aml_platform_register_pcie_drv(void)
     if (ret != 0)
         return ret;
     pci_set_drvdata(g_pci_dev, drv_data);
+    g_aml_hw = drv_data;
     register_reboot_notifier(&wifinotifier);
     return ret;
 }
@@ -2884,6 +2904,16 @@ void aml_platform_unregister_pcie_drv(void)
     AML_DBG(AML_FN_ENTRY_STR);
 
     aml_hw = pci_get_drvdata(g_pci_dev);
+    if (aml_hw == NULL) {
+        if (g_aml_hw) {
+            aml_hw = g_aml_hw;
+            g_aml_hw = NULL;
+        } else {
+            AML_INFO("can't get aml_hw, need to check\n");
+            return;
+        }
+    }
+
     aml_plat = aml_hw->plat;
 
     aml_platform_deinit(aml_hw);

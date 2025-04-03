@@ -677,6 +677,18 @@ out:
         AML_INFO("aml_wifi_wakeup_source is not initialized or not active\n");
     }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 10, 0)
+    if (aml_bus_type == USB_MODE)
+    {
+        struct device_link * dev_link = device_link_add(&aml_hw->wiphy->dev, &g_udev->dev, DL_FLAG_PM_RUNTIME);
+
+        if (!dev_link) {
+            AML_INFO("device_link_add fail\n");
+        }
+    }
+#endif
+
+    AML_INFO("Recovery Finished\n");
     return ret;
 }
 

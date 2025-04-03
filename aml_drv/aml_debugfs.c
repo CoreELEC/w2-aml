@@ -2534,26 +2534,6 @@ static ssize_t aml_dbgfs_tko_config_write(struct file *file,
 DEBUGFS_WRITE_FILE_OPS(tko_config);
 #endif
 
-void aml_dbgfs_fw_trace_create(struct aml_hw *aml_hw)
-{
-    static int is_init = 0;
-
-    if (is_init) {
-        return;
-    }
-    if (!aml_fw_trace_init(&aml_hw->debugfs.fw_trace,
-                            aml_ipc_fw_trace_desc_get(aml_hw))) {
-        DEBUGFS_ADD_FILE(fw_trace, aml_hw->debugfs.dir_diags, S_IWUSR | S_IRUSR);
-        if (aml_hw->debugfs.fw_trace.buf.nb_compo)
-            DEBUGFS_ADD_FILE(fw_trace_level, aml_hw->debugfs.dir_diags, S_IWUSR | S_IRUSR);
-        is_init = 1;
-    } else {
-        aml_hw->debugfs.fw_trace.buf.data = NULL;
-    }
-err:
-    AML_ERR("create trace dbgfs fail");
-}
-
 int aml_dbgfs_register(struct aml_hw *aml_hw, const char *name)
 {
 #ifdef CONFIG_AML_SOFTMAC
@@ -2615,7 +2595,6 @@ int aml_dbgfs_register(struct aml_hw *aml_hw, const char *name)
         goto err;
     DEBUGFS_ADD_FILE(fw_dbg, dir_diags, S_IWUSR | S_IRUSR);
 
-    aml_debugfs->dir_diags = dir_diags;
     if (!aml_fw_trace_init(&aml_hw->debugfs.fw_trace,
                             aml_ipc_fw_trace_desc_get(aml_hw))) {
         DEBUGFS_ADD_FILE(fw_trace, dir_diags, S_IWUSR | S_IRUSR);

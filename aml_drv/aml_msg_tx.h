@@ -264,5 +264,15 @@ int aml_mdns_set_passthrough_behavior(struct aml_hw *aml_hw, int behavior);
 int aml_set_mcc_ratio(struct aml_vif *aml_vif, int ratio);
 int aml_set_suspend_tx_flush(struct aml_hw *aml_hw, int tx_flush_enable);
 int aml_set_linkloss_threshold(struct aml_hw * aml_hw, int threshold);
+#ifdef CONFIG_AML_APF
+int aml_apf_get_capabilities(struct aml_hw *aml_hw);
+int aml_apf_add_filter(struct aml_hw *aml_hw, u8_l * program, uint32_t program_len);
+int aml_apf_delete_filter(struct aml_hw *aml_hw, struct apf_pgm_status * apf_pgm_status);
+void aml_apf_read_filter_data(struct aml_hw *aml_hw, u8_l * buf, uint32_t buf_len);
+int aml_apf_set_mode(struct aml_hw *aml_hw, bool apf_mode);
+int aml_apf_get_status(struct aml_hw *aml_hw);
+int aml_set_early_suspend_mode(struct aml_hw *aml_hw, bool early_suspend_mode);
+int aml_apf_set_mac_addr(struct net_device *dev, u8 mac_addr3, u8 mac_addr4, u8 mac_addr5);
+#endif /* APF */
 
 #endif /* _AML_MSG_TX_H_ */

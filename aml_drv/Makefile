@@ -176,7 +176,7 @@ ifeq ($(CONFIG_ANDROID_GKI),y)
 subdir-ccflags-y += -DCONFIG_ANDROID_GKI
 endif
 
-ifeq ($(CONFIG_AML_ANDROID),14)
+ifneq ($(CONFIG_AML_ANDROID),)
 subdir-ccflags-y += -DCONFIG_AML_ANDROID=$(CONFIG_AML_ANDROID)
 endif
 

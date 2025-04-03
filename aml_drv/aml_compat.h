@@ -25,6 +25,8 @@
 #include <net/cfg80211.h>
 #include <linux/fs.h>
 #include <linux/sched.h>
+#include <linux/sched/clock.h>
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
 #include <uapi/linux/sched/types.h>     /* for struct sched_attr */
 #endif

@@ -31,6 +31,7 @@ static u32_boolean setOffloadState(struct aml_hw *aml_hw, u32_boolean enabled)
 
 #ifdef MDNS_OFFLOAD_FEATURE
     if (aml_mdns_set_offload_state(aml_hw, enabled) != 0) {
+        AML_ERR(" MDNS_OFFLOAD_FEATURE is enabled!\n");
         ret = false;
         goto exit;
     }

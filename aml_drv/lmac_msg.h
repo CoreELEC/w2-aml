@@ -20,6 +20,7 @@
  */
 // for MAC related elements (mac_addr, mac_ssid...)
 #include "lmac_mac.h"
+#include "aml_cfgvendor.h"
 
 /*
  ****************************************************************************************
@@ -108,6 +109,13 @@ enum ps_mode_state
 {
     PS_D0_STATUS = 0,
     PS_D3_STATUS,
+};
+
+/// APF mode setting
+enum mm_apf_mode_state
+{
+    MM_APF_MODE_OFF,
+    MM_APF_MODE_ON,
 };
 
 /// Status/error codes used in the MAC software.
@@ -410,6 +418,9 @@ enum priv_e2a_tag {
     PRIV_MDNS_GET_HIT_CFM,
     PRIV_MDNS_GET_MISS_CFM,
     PRIV_EX_MM_VERSION_IND,
+    PRIV_APF_GET_CAPABILITIES_CFM,
+    PRIV_APF_GET_STATUS,
+    PRIV_APF_DELETE_PGM,
     PRIV_SUB_E2A_MAX,
 };
 
@@ -479,6 +490,12 @@ enum mm_sub_a2e_tag {
     MM_SUB_TX_FLUSH = 60,
     MM_SUB_SET_LINKLOSS_THRESHOLD = 61,
     MM_SUB_SET_AGG_REQ = 62,
+    MM_SUB_GET_APF_CAPABILITIES = 63,
+    MM_SUB_ADD_APF_FILTER = 64,
+    MM_SUB_DELETE_APF_FILTER = 65,
+    MM_SUB_SET_APF_MODE = 66,
+    MM_SUB_GET_APF_STATUS = 67,
+    MM_SUB_SET_EARLY_SUSPEND_REQ = 68,
     /// the MAX
     MM_SUB_A2E_MAX,
     /// New members cannot be added below
@@ -3505,5 +3522,60 @@ struct agg_req_t
     };
 };
 
+
+struct apf_capabilities
+{
+    /// Maximum supported size of APF filter program
+    u32_l max_len;
+    /// Version of APF
+    u16_l version;
+    /// apf program download addr
+    uint32_t apf_mem_addr;
+};
+
+enum apf_pgm_state
+{
+    APF_PROGRAM_INIT = 0,
+    APF_PROGRAM_INSTALLED = 1,
+    APF_PROGRAM_DELETED = 2,
+};
+
+
+struct apf_pgm_status {
+    u8_l apf_status;
+    u8_l resved[3];
+};
+
+struct apf_filter
+{
+    /// APF filter program length
+    u32_l program_len;
+    u32_l fw_copy_addr;
+    u32_l fw_copy_len;
+    u8_l  copy_data[4];
+    bool need_fw_copy;
+};
+
+struct apf_set_mode_req
+{
+    /// Boolean flag to enable (true) or disable (false) the APF feature
+    bool apf_mode;
+    u8_l resvd[3];
+};
+
+struct apf_get_status_req
+{
+    /// Boolean flag to enable (true) or disable (false) the APF feature
+    u32_l filter_age_16384ths;
+    bool apf_status;
+    u8_l resvd[3];
+};
+
+struct early_suspend_mode_req
+{
+    /// Boolean flag to enable (true) or disable (false) the APF feature
+    bool early_suspend_mode;
+    u8_l resvd[3];
+};
 
 #endif // LMAC_MSG_H_

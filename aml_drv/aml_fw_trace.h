@@ -143,7 +143,6 @@ enum {
     AML_TRACE_FW_LOG_UPLOAD,
     AML_LA_MACTRACE_UPLOAD,
     AML_MEM_DUMP_UPLOAD,
-    AML_GET_FW_LOG,
 };
 
 int aml_fw_trace_init(struct aml_fw_trace *trace,

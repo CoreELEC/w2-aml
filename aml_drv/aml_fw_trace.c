@@ -24,6 +24,7 @@
 #include "wifi_w2_shared_mem_cfg.h"
 #include "share_mem_map.h"
 #include "aml_prealloc.h"
+#include "aml_msg_tx.h"
 
 #define TRACE_LEVEL (0x00d25fd8)  //0x00825fd8
 
@@ -64,6 +65,8 @@ struct log_file_info trace_log_file_info;
 
 extern struct auc_hif_ops g_auc_hif_ops;
 extern struct pci_dev *g_pci_dev;
+extern struct aml_hw *g_aml_hw;
+extern unsigned int trace_flag;
 
 struct aml_trace_nl_info g_trace_nl_info;
 
@@ -1140,28 +1143,12 @@ int aml_trace_log_to_file(uint16_t *trace, uint16_t *trace_limit)
 }
 
 // recv msg handl function
-extern struct usb_device *g_udev;
 static void aml_recv_netlink(struct sk_buff *skb)
 {
-    struct aml_hw *aml_hw;
+    struct aml_hw *aml_hw = g_aml_hw;
     struct nlmsghdr *nlh;
     struct log_nl_msg_info * nl_log_info = NULL;
     nlh = nlmsg_hdr(skb); // get msg body
-
-    if (aml_bus_type == SDIO_MODE) {
-        struct sdio_func *func = aml_priv_to_func(SDIO_FUNC7);
-        aml_hw = dev_get_drvdata(&func->dev);
-        if (aml_hw == NULL) {
-            AML_INFO("can't get aml_hw in sdio mode\n");
-            dev_set_drvdata(&func->dev, NULL);
-        }
-    } else if (aml_bus_type == USB_MODE) {
-        aml_hw = dev_get_drvdata(&g_udev->dev);
-        if (aml_hw == NULL) {
-            AML_INFO("can't get aml_hw in usb mode\n");
-            dev_set_drvdata(&g_udev->dev, NULL);
-        }
-    }
 
     AML_INFO("kernel rcv msg type: %d, pid: %d, len: %d, flag: %d, seq: %d\n",
         nlh->nlmsg_type, nlh->nlmsg_pid, nlh->nlmsg_len, nlh->nlmsg_flags, nlh->nlmsg_seq);
@@ -1173,15 +1160,19 @@ static void aml_recv_netlink(struct sk_buff *skb)
         case AML_TRACE_FW_LOG_START:
             g_trace_nl_info.user_pid = nlh->nlmsg_pid;
             g_trace_nl_info.enable = 1;
+            if (!trace_flag) {
+                aml_send_fwlog_cmd(aml_hw, 1);
+                trace_flag = 1;
+            }
             AML_INFO("user space process (pid: %d) start recv fw log !!!!\n", g_trace_nl_info.user_pid);
             break;
         case AML_TRACE_FW_LOG_STOP:
             g_trace_nl_info.enable = 0;
+            if (trace_flag) {
+                aml_send_fwlog_cmd(aml_hw, 0);
+                trace_flag = 0;
+            }
             AML_INFO("user space process (pid: %d) stop recv fw log !!!!\n", g_trace_nl_info.user_pid);
-            break;
-        case AML_GET_FW_LOG:
-            aml_send_fwlog_cmd(aml_hw, 1);
-            AML_INFO("start get fw log !!!!\n", g_trace_nl_info.user_pid);
             break;
         default:
             AML_INFO("unknown msg (0x%x) from user space process (pid: %d), ignore !!!!\n",

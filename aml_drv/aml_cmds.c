@@ -133,6 +133,7 @@ int aml_msg_task(void *data)
                     up(&aml_hw->aml_msg_sem);
             }
             spin_unlock_bh(&cmd_mgr->lock);
+            found = false;
         }
     }
     if (aml_hw->aml_msg_completion_init) {
@@ -327,7 +328,7 @@ static void cmd_mgr_next_cmd(struct aml_hw *aml_hw, struct aml_cmd_mgr *cmd_mgr,
 {
     struct aml_cmd *cur;
     int ret;
-    bool found = false;
+    bool found;
 
     do {
         cmd->flags &= ~AML_CMD_FLAG_WAIT_PUSH;
@@ -341,15 +342,15 @@ static void cmd_mgr_next_cmd(struct aml_hw *aml_hw, struct aml_cmd_mgr *cmd_mgr,
             CMD_PRINT(cmd);
             cmd->flags &= ~(AML_CMD_FLAG_WAIT_ACK | AML_CMD_FLAG_WAIT_CFM);
             cmd_complete(cmd_mgr, cmd);
+            found = false;
             list_for_each_entry(cur, &cmd_mgr->cmds, list) {
                 if ((cur->list.next != &cmd_mgr->cmds) && (cur->flags & AML_CMD_FLAG_WAIT_PUSH)) {
                     cmd = cur;
                     found = true;
                     break;
                 }
-                else if (cur->list.next != &cmd_mgr->cmds) {
+                else {
                     found = false;
-                    AML_ERR("next cmd no AML_CMD_FLAG_WAIT_PUSH");
                     break;
                 }
             }

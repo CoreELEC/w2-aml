@@ -223,7 +223,6 @@ struct aml_debugfs {
     struct list_head rc_config_save;
     struct dentry *dir_twt;
     struct dentry *dir_twt_sta[NX_REMOTE_STA_MAX + NX_VIRT_DEV_MAX];
-    struct dentry *dir_diags;
 #endif
 };
 
@@ -265,7 +264,6 @@ int print_rate(char *buf, int size, int format, int nss, int mcs, int bw,
                       int sgi, int pre, int dcm, int *r_idx, bool bprint);
 int print_rate_from_cfg(char *buf, int size, u32 rate_config, int *r_idx, int ru_size, bool bprint);
 int compare_idx(const void *st1, const void *st2);
-void aml_dbgfs_fw_trace_create(struct aml_hw *aml_hw);
 
 #else
 
