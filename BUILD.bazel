@@ -1,4 +1,7 @@
 load("@kleaf//build/kernel/kleaf:kernel.bzl", "ddk_headers", "ddk_module")
+load("//driver_modules/wifi_bt/wifi:configs/wifi_ko_list.bzl", "driver_files")
+
+driver_files()
 
 ddk_headers(
 	name = "w2_comm_headers",
