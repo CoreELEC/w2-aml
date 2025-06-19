@@ -571,7 +571,6 @@ static void aml_plat_stop_agcfsm(struct aml_plat *aml_plat, int agc_reg,
     /* Stop state machine : xxAGCCNTL0[AGCFSMRESET]=1 */
     *agcctl = AML_REG_READ(aml_plat, AML_ADDR_SYSTEM, agc_reg);
     AML_REG_WRITE((*agcctl) | BIT(12), aml_plat, AML_ADDR_SYSTEM, agc_reg);
-    AML_INFO(" read 0x%x, 0x%x\n", agc_reg, AML_REG_READ(aml_plat, AML_ADDR_SYSTEM,agc_reg));
 
     /* Force clock */
     if (agc_ver > 0) {
@@ -681,7 +680,6 @@ static int aml_plat_agc_load(struct aml_plat *aml_plat)
     agc_ver = aml_plat_get_agc_load_version(aml_plat, rf, &clkctrladdr);
 
     aml_plat_stop_agcfsm(aml_plat, agc, &agcctl, &memclk, agc_ver, clkctrladdr);
-    AML_INFO(" agc_addr %x, memclk %x, agc_ver %x, clkctrladdr %x\n", agc, memclk, agc_ver, clkctrladdr);
 
     ret = aml_plat_agc_download(aml_plat, AML_ADDR(aml_plat, AML_ADDR_SYSTEM, PHY_AGC_UCODE_ADDR));
 
@@ -899,7 +897,6 @@ int aml_platform_reset(struct aml_plat *aml_plat)
     /* the doc states that SOFT implies FPGA_B_RESET
      * adding FPGA_B_RESET is clearer */
     regval_aml = AML_REG_READ(aml_plat, AML_ADDR_SYSTEM, SYSCTRL_MISC_CNTL_ADDR);
-    AML_INFO(" offset %x regval %x\n", SYSCTRL_MISC_CNTL_ADDR, regval_aml);
     AML_REG_WRITE(SOFT_RESET | FPGA_B_RESET, aml_plat,
                    AML_ADDR_SYSTEM, SYSCTRL_MISC_CNTL_ADDR);
 
@@ -910,7 +907,6 @@ int aml_platform_reset(struct aml_plat *aml_plat)
     }
 
     regval_status = AML_REG_READ(aml_plat, AML_ADDR_AON, RG_PMU_A16);
-    AML_INFO(" before regval_status:%x\n", regval_status);
     regval_status &= ~BIT(30);
     regval_status &= ~BIT(31);
     AML_REG_WRITE(regval_status, aml_plat, AML_ADDR_AON, RG_PMU_A16);
@@ -929,7 +925,6 @@ int aml_platform_reset(struct aml_plat *aml_plat)
 
     AML_REG_WRITE(regval_aml & ~FPGA_B_RESET, aml_plat,
                    AML_ADDR_SYSTEM, SYSCTRL_MISC_CNTL_ADDR);
-    AML_FN_EXIT();
     mdelay(10);
     return 0;
 }
@@ -2079,10 +2074,6 @@ int aml_pci_platform_on(struct aml_hw *aml_hw, void *config)
     AML_REG_WRITE(temp_data, aml_plat, AML_ADDR_MAC_PHY, MAC_AHBABT_CONTROL1);
     temp_data |= 0x6;
     AML_REG_WRITE(temp_data, aml_plat, AML_ADDR_MAC_PHY, MAC_AHBABT_CONTROL1);
-
-    AML_INFO(" reg:0x00a07028's value %x, reg:0x00a0702c's value %x",
-           AML_REG_READ(aml_plat, AML_ADDR_MAC_PHY, MAC_AHBABT_CONTROL0),
-           AML_REG_READ(aml_plat, AML_ADDR_MAC_PHY, MAC_AHBABT_CONTROL1));
 
     //change mac clock to 240M
     mac_clk_reg = AML_REG_READ(aml_plat, AML_ADDR_MAC_PHY, RG_INTF_MACCORE_CLK);

@@ -125,7 +125,6 @@ int aml_android_priv_ioctl(struct aml_vif *vif, void __user *data)
         goto exit;
     }
 
-    AML_INFO("vif idx=%d cmd=%s\n", vif->vif_index, resp);
     id = aml_android_cmdstr2id(resp);
     if (id == -1) {
         ret = -EFAULT;

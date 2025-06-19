@@ -177,7 +177,7 @@ int aml_sdio_probe(struct sdio_func *func, const struct sdio_device_id *id)
     else
         sdio_set_block_size(func, 512);
 
-    AML_INFO("func->num %d sdio block size=%d, \n",
+    AML_DBG("func->num %d sdio block size=%d, \n",
         func->num,  func->cur_blksize);
 
     if (func->num == 1)
@@ -187,13 +187,13 @@ int aml_sdio_probe(struct sdio_func *func, const struct sdio_device_id *id)
         g_hwif_sdio.sdio_func_if[0] = &sdio_func_0;
     }
     g_hwif_sdio.sdio_func_if[func->num] = func;
-    AML_INFO(" func->num %d sdio_func=%p, \n", func->num,  func);
+    AML_DBG(" func->num %d sdio_func=%p, \n", func->num,  func);
 
     sdio_release_host(func);
     sdio_set_drvdata(func, (void *)(&g_hwif_sdio));
     if (func->num != FUNCNUM_SDIO_LAST)
     {
-        AML_ERR("func_num=%d, last func num=%d\n",
+        AML_DBG("func_num=%d, last func num=%d\n",
             func->num, FUNCNUM_SDIO_LAST);
         return 0;
     }
@@ -224,9 +224,7 @@ static void  aml_sdio_remove(struct sdio_func *func)
         return ;
     }
 
-    AML_INFO("\n==========================================\n");
     AML_INFO("aml_sdio_remove++ func->num =%d \n",func->num);
-    AML_INFO("==========================================\n");
 
     sdio_claim_host(func);
     sdio_disable_func(func);

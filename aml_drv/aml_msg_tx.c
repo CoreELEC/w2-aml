@@ -427,8 +427,6 @@ static int aml_send_msg(struct aml_hw *aml_hw, const void *msg_params,
 
     if (is_mdnsoffload_msg(id))
         MDNS_OFFLOAD_DEBUG(AML_FN_ENTRY_STR);
-    else
-        AML_DBG(AML_FN_ENTRY_STR);
 
 #ifdef CONFIG_AML_RECOVERY
     if ((aml_bus_type != PCIE_MODE) && (bus_state_detect.bus_err)) {
@@ -558,7 +556,6 @@ int aml_send_reset(struct aml_hw *aml_hw)
     if (!void_param)
         return -ENOMEM;
 
-    AML_FN_EXIT();
     /* coverity[leaked_storage] - void_param will be free later */
     return aml_send_msg(aml_hw, void_param, 1, MM_RESET_CFM, NULL);
 }
@@ -3475,7 +3472,7 @@ unsigned int aml_efuse_read(struct aml_hw *aml_hw, u32 addr)
     if (!req)
         return -ENOMEM;
 
-    memset((void *)req, 0,sizeof(struct get_efuse_req));
+    memset((void *)req, 0, sizeof(struct get_efuse_req));
     req->addr = addr;
 
     aml_priv_send_msg(aml_hw, req, 1, PRIV_EFUSE_READ_RESULT, &ind);
@@ -3813,13 +3810,13 @@ int _aml_get_efuse(struct aml_vif *aml_vif, u32 addr)
     if (!req)
         return -ENOMEM;
 
-    memset((void *)req, 0,sizeof(struct get_efuse_req));
+    memset((void *)req, 0, sizeof(struct get_efuse_req));
     req->addr = addr;
 
     aml_priv_send_msg(aml_hw, req, 1, PRIV_EFUSE_GET_RESULT, &ind);
 
     if (ind.addr != addr) {
-         AML_ERR("get_efuse:0x%x erro!\n", ind.addr);
+         AML_ERR("get_efuse:0x%x error!\n", ind.addr);
     }
 
     /* coverity[leaked_storage] - req will be freed later */

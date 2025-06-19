@@ -6084,30 +6084,9 @@ unsigned char aml_parse_cali_param(char *varbuf, int len, struct Cali_Param *cal
     cali_param->cali_config = cali_config;
 
     AML_INFO("======>>>>>> version = %d\n", cali_param->version);
-    AML_INFO("======>>>>>> cali_config = %d\n", cali_param->cali_config);
-    AML_INFO("======>>>>>> freq_offset = %d\n", cali_param->freq_offset);
-    AML_INFO("======>>>>>> htemp_freq_offset = %d\n", cali_param->htemp_freq_offset);
-    AML_INFO("======>>>>>> tssi_2g_offset = 0x%x\n", cali_param->tssi_2g_offset);
-    AML_INFO("======>>>>>> tssi_5g_offset_5200 = 0x%x\n", cali_param->tssi_5g_offset[0]);
-    AML_INFO("======>>>>>> tssi_5g_offset_5400 = 0x%x\n", cali_param->tssi_5g_offset[1]);
-    AML_INFO("======>>>>>> tssi_5g_offset_5600 = 0x%x\n", cali_param->tssi_5g_offset[2]);
-    AML_INFO("======>>>>>> tssi_5g_offset_5800 = 0x%x\n", cali_param->tssi_5g_offset[3]);
-    AML_INFO("======>>>>>> wf2g_spur_rmen = %d\n", cali_param->wf2g_spur_rmen);
-    AML_INFO("======>>>>>> spur_freq = %d\n", cali_param->spur_freq);
     AML_INFO("======>>>>>> rf_count = %d\n", cali_param->rf_num);
 
     AML_INFO("======>>>>>> cw2mod = %x\n", cali_param->cw2mod[0]);
-
-    AML_INFO("======>>>>>> wf2g_he20_tpwr = %d\n", cali_param->wf2g_he20_tpwr[0]);
-    AML_INFO("======>>>>>> wf2g_he40_tpwr = %d\n", cali_param->wf2g_he40_tpwr[0]);
-
-    AML_INFO("======>>>>>> wf5g_he20_tpwr_h = %d\n", cali_param->wf5g_he20_tpwr_h[0]);
-    AML_INFO("======>>>>>> wf5g_he40_tpwr_h = %d\n", cali_param->wf5g_he40_tpwr_h[0]);
-    AML_INFO("======>>>>>> wf5g_he80_tpwr_h = %d\n", cali_param->wf5g_he80_tpwr_h[0]);
-
-    AML_INFO("======>>>>>> customer_efuse_en = 0x%x\n", cali_param->w2_efuse_param.customer_efuse_en);
-    AML_INFO("======>>>>>> FT_efuse_en = 0x%x\n", cali_param->w2_efuse_param.FT_efuse_en);
-
 
     return 0;
 }
@@ -6988,11 +6967,9 @@ int aml_cfg80211_init(struct aml_plat *aml_plat, void **platform_data)
     for (i = 0; i < NX_ITF_MAX; i++)
         aml_hw->avail_idx_map |= BIT(i);
 
-    AML_FN_ENTRY();
     aml_hwq_init(aml_hw);
     aml_txq_prepare(aml_hw);
 
-    AML_FN_ENTRY();
     aml_mu_group_init(aml_hw);
 
     aml_hw->roc = NULL;
@@ -7105,8 +7082,6 @@ int aml_cfg80211_init(struct aml_plat *aml_plat, void **platform_data)
     if ((ret = aml_platform_on(aml_hw, NULL)))
         goto err_platon;
 
-    /* Reset FW */
-    AML_FN_ENTRY();
     if ((ret = aml_send_reset(aml_hw)))
         goto err_lmac_reqs;
 
@@ -7303,10 +7278,9 @@ const char *aml_get_version(void)
 
 static int __init aml_mod_init(void)
 {
-    AML_DBG(AML_FN_ENTRY_STR);
-
     AML_NOTICE("%s", aml_get_version());
-    AML_INFO("aml_bus_type = %d.\n", aml_bus_type);
+    AML_INFO("bus_type: %s \n",
+        (aml_bus_type == 2) ? "PCIE" : ((aml_bus_type == 1) ? "USB" : "SDIO"));
 
     if (aml_bus_type == USB_MODE) {
          return aml_platform_register_usb_drv();

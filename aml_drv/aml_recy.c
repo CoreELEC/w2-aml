@@ -86,8 +86,6 @@ void aml_recy_save_assoc_info(struct cfg80211_connect_params *sme, u8 vif_index)
     if (!sme || !sme->ie || !sme->ie_len || !sme->ssid || !sme->ssid_len)
         return;
 
-    RECY_DBG("save assoc info");
-
     if (sme->bssid) {
         memcpy(&aml_recy->assoc_info.bssid, sme->bssid, ETH_ALEN);
     } else {
@@ -819,8 +817,6 @@ void aml_recy_disable(void)
 
 int aml_recy_init(struct aml_hw *aml_hw)
 {
-    RECY_DBG("recovery func init");
-
     aml_recy = kzalloc(sizeof(struct aml_recy), GFP_KERNEL);
     if (!aml_recy) {
         RECY_DBG("recy info alloc failed");

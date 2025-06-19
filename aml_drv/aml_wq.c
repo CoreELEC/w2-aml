@@ -163,7 +163,6 @@ static void aml_wq_doit(struct work_struct *work)
 
 int aml_wq_init(struct aml_hw *aml_hw)
 {
-    AML_INFO("workqueue init");
     spin_lock_init(&aml_hw->wq_lock);
     INIT_LIST_HEAD(&aml_hw->work_list);
     INIT_WORK(&aml_hw->work, aml_wq_doit);

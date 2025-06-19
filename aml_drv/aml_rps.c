@@ -43,8 +43,6 @@ static int aml_rps_map_set(struct netdev_rx_queue *queue, uint32_t cpu_mask)
     static DEFINE_MUTEX(rps_map_mutex);
     char buf[32];
 
-    AML_INFO("set rps_cpus as [%0x]\n", cpu_mask);
-
     if (!alloc_cpumask_var(&mask, GFP_KERNEL)) {
         AML_INFO("alloc_cpumask_var fail.\n");
         return -ENOMEM;
@@ -315,7 +313,6 @@ static int aml_rps_sock_flow_sysctl_set(unsigned int size)
         vfree(orig_sock_table);
     }
     mutex_unlock(&sock_flow_mutex);
-    AML_INFO("Done, new size is [%d]\n", size);
     return 0;
 }
 

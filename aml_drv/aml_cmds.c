@@ -38,8 +38,7 @@ static void cmd_dump(const struct aml_cmd *cmd)
 #endif
 }
 
-#define CMD_PRINT_STR "[%-20.20s %4d] cmd tkn[%d]  flags:%04x  result:%3d  cmd:%4d-%-24s - reqcfm(%4d-%-s)\n", \
-	__func__, __LINE__,  \
+#define CMD_PRINT_STR "cmd tkn[%d]  flags:%04x  result:%3d  cmd:%4d-%-24s - reqcfm(%4d-%-s)\n", \
 	cmd->tkn, cmd->flags, cmd->result, cmd->id, cmd->id == MM_OTHER_REQ ? AML_MM_OTHER_CMD2STR(cmd) : AML_ID2STR(cmd->id), \
 	cmd->reqid, (((cmd->flags & AML_CMD_FLAG_REQ_CFM) && \
 	(cmd->reqid != (lmac_msg_id_t)-1)) ? AML_ID2STR(cmd->reqid) : "none")
