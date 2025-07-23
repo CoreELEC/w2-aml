@@ -93,6 +93,7 @@ ddk_module(
         "aml_drv/aml_rps.c",
         "aml_drv/aml_sap.c",
         "aml_drv/aml_mdns_offload.c",
+        "aml_drv/aml_fw_trace.c",
     ],
     conditional_srcs = {
         "CONFIG_AML_RADAR": {
@@ -102,7 +103,6 @@ ddk_module(
             True: [
                 "aml_drv/aml_debugfs.c",
                 "aml_drv/aml_fw_dump.c",
-                "aml_drv/aml_fw_trace.c",
             ],
         },
         "CONFIG_NL80211_TESTMODE": {

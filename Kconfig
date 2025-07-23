@@ -107,6 +107,7 @@ config AML_ANDROID
 config AML_DEBUGFS
 	bool "AML_DEBUGFS"
 	depends on DEBUG_FS
+	default DEBUG_FS
 
 config AML_UM_HELPER_DFLT
 	string "AML_UM_HELPER_DFLT"
