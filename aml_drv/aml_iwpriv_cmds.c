@@ -1771,7 +1771,7 @@ static int aml_dump_reg(struct net_device *dev, int addr, int size)
     } else {
         for (i = 0; i < size / 4; i++) {
             len += scnprintf(&la_buf[len], (REG_DUMP_SIZE - len), "addr 0x%x ----- value 0x%x\n",
-                (unsigned int)(unsigned long)(address + i * 4), AML_REG_READ(aml_plat, 0, (u64)(address + i*4)));
+                (unsigned int)(unsigned long)(address + i * 4), AML_REG_READ(aml_plat, 0, (unsigned int)(unsigned long)(address + i*4)));
 
             if ((REG_DUMP_SIZE - len) < 38) {
                 aml_send_log_to_user(la_buf, len, AML_MEM_DUMP_UPLOAD);
