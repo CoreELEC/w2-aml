@@ -345,6 +345,10 @@ void aml_pci_writel(u32 data, u8* addr)
 uint32_t aml_pci_read_for_bt(int base, u32 offset)
 {
     u8 *addr;
+
+    if (!g_aml_plat_pci)
+        return 0xdead;
+
     addr = aml_pci_get_address_for_bt(g_aml_plat_pci, base, offset);
 
     return aml_pci_readl(addr);
@@ -353,6 +357,10 @@ uint32_t aml_pci_read_for_bt(int base, u32 offset)
 void aml_pci_write_for_bt(u32 val, int base, u32 offset)
 {
     u8 *addr;
+
+    if (!g_aml_plat_pci)
+        return;
+
     addr = aml_pci_get_address_for_bt(g_aml_plat_pci, base, offset);
 
     aml_pci_writel(val, addr);
