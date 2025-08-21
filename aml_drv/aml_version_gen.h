@@ -1,0 +1,6 @@
+#define AML_VERS_REV "daba90760"
+#define AML_VERS_MOD "v1.9.10_2024-12.20-w2 driver:daba90760+469302+519006"
+#define AML_VERS_BANNER "v1.9.10_2024-12.20-w2 driver:daba90760+469302+519006"
+#define AML_DRIVER_COMPILE_INFO "driver compile date: W2.2024.W47.02,driver hash: daba90760e804097b44643431ad61b875a4e0c70"
+#define FIRMWARE_INFO "fw compile date: 2024-12-20 14:48:50,fw hash: daba90760e804097b44643431ad61b875a4e0c70,fw size: 1843020"
+#define COMMON_INFO "common: last commit: 2024/Jul/26 14:59:34  hash: daba90760e804097b44643431ad61b875a4e0c70"

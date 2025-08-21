@@ -1,0 +1,74 @@
+AML_VERS_NUM=6.10.0.0
+KERNELDIR=/usr/lib/modules/$(shell uname -r)/build
+PWD=$(shell pwd)
+#
+# WAITING FOR KCONFIG {
+#
+CONFIG_AML_SOFTMAC ?= n
+CONFIG_AML_FULLMAC ?= m
+CONFIG_AML_FHOST ?= n
+
+#
+# DEBUG OPTIONS
+CONFIG_AML_UM_HELPER_DFLT ?= "/usr/bin/aml_umh.sh"
+
+#
+# FW ARCH:
+CONFIG_AML_SDM ?= n
+CONFIG_AML_TL4 ?= n
+
+# IPC version
+CONFIG_AML_OLD_IPC ?= n
+
+# Support of P2P DebugFS for enabling/disabling NoA and OppPS
+CONFIG_AML_P2P_DEBUGFS ?= y
+
+# Need open it when use FPGA pcie version
+CONFIG_AML_FPGA_PCIE ?= n
+
+# PT MODE
+CONFIG_PT_MODE ?= y
+# Support to use tasks to process IRQ Handlers
+CONFIG_AML_USE_TASK ?= y
+
+# Support recovery function
+CONFIG_AML_RECOVERY ?= y
+# } // WAITING FOR KCONFIG
+#
+
+subdir-ccflags-$(CONFIG_PT_MODE) += -DCONFIG_PT_MODE
+subdir-ccflags-$(CONFIG_DEBUG_FS) += -DCONFIG_AML_DEBUGFS
+subdir-ccflags-$(CONFIG_DEBUG_FS) += -DCONFIG_AML_UM_HELPER_DFLT=\"$(CONFIG_AML_UM_HELPER_DFLT)\"
+subdir-ccflags-$(CONFIG_AML_P2P_DEBUGFS) += -DCONFIG_AML_P2P_DEBUGFS
+subdir-ccflags-$(CONFIG_AML_FPGA_PCIE) += -DCONFIG_AML_FPGA_PCIE
+subdir-ccflags-$(CONFIG_AML_USE_TASK) += -DCONFIG_AML_USE_TASK
+subdir-ccflags-$(CONFIG_AML_RECOVERY) += -DCONFIG_AML_RECOVERY
+
+# FW VARS
+subdir-ccflags-y += -DNX_VIRT_DEV_MAX=4
+subdir-ccflags-y += -DNX_REMOTE_STA_MAX=10
+subdir-ccflags-y += -DNX_MU_GROUP_MAX=62
+subdir-ccflags-y += -DNX_TX_MAX_RATES=4
+subdir-ccflags-y += -DNX_CHAN_CTXT_CNT=3
+
+# FW ARCH:
+subdir-ccflags-$(CONFIG_AML_SDM) += -DCONFIG_AML_SDM
+subdir-ccflags-$(CONFIG_AML_TL4) += -DCONFIG_AML_TL4
+subdir-ccflags-$(CONFIG_AML_OLD_IPC) += -DCONFIG_AML_OLD_IPC
+
+obj-$(CONFIG_AML_SOFTMAC) += softmac/
+obj-$(CONFIG_AML_FULLMAC) += fullmac/
+obj-$(CONFIG_AML_FHOST)   += fhost/
+
+all: modules
+
+modules clean:
+	@$(PWD)/mklink.sh
+	$(MAKE) -C $(KERNELDIR) O=$(KBUILDDIR) M=$(PWD) $@
+	@$(PWD)/mklink.sh clean
+
+coverity: clean
+	rm -rf ./build_dir/*
+	cov-build -dir ./build_dir/output_dir/ make
+	cov-analyze -dir ./build_dir/output_dir/ --strip-path $(PWD) --all --aggressiveness-level high --disable-parse-warnings --disable USELESS_CALL --disable ARRAY_VS_SINGLETON
+	cov-format-errors --dir ./build_dir/output_dir/ --html-output ./build_dir/html-result --filesort --strip-path $(PWD) -x

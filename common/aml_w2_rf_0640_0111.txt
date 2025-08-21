@@ -1,0 +1,195 @@
+#config version info <char> version must be consistent with the WIFI_CALI_VERSION in c code
+#After updating the parameters, it must be modified at the same time.
+version=15
+
+#cali config <short>
+cali_config=0x0
+
+#frequency offset <char>
+freq_offset=0
+htemp_freq_offset=20
+
+#cca ed detect mode
+cca_ed_det=0
+
+#p212 tssi offset cfg <char>
+tssi_2g_offset=0x0a
+tssi_5g_offset_5200=0xf4
+tssi_5g_offset_5400=0xf0
+tssi_5g_offset_5600=0xfc
+tssi_5g_offset_5800=0x04
+
+#wf2g spur remove enable cfg <char>
+wf2g_spur_rmen=0
+spur_freq=24478
+
+#rf count<unsigned char>
+rf_count=2
+
+#tssi_ratio_limit =[on=1/off=0],[2g_ratio,],[5g_ratio]
+wftx_tssi_ratio_limit=1,100,133
+digital_code_gain_limit=0,0x0,0xff,0x0,0xff
+
+#wifi 2g/5g tx power table
+wftx_pwrtbl_en=1
+
+#test: w2 olpc param
+#cw2mod=-2.1,-4.1,1.7,-2.1,-2.1,-2.2
+cw2mod=0xfe,0xfc,0x2,0xfe,0xfe,0xfe
+
+#wf2g olpc target_pwr limit
+wf2g_11b_tpwr=21,21,21,21
+wf2g_11g_tpwr=20,20,20,19,19,19,19,18
+wf2g_ht20_tpwr=20,20,20,19,19,18,18,17
+wf2g_ht40_tpwr=19,19,19,19,18,17,16,16
+wf2g_vht20_tpwr=20,20,20,19,19,18,17,16,15
+wf2g_vht40_tpwr=19,19,19,19,19,18,17,17,16,15
+wf2g_he20_tpwr=19,19,19,19,19,18,17,17,16,15,13,13
+wf2g_he40_tpwr=20,20,20,19,19,18,17,17,16,15,13,13
+
+#wf5g olpc target_pwr limit
+wf5g_11a_tpwr=16,16,16,16,15,14,13,13
+wf5g_ht20_tpwr=15,15,15,15,15,14,13,13
+wf5g_ht40_tpwr=15,15,15,15,15,14,13,12
+wf5g_vht20_tpwr=14,14,14,14,14,14,13,13,12
+wf5g_vht40_tpwr=15,15,15,15,15,14,13,13,12,12
+wf5g_vht80_tpwr=14,14,14,14,14,14,13,13,12,11
+wf5g_he20_tpwr=14,14,14,14,14,14,13,13,12,11,10,10
+wf5g_he40_tpwr=15,15,15,15,15,14,13,13,12,11,10,10
+wf5g_he80_tpwr=14,14,14,14,14,14,13,13,12,11,10,10
+#wf5g lch he lowrssi mcs0~5 tp use
+wf5g_lch_he_lowrssi_tpwr=17,17,17,17,17,16
+#wf5g mch he lowrssi mcs0~5 tp use
+wf5g_mch_he_lowrssi_tpwr=17,17,17,17,15,14
+#wf5g hch he lowrssi mcs0~5 tp use
+wf5g_hch_he20_lowrssi_tpwr=17,17,17,16,15,14
+wf5g_hch_he40_lowrssi_tpwr=17,17,17,16,15,14
+wf5g_hch_he80_lowrssi_tpwr=17,17,17,16,14,14
+
+#use xosc_ctune and offset power in txt:0
+#use xosc_ctune and offset power in efuse:1
+customer_efuse_en=1
+
+#use looggain in txt:0, use looggain in efuse:1
+FT_efuse_en=1
+
+#enable txt xosc ctune:1, use efuse value:0
+xosc_ctune_vld=0
+
+#enable loopgain:1
+absolute_power_wf0_2g_vld=1
+absolute_power_wf0_5g_vld=1
+absolute_power_wf1_2g_vld=1
+absolute_power_wf1_5g_vld=1
+
+#enable offset power:1
+offset_power_wf0_2g_vld=1
+offset_power_wf0_5g_vld=1
+offset_power_wf1_2g_vld=1
+offset_power_wf1_5g_vld=1
+
+#use first offset power in txt:0
+#use second offset power in txt:1
+pwr_delta_wf0_customer_vld=0
+pwr_delta_wf1_customer_vld=0
+
+#xosc ctune value
+xosc_ctune=0x00
+
+#wf0 loopgain offset
+absolute_power_wf0_2g_l=0x00
+absolute_power_wf0_2g_m=0x00
+absolute_power_wf0_2g_h=0x00
+absolute_power_wf0_5200=0x00
+absolute_power_wf0_5300=0x00
+absolute_power_wf0_5530=0x00
+absolute_power_wf0_5660=0x00
+absolute_power_wf0_5780=0x00
+
+#wf1 loopgain offset
+absolute_power_wf1_2g_l=0x00
+absolute_power_wf1_2g_m=0x00
+absolute_power_wf1_2g_h=0x00
+absolute_power_wf1_5200=0x00
+absolute_power_wf1_5300=0x00
+absolute_power_wf1_5530=0x00
+absolute_power_wf1_5660=0x00
+absolute_power_wf1_5780=0x00
+
+#wf0 offset power
+offset_power_wf0_2g_l=0x00
+offset_power_wf0_2g_m=0x00
+offset_power_wf0_2g_h=0x00
+offset_power_wf0_5200=0x00
+offset_power_wf0_5300=0x00
+offset_power_wf0_5530=0x00
+offset_power_wf0_5660=0x00
+offset_power_wf0_5780=0x00
+
+#wf1 offset power
+offset_power_wf1_2g_l=0x00
+offset_power_wf1_2g_m=0x00
+offset_power_wf1_2g_h=0x00
+offset_power_wf1_5200=0x00
+offset_power_wf1_5300=0x00
+offset_power_wf1_5530=0x00
+offset_power_wf1_5660=0x00
+offset_power_wf1_5780=0x00
+
+second_offset_power_wf0_2g_l=0x00
+second_offset_power_wf0_2g_m=0x00
+second_offset_power_wf0_2g_h=0x00
+second_offset_power_wf0_5200=0x00
+second_offset_power_wf0_5300=0x00
+second_offset_power_wf0_5530=0x00
+second_offset_power_wf0_5660=0x00
+second_offset_power_wf0_5780=0x00
+
+second_offset_power_wf1_2g_l=0x00
+second_offset_power_wf1_2g_m=0x00
+second_offset_power_wf1_2g_h=0x00
+second_offset_power_wf1_5200=0x00
+second_offset_power_wf1_5300=0x00
+second_offset_power_wf1_5530=0x00
+second_offset_power_wf1_5660=0x00
+second_offset_power_wf1_5780=0x00
+
+#txt_shift_value for board gap
+txt_shift_value_wf0_2g_l=0x00
+txt_shift_value_wf0_2g_m=0x00
+txt_shift_value_wf0_2g_h=0x00
+txt_shift_value_wf0_5200=0x01
+txt_shift_value_wf0_5300=0x00
+txt_shift_value_wf0_5530=0x1f
+txt_shift_value_wf0_5660=0x02
+txt_shift_value_wf0_5780=0x1e
+
+txt_shift_value_wf1_2g_l=0x00
+txt_shift_value_wf1_2g_m=0x00
+txt_shift_value_wf1_2g_h=0x00
+txt_shift_value_wf1_5200=0x02
+txt_shift_value_wf1_5300=0x1f
+txt_shift_value_wf1_5530=0x02
+txt_shift_value_wf1_5660=0x03
+txt_shift_value_wf1_5780=0x00
+
+#use pmu in txt:0, use pmu in efuse:1
+pmu_efuse_en=1
+
+rg_pmu_bucka_efuse_trim_i_osc=0x8
+rg_pmu_bucka_rsv3=0x88
+rg_pmu_buckd_efuse_trim_i_osc=0x8
+rg_pmu_buckd_efuse_trim_offset_vref=0x10
+rg_aoldo_vosel=0x20
+rg_strup_rsva=0x8
+rg_ao_hifldo_vosel=0x20
+rg_aldo_vo_adj=0x80
+rg_bg_tc_adj=0x8
+rg_pmu_32k_adj=0x8
+rg_pmu_bucka_efuse_trim_slp_csp=0x8
+rg_pmu_bucka_efuse_trim_iref_vlreg=0x8
+rg_pmu_bucka_efuse_trim_iref_vhreg=0x8
+rg_pmu_buckd_ton_min_trim=0x2
+rg_pmu_buckd_cs_gain_ramp=0x7
+rg_pmu_buckd_vsel_vh=0x6
+rg_pmu_buckd_capslp_ramp=0x0

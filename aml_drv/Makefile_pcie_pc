@@ -1,0 +1,90 @@
+AML_VERS_NUM=6.10.0.0
+KERNELDIR=/usr/lib/modules/$(shell uname -r)/build
+PWD=$(shell pwd)
+#
+# WAITING FOR KCONFIG {
+#
+CONFIG_AML_SOFTMAC ?= n
+CONFIG_AML_FULLMAC ?= m
+CONFIG_AML_FHOST ?= n
+
+#
+# DEBUG OPTIONS
+CONFIG_AML_UM_HELPER_DFLT ?= "/usr/bin/aml_umh.sh"
+
+#
+# FW ARCH:
+CONFIG_AML_SDM ?= n
+CONFIG_AML_TL4 ?= n
+
+# IPC version
+CONFIG_AML_OLD_IPC ?= n
+
+# Support of P2P DebugFS for enabling/disabling NoA and OppPS
+CONFIG_AML_P2P_DEBUGFS ?= y
+
+# Need open it when use FPGA pcie version
+CONFIG_AML_FPGA_PCIE ?= n
+
+# Need close it when the vendor/device id is written to efuse
+CONFIG_AML_PLATFORM_AH212 ?= y
+
+# Support to use preallocing static buffer for wlan driver reloadable
+CONFIG_AML_PREALLOC_BUF_STATIC ?= y
+
+# Support to use preallocing buffer for debug SKB alloc failed
+CONFIG_AML_PREALLOC_BUF_SKB ?= n
+
+# Config to enable WFA certification mode
+CONFIG_AML_WFA_CERT_MODE ?= n
+
+# Config to enable Power_Save mode
+CONFIG_AML_POWER_SAVE_MODE ?= n
+
+# Support to use tasks to process IRQ Handlers
+CONFIG_AML_USE_TASK ?= y
+
+# Support recovery function
+CONFIG_AML_RECOVERY ?= y
+# } // WAITING FOR KCONFIG
+#
+
+subdir-ccflags-$(CONFIG_DEBUG_FS) += -DCONFIG_AML_DEBUGFS
+subdir-ccflags-$(CONFIG_DEBUG_FS) += -DCONFIG_AML_UM_HELPER_DFLT=\"$(CONFIG_AML_UM_HELPER_DFLT)\"
+subdir-ccflags-$(CONFIG_AML_P2P_DEBUGFS) += -DCONFIG_AML_P2P_DEBUGFS
+subdir-ccflags-$(CONFIG_AML_FPGA_PCIE) += -DCONFIG_AML_FPGA_PCIE
+subdir-ccflags-$(CONFIG_AML_PLATFORM_AH212) += -DCONFIG_AML_PLATFORM_AH212
+subdir-ccflags-$(CONFIG_AML_PREALLOC_BUF_STATIC) += -DCONFIG_AML_PREALLOC_BUF_STATIC
+subdir-ccflags-$(CONFIG_AML_PREALLOC_BUF_SKB) += -DCONFIG_AML_PREALLOC_BUF_SKB
+subdir-ccflags-$(CONFIG_AML_WFA_CERT_MODE) += -DCONFIG_AML_WFA_CERT_MODE
+subdir-ccflags-$(CONFIG_AML_POWER_SAVE_MODE) += -DCONFIG_AML_POWER_SAVE_MODE
+subdir-ccflags-$(CONFIG_AML_USE_TASK) += -DCONFIG_AML_USE_TASK
+subdir-ccflags-$(CONFIG_AML_RECOVERY) += -DCONFIG_AML_RECOVERY
+subdir-ccflags-y += -DCONFIG_LINUXPC_VERSION
+
+# FW VARS
+subdir-ccflags-y += -DNX_VIRT_DEV_MAX=4
+subdir-ccflags-y += -DNX_REMOTE_STA_MAX=10
+subdir-ccflags-y += -DNX_MU_GROUP_MAX=62
+subdir-ccflags-y += -DNX_TX_MAX_RATES=4
+subdir-ccflags-y += -DNX_CHAN_CTXT_CNT=3
+
+# FW ARCH:
+subdir-ccflags-$(CONFIG_AML_SDM) += -DCONFIG_AML_SDM
+subdir-ccflags-$(CONFIG_AML_TL4) += -DCONFIG_AML_TL4
+subdir-ccflags-$(CONFIG_AML_OLD_IPC) += -DCONFIG_AML_OLD_IPC
+
+ifeq ($(CONFIG_ANDROID_GKI),y)
+subdir-ccflags-y += -DCONFIG_ANDROID_GKI
+endif
+
+obj-$(CONFIG_AML_FULLMAC) += fullmac/
+
+all: modules
+
+modules clean:
+	@$(PWD)/mklink.sh
+	$(MAKE) -C $(KERNELDIR) O=$(KBUILDDIR) M=$(PWD) $@
+	@$(PWD)/mklink.sh clean
+
+
