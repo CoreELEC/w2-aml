@@ -25,6 +25,8 @@
 #include <net/cfg80211.h>
 #include <linux/fs.h>
 
+MODULE_IMPORT_NS(VFS_internal_I_am_really_a_filesystem_and_am_NOT_a_driver);
+
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 41) && defined (CONFIG_AMLOGIC_KERNEL_VERSION))
 #include <linux/upstream_version.h>
 #endif
