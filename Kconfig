@@ -92,6 +92,10 @@ config CUSTOMER_11D_FORBIDDEN
 	bool "support customer 11d forbidden"
 	default y
 
+config LIGHT_WEIGHT_MEM
+	bool "optimize the debug mem if driver donot need it"
+	default y
+
 config SDIO_TX_ENH
 	bool "W2 SDIO_TX_ENH"
 	default y
@@ -102,7 +106,7 @@ config ANDROID_GKI
 
 config AML_ANDROID
 	string "AML_ANDROID version"
-	default "14"
+	default "16"
 
 config AML_DEBUGFS
 	bool "AML_DEBUGFS"
@@ -139,6 +143,18 @@ config AML_RX_SG
 	bool "Enable Rx Scatter-Gather"
 	default n
 
+config SDIO_MODE_ON
+	bool "compile sdio in driver"
+	default y
+
+config AML_SDIO_IRQ_VIA_GPIO
+	bool "interrupt mode"
+	default y
+
+config AML_W2L_RX_MINISIZE
+	bool "w2l rx minisize"
+	default n
+
 config AML_SW_PROFILING
 	bool "extra DEBUG config"
 	default n
@@ -159,6 +175,14 @@ config AML_CSA_MODE
 
 config AML_USB_LARGE_PAGE
 	bool "usb large page"
+	default y
+
+config AML_SDIO_USB_FW_REORDER
+	bool "aml sdio usb fw recovery"
+	default y
+
+config AML_APF
+	bool "aml apf"
 	default y
 
 config AML_MUMIMO_TX

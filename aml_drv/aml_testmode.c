@@ -17,7 +17,6 @@
 
 #include "aml_testmode.h"
 #include "aml_msg_tx.h"
-#include "aml_dini.h"
 #include "reg_access.h"
 
 /*

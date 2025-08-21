@@ -1,3 +1,10 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+* Copyright (C) 202X Original Author (retain original author information)
+* Copyright (C) 202X Amlogic, Inc. All rights reserved.
+*
+* Description:
+*/
 #ifndef _W2_SDIO_H_
 #define _W2_SDIO_H_
 #include "sdio_common.h"
@@ -13,12 +20,12 @@
 #define W2s_VENDOR_AMLOGIC_EFUSE 0x1B8E
 #define W2s_A_PRODUCT_AMLOGIC_EFUSE 0x0600
 #define W2s_B_PRODUCT_AMLOGIC_EFUSE 0x0640
+#define W2s_C_PRODUCT_AMLOGIC_EFUSE 0x0680
 
 #define SDIO_MAX_BLK_CNT    511
 
 #define SDIO_BLKSIZE 512
 #define FUNC4_BLKSIZE 512
-#define SDIO_CCCR_IOABORT 6
 
 #define MAC_ICCM_AHB_BASE    0x00000000
 #define MAC_SRAM_BASE        0x00a10000
@@ -51,15 +58,6 @@
                  /*BIT(0): TX DONE intr, BIT(1): RX DONE intr*/
 #define RG_SDIO_IF_INTR2CPU_ENABLE    (WIFI_SDIO_IF+0x30)
 
-extern uint8_t *g_mmc_misc;
-extern struct aml_hwif_sdio g_hwif_rx_sdio;
-
-struct mmc_misc{
-    struct mmc_request mmc_req;
-    struct mmc_command mmc_cmd;
-    struct mmc_data mmc_dat;
-};
-
 struct aml_hif_sdio_ops {
     //sdio func0 for self define domain, cmd52
     int (*hi_self_define_domain_func0_write8)(int addr, unsigned char data);
@@ -87,10 +85,10 @@ struct aml_hif_sdio_ops {
     void (*hi_tx_buffer_read)(unsigned char *buf, unsigned char *addr, size_t len);
 
     //sdio func5 for rxdesc
-    void (*hi_desc_read)(unsigned char *buf, unsigned char *addr, size_t len);
+    int (*hi_desc_read)(void *buf, u32 addr, size_t len);
 
     //sdio func6 for rx buffer
-    void (*hi_rx_buffer_read)(unsigned char* buf, unsigned char* addr, size_t len, unsigned char scat_use);
+    int (*hi_rx_buffer_read)(void *buf, u32 addr, unsigned int len, unsigned int unused);
 
     //scatter list operation
     int (*hi_enable_scat)(struct aml_hwif_sdio *hif_sdio);

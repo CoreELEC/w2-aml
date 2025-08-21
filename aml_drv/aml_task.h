@@ -13,8 +13,10 @@
 #ifndef __AML_TASK_H__
 #define __AML_TASK_H__
 
-#include "aml_utils.h"
-#include "aml_defs.h"
+#include <linux/semaphore.h>
+#include <linux/completion.h>
+#include <linux/sched.h>
+#include <linux/kthread.h>
 
 /*
  * Wi-Fi task's priority should not be higher than video decoder,
@@ -22,18 +24,39 @@
  */
 #define AML_TASK_PRI   98
 
-#ifdef CONFIG_AML_USE_TASK
+#undef AML_TASK_SCH_BY_SEM
 
 struct aml_task {
-    struct task_struct  *task;
-    struct semaphore    task_sem;
-    struct completion   task_cmpl;
-    int task_quit;
-    spinlock_t lock;
+    struct task_struct *task;
+    int (*fn)(struct aml_task *t);
+
+    int quit;
+#ifdef AML_TASK_SCH_BY_SEM
+    struct semaphore sem;
+#else
+    struct completion completion;
+#endif
+
+    /* private data */
+    void *data[];
 };
 
-void aml_task_init(struct aml_hw *aml_hw);
-void aml_task_deinit(struct aml_hw *aml_hw);
+#define AML_TASK_INIT(_task, fn_name, name, cpu)   \
+        aml_task_init(_task, fn_name, "amlw_"#name, cpu)
 
-#endif //CONFIG_AML_USE_TASK
+#define AML_TASK_DEINIT(_task) \
+        aml_task_deinit(_task)
+
+int aml_task_init(struct aml_task *task, int (*fn)(struct aml_task *t), const char *name, int cpu);
+void aml_task_deinit(struct aml_task *task);
+
+static inline void aml_task_schedule(struct aml_task *task)
+{
+#ifdef AML_TASK_SCH_BY_SEM
+    up(&task->sem);
+#else
+    complete(&task->completion);
+#endif
+}
+
 #endif //__AML_TASK_H__

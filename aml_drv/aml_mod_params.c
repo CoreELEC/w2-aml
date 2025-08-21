@@ -19,7 +19,6 @@
 #include "aml_tx.h"
 #include "hal_desc.h"
 #include "aml_cfg.h"
-#include "aml_dini.h"
 #include "reg_access.h"
 #include "aml_compat.h"
 
@@ -570,7 +569,6 @@ static int aml_check_fw_hw_feature(struct aml_hw *aml_hw,
     }
 #endif /* CONFIG_AML_RADAR */
 
-#ifndef CONFIG_AML_SDM
     switch (__MDM_PHYCFG_FROM_VERS(phy_feat)) {
         case MDM_PHY_CONFIG_TRIDENT:
             aml_hw->mod_params->nss = 1;
@@ -591,7 +589,6 @@ static int aml_check_fw_hw_feature(struct aml_hw *aml_hw,
             WARN_ON(1);
             break;
     }
-#endif /* CONFIG_AML_SDM */
 
     if ((aml_hw->mod_params->nss < 1) || (aml_hw->mod_params->nss > 2))
         aml_hw->mod_params->nss = 1;
@@ -645,14 +642,14 @@ static int aml_check_fw_hw_feature(struct aml_hw *aml_hw,
                PRINT_AML_FEAT(FAKE_FTM_RSP));
 #undef PRINT_AML_FEAT
 
-    if(max_sta_nb != NX_REMOTE_STA_MAX)
+    if (max_sta_nb != NX_REMOTE_STA_MAX)
     {
         wiphy_err(wiphy, "Different number of supported stations between driver and FW (%d != %d)\n",
                   NX_REMOTE_STA_MAX, max_sta_nb);
         res = -1;
     }
 
-    if(max_vif_nb != NX_VIRT_DEV_MAX)
+    if (max_vif_nb != NX_VIRT_DEV_MAX)
     {
         wiphy_err(wiphy, "Different number of supported virtual interfaces between driver and FW (%d != %d)\n",
                   NX_VIRT_DEV_MAX, max_vif_nb);
@@ -686,8 +683,9 @@ static void aml_set_ppe_threshold(struct aml_hw *aml_hw,
                                                };
     u8_l* ppe_thres_info_ptr = (u8_l*) &ppe_thres_info;
     u16_l* ppe_thres_ptr = NULL;
-    u8_l  j, cnt, offset;
-    int i = 0;
+    u8_l  j, cnt;
+    int i, offset;
+    int quotient, remainder;
 
     if (aml_hw->mod_params->use_80)
     {
@@ -707,10 +705,14 @@ static void aml_set_ppe_threshold(struct aml_hw *aml_hw,
     ppe_thres_field->nsts = nss - 1;
     for (i = 0; i < nss ; i++)
     {
-        for (j = 0; j < cnt; j++){
+        for (j = 0; j < cnt; j++) {
             offset = (i * cnt + j) * PPE_THRES_INFO_BIT_LEN + PPE_THRES_INFO_OFT;
-            ppe_thres_ptr = (u16_l*)&he_cap->ppe_thres[offset / 8];
-            *ppe_thres_ptr |= *ppe_thres_info_ptr << (offset % 8);
+            quotient = offset / 8;
+            remainder = offset % 8;
+            if (quotient < (IEEE80211_HE_PPE_THRES_MAX_LEN - 1)) {
+                ppe_thres_ptr = (u16_l*)&he_cap->ppe_thres[quotient];
+                *ppe_thres_ptr |= *ppe_thres_info_ptr << remainder;
+            }
         }
     }
 }
@@ -1045,9 +1047,9 @@ void aml_set_he_capa(struct aml_hw *aml_hw, struct wiphy *wiphy)
 #ifdef CONFIG_AML_WFA_CERT_MODE
     /* WFA CERT:
      * Disabled by default, should enable it when doing WFA test.
-     * Cause the WFA brcm98 STA will inspect these two fileds to determine
+     * Cause the WFA brcm98 STA will inspect these two fields to determine
      * whether carry HE capabilities IE in ASSOC request frame or not.
-     * */
+     */
     he_cap->he_cap_elem.mac_cap_info[0] |= IEEE80211_HE_MAC_CAP0_HTC_HE;
     he_cap->he_cap_elem.mac_cap_info[3] |= IEEE80211_HE_MAC_CAP3_OMI_CONTROL;
 #endif // CONFIG_AML_WFA_CERT_MODE
@@ -1102,10 +1104,9 @@ static void aml_set_wiphy_params(struct aml_hw *aml_hw, struct wiphy *wiphy)
 
 static void aml_set_rf_params(struct aml_hw *aml_hw, struct wiphy *wiphy)
 {
-#ifndef CONFIG_AML_SDM
     struct ieee80211_supported_band *band_5GHz = wiphy->bands[NL80211_BAND_5GHZ];
     u32 mdm_phy_cfg = __MDM_PHYCFG_FROM_VERS(aml_hw->version_cfm.version_phy_1);
-    struct aml_cfg_phy phy_conf;
+    struct aml_cfg_phy phy_conf = {0};
 
     /*
      * Get configuration file depending on the RF
@@ -1120,11 +1121,6 @@ static void aml_set_rf_params(struct aml_hw *aml_hw, struct wiphy *wiphy)
         phy_conf.cataxia.path_used = aml_hw->mod_params->phy_cfg;
         memcpy(&aml_hw->phy.cfg, &phy_conf.cataxia, sizeof(phy_conf.cataxia));
     } else if (mdm_phy_cfg == MDM_PHY_CONFIG_KARST) {
-        // We use the NSS parameter as is
-        // Retrieve the Karst configuration
-        //aml_cfg_parse_phy(aml_hw, AML_PHY_CONFIG_KARST_NAME,
-        //                          &phy_conf, aml_hw->mod_params->phy_cfg);
-
         memcpy(&aml_hw->phy.cfg, &phy_conf.karst, sizeof(phy_conf.karst));
     } else {
         WARN_ON(1);
@@ -1159,7 +1155,6 @@ static void aml_set_rf_params(struct aml_hw *aml_hw, struct wiphy *wiphy)
             WARN_ON(1);
             break;
     }
-#endif /* CONFIG_AML_SDM */
 }
 
 int aml_handle_dynparams(struct aml_hw *aml_hw, struct wiphy *wiphy)
@@ -1200,11 +1195,7 @@ void aml_custregd(struct aml_hw *aml_hw, struct wiphy *wiphy)
     if (!aml_hw->mod_params->custregd)
         return;
 
-#if LINUX_VERSION_CODE <= KERNEL_VERSION(6, 3, 12)
     wiphy->regulatory_flags |= REGULATORY_IGNORE_STALE_KICKOFF;
-#else
-    wiphy->regulatory_flags |= (REGULATORY_WIPHY_SELF_MANAGED >> 1);
-#endif
     wiphy->regulatory_flags |= REGULATORY_WIPHY_SELF_MANAGED;
 
     rtnl_lock();

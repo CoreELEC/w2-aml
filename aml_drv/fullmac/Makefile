@@ -1,3 +1,14 @@
+VERSION_PATCHLEVEL = $(shell printf "%d%03d" $(VERSION) $(PATCHLEVEL))
+
+# FIXME: remove CONFIG_AML_USE_TASK, always use tasklet to handle PCIE IRQ
+ifeq ($(shell test $(VERSION_PATCHLEVEL) -ge 5004; echo $$?),0)
+# by default, Use task to handle PCIe IRQ if kernel >= 5.4
+CONFIG_AML_USE_TASK ?= y
+else
+# always use tasklet to handle PCIe IRQ if kernel is 4.9 or lower
+CONFIG_AML_USE_TASK ?= n
+endif
+
 # Enable A-MSDU support (need FW support)
 ## Select this if FW is compiled with AMSDU support
 CONFIG_AML_SPLIT_TX_BUF ?= y
@@ -25,9 +36,6 @@ CONFIG_AML_BCMC ?= y
 
 # Enable Monitor+Data interface support (need FW support)
 CONFIG_AML_MON_DATA ?= n
-
-#Enable Rx Scatter-Gather
-CONFIG_AML_RX_SG ?= n
 
 # extra DEBUG config
 CONFIG_AML_SW_PROFILING ?= n
@@ -71,6 +79,7 @@ obj-m := w2.o
 w2-y := ../aml_msg_tx.o        \
         ../aml_msg_rx.o        \
         ../aml_reorder.o       \
+        ../aml_sdio_usb_rx.o   \
         ../aml_utils.o         \
         ../aml_cmds.o          \
         ../aml_irqs.o          \
@@ -83,7 +92,6 @@ w2-y := ../aml_msg_tx.o        \
         ../aml_mod_params.o    \
         aml_mesh.o          \
         ../aml_platform.o      \
-        ../aml_dini.o          \
         ../ipc_host.o          \
         aml_tdls.o          \
         ../hal_desc.o          \
@@ -91,16 +99,18 @@ w2-y := ../aml_msg_tx.o        \
         ../aml_regdom.o        \
         ../aml_android.o       \
         ../aml_iwpriv_cmds.o   \
+        ../aml_rate.o          \
         ../aml_p2p.o           \
         ../aml_scc.o           \
         ../aml_wq.o            \
-        ../aml_recy.o		\
-        ../aml_tcp_ack.o          \
+        ../aml_recy.o          \
+        ../aml_tcp_ack.o       \
         ../aml_task.o          \
         ../aml_rps.o           \
         ../aml_sap.o           \
         ../aml_mdns_offload.o  \
-        ../aml_cfgvendor.o
+        ../aml_cfgvendor.o     \
+        ../aml_fw_trace.o
 
 obj-m += w2_comm.o
 w2_comm-objs := \
@@ -116,7 +126,6 @@ w2_comm-objs := \
 w2-$(CONFIG_AML_RADAR)       += ../aml_radar.o
 w2-$(CONFIG_DEBUG_FS)         += ../aml_debugfs.o
 w2-$(CONFIG_DEBUG_FS)         += ../aml_fw_dump.o
-w2-$(CONFIG_DEBUG_FS)         += ../aml_fw_trace.o
 w2-$(CONFIG_NL80211_TESTMODE) += ../aml_testmode.o
 w2-$(CONFIG_AML_BFMER)       += ../aml_bfmer.o
 w2-$(CONFIG_AML_MUMIMO_TX)   += ../aml_mu_group.o
@@ -132,6 +141,7 @@ ccflags-y += -I$(src)/../../common
 ifneq ($(CONFIG_AML_PRODUCT),)
 ccflags-y += -DCONFIG_AML_LOG_PREFIX=\"[$(CONFIG_AML_PRODUCT)]\"
 endif
+ccflags-$(CONFIG_AML_USE_TASK) += -DCONFIG_AML_USE_TASK
 ccflags-$(CONFIG_AML_RADAR) += -DCONFIG_AML_RADAR
 ccflags-$(CONFIG_AML_MON_DATA) += -DCONFIG_AML_MON_DATA
 ccflags-$(CONFIG_AML_BFMER) += -DCONFIG_AML_BFMER
@@ -139,7 +149,6 @@ ccflags-$(CONFIG_AML_SPLIT_TX_BUF) += -DCONFIG_AML_SPLIT_TX_BUF
 ifeq ($(CONFIG_AML_SPLIT_TX_BUF), y)
 ccflags-$(CONFIG_AML_AMSDUS_TX) += -DCONFIG_AML_AMSDUS_TX
 endif
-ccflags-$(CONFIG_AML_RX_SG) += -DCONFIG_AML_RX_SG
 ccflags-$(CONFIG_AML_LOG_BUILD_LEVEL) += -DCONFIG_AML_LOG_BUILD_LEVEL=$(CONFIG_AML_LOG_BUILD_LEVEL)
 ccflags-$(CONFIG_AML_SW_PROFILING) += -DCONFIG_AML_SW_PROFILING
 ccflags-$(CONFIG_AML_MUMIMO_TX) += -DCONFIG_AML_MUMIMO_TX
@@ -172,8 +181,6 @@ ccflags-y += -Wno-error=vla
 ccflags-y += -Wno-error=overflow
 endif
 
-ccflags-y += -Wno-implicit-function-declaration
-
 # for host debug
 ccflags-y += -DDEBUG_CODE
 # supplicant scc mode config
@@ -183,13 +190,24 @@ ccflags-y += -DDRV_P2P_SCC_MODE
 #hostapd cannot handle sta+softap scc mode,so do sta_softap scc in fw&drv
 ccflags-y += -DSCC_STA_SOFTAP
 
-#for credit 124
-#ccflags-y += -DCONFIG_CREDIT124
-# 4.9 compile
-ccflags-y += -w
+# FIXME: remove the following lines, treat any warning as error
+ifeq ($(shell test $(VERSION_PATCHLEVEL) -eq 6012; echo $$?),0)
+ccflags-y += -Wno-error
+endif
+
+# kernel-4.9 compile
+ifeq ($(shell test $(VERSION_PATCHLEVEL) -eq 4009 ; echo $$?),0)
+ccflags-y += -Wno-error=array-bounds
+endif
+
+ifeq ($(CONFIG_PT_MODE),y)
+# FIXME: relax PT build for now
+ccflags-y += -Wno-error
+endif
 
 # For old kernel (<=3.19)
-ifeq ($(shell test $(VERSION) -lt 4 -a "$(CONFIG_VENDOR_AML)" = y ; echo $$?),0)
+ifeq ($(shell test $(VERSION_PATCHLEVEL) -le 3019 \
+                   -a "$(CONFIG_VENDOR_AML)" = y ; echo $$?),0)
 ccflags-y += -DCONFIG_VENDOR_AML_VHT_NO80
 endif
 

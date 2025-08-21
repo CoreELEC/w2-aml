@@ -1,6 +1,6 @@
 #config version info <char> version must be consistent with the WIFI_CALI_VERSION in c code
 #After updating the parameters, it must be modified at the same time.
-version=18
+version=19
 
 #cali config <short>
 cali_config=0x0
@@ -39,7 +39,7 @@ cw2mod=0xfe,0xfc,0x2,0xfe,0xfe,0xfe
 
 #wf2g olpc target_pwr limit
 wf2g_11b_tpwr=21,21,21,21
-wf2g_11g_tpwr=20,20,20,19,19,19,19,18
+wf2g_11g_tpwr=20,20,20,19,19,19,19,17
 wf2g_ht20_tpwr=20,20,20,19,19,18,18,16
 wf2g_ht40_tpwr=19,19,19,19,18,17,16,16
 wf2g_vht20_tpwr=20,20,20,19,19,18,17,16,15

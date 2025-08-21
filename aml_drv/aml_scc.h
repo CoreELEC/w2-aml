@@ -1,3 +1,11 @@
+
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+* Copyright (C) 202X Original Author (retain original author information)
+* Copyright (C) 202X Amlogic, Inc. All rights reserved.
+*
+* Description:
+*/
 #ifndef _AML_SCC_H_
 #define _AML_SCC_H_
 
@@ -31,14 +39,12 @@ extern bool g_scc_p2p_peer_5g_support;
 
 int aml_scc_change_beacon(struct aml_hw *aml_hw, struct aml_vif *vif);
 u8 aml_scc_get_conflict_vif_idx(struct aml_vif *incoming_vif);
-void aml_scc_check_chan_conflict(struct aml_hw *aml_hw);
+int aml_scc_check_chan_conflict(struct aml_hw *aml_hw);
 void aml_scc_save_init_band(u32 init_band);
 void aml_scc_save_probe_rsp(struct aml_vif *vif, u8 *buf, u32 buf_len);
 void aml_scc_init(void);
 void aml_scc_deinit(void);
-void aml_scc_sync_bcn(struct aml_hw *aml_hw, struct aml_wq *aml_wq);
 void aml_check_scc(void);
-u8 aml_get_operation_class(struct cfg80211_chan_def chan_def);
 void aml_scc_p2p_action_restore(u8 *buf, u32* len_diff);
 
 #endif /* _AML_SCC_H_ */

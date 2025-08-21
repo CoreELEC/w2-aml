@@ -13,12 +13,14 @@
 #include <linux/ieee80211.h>
 #include <net/cfg80211.h>
 #include <linux/netdevice.h>
+
 #include "lmac_types.h"
 #include "ipc_shared.h"
+#include "fi_sdio.h"
+
 #include "aml_txq.h"
 #include "hal_desc.h"
 #include "aml_utils.h"
-#include "fi_sdio.h"
 
 #define AML_HWQ_BK                     0
 #define AML_HWQ_BE                     1
@@ -63,6 +65,8 @@
 #define ACTION_GAS_COMEBACK_REQ    12
 #define ACTION_GAS_COMEBACK_RSP    13
 
+#define ACTION_DPP_CONNECT_STATUS_RESULT    12
+
 #define ACTION_TYPE             0x0d
 #define AUTH_TYPE               0x0b
 #define PROBE_RSP_TYPE          0X05
@@ -82,7 +86,6 @@
 
 #define AUTH_ALGO_OFFSET        MAC_SHORT_MAC_HDR_LEN
 
-#define TXCFM_RESET_CNT   42
 #define TXCFM_TRIGGER_TX_THR  20
 
 extern const int aml_tid2hwq[IEEE80211_NUM_TIDS];
@@ -169,13 +172,12 @@ struct aml_txhdr {
     struct aml_sw_txhdr *sw_hdr;
 };
 
-
 struct aml_sdio_txhdr {
     struct aml_sw_txhdr *sw_hdr;
     unsigned int mpdu_buf_flag;// 4
-    struct hw_tx_vector_bits tx_vector; //28
     struct txdesc_host desc; //72
-};
+} __packed;
+
 struct aml_usb_txhdr {
     struct aml_sw_txhdr *sw_hdr; //8 byte
     struct txdesc_host desc;//72 byte
@@ -220,7 +222,9 @@ enum {
     AML_GAS_ACTION_FRAME = BIT(4),
     AML_GAS_INIT_REQ_FRAME = BIT(5),
     AML_GAS_INIT_RSP_FRAME = BIT(6),
-    AML_MUST_TX_SUC = BIT(7),
+    AML_REPORT_NO_ACKED = BIT(7),
+    AML_MUST_TX_SUC = BIT(8),
+    AML_DPP_CONNECT_STATUS_RESULT_FRAME = BIT(9),
 };
 
 /**
@@ -316,11 +320,42 @@ int aml_dbgfs_print_sta(char *buf, size_t size, struct aml_sta *sta,
 void aml_txq_credit_update(struct aml_hw *aml_hw, int sta_idx, u8 tid,
                             s8 update);
 void aml_tx_push(struct aml_hw *aml_hw, struct aml_txhdr *txhdr, int flags);
-int aml_update_tx_cfm(void *pthis);
+
 int aml_sdio_tx_task(void *data);
-bool aml_filter_sp_data_frame(struct sk_buff *skb,struct aml_vif *aml_vif,AML_SP_STATUS_E sp_status);
+
+enum aml_pkt_type {
+    AML_PKT_80211 = 0,      /* reserved for 802.11 (management) frame */
+
+    /* Ethernet protocol = ETH_P_PAE */
+    AML_PKT_EAPOL,
+
+    /* Ethernet protocol = ETH_P_ARP */
+    AML_PKT_ARP,
+    AML_PKT_ARP_REQ,
+    AML_PKT_ARP_REPLY,
+
+    /* Ethernet protocol = ETH_P_IP or ETH_P_IPV6 */
+    AML_PKT_IP,
+    AML_PKT_IPV6,
+    AML_PKT_ICMP,
+    AML_PKT_TCP,
+    AML_PKT_UDP,
+    AML_PKT_DHCP,
+    AML_PKT_DHCP_V6,
+
+    AML_PKT_LAST,
+};
+
+#define AML_PKT_SP_TX   (BIT(AML_PKT_EAPOL) | \
+                         BIT(AML_PKT_ARP) | \
+                         BIT(AML_PKT_DHCP) | BIT(AML_PKT_DHCP_V6))
+
+#define AML_PKT_SP_RX   (AML_PKT_SP_TX | BIT(AML_PKT_ICMP))
+
+u32 aml_filter_sp_data_frame(const u8 *frame, int len, struct aml_vif *aml_vif,
+                             AML_SP_STATUS_E sp_status);
 int aml_prep_dma_tx(struct aml_hw *aml_hw, struct aml_sw_txhdr *sw_txhdr, void *frame_start);
-void aml_tx_cfm_wait_rsp(struct aml_hw *aml_hw, bool ack, u8* func, u32 line);
+void aml_tx_cfm_wait_rsp(struct aml_hw *aml_hw, bool ack, const char *func, u32 line);
 uint32_t aml_filter_sp_mgmt_frame(struct aml_vif *vif, u8 *buf, AML_SP_STATUS_E sp_status, u32 frame_len, u32* len_diff, u64 cookie);
 
 #endif /* _AML_TX_H_ */

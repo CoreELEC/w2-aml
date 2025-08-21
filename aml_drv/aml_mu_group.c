@@ -119,7 +119,7 @@ u64 aml_mu_group_sta_get_map(struct aml_sta *sta)
  * @sta: pointer to the sta
  * @group_id: Group id
  *
- * @return the positon of @sta in group @group_id or -1 if the sta
+ * @return the position of @sta in group @group_id or -1 if the sta
  * doesn't belongs to the group (or group id is invalid)
  */
 int aml_mu_group_sta_get_pos(struct aml_hw *aml_hw, struct aml_sta *sta,
@@ -618,7 +618,7 @@ void aml_mu_group_sta_select(struct aml_hw *aml_hw)
 
         /* reorder list of group with more that 2 users */
         update = 1;
-        while(update) {
+        while (update) {
             update = 0;
             for (i = 0; i < cnt - 1; i++) {
                 if (traffic[order[i]] < traffic[order[i + 1]]) {

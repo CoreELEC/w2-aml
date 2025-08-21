@@ -13,6 +13,7 @@
 #include <linux/types.h>
 #include <linux/bitops.h>
 #include <linux/ieee80211.h>
+#include "aml_wq.h"
 
 #ifdef CONFIG_AML_SOFTMAC
 #include <net/mac80211.h>
@@ -126,7 +127,7 @@
 
 /**
  * Each data TXQ is a netdev queue. TXQ to send MGT are not data TXQ as
- * they did not recieved buffer from netdev interface.
+ * they did not received buffer from netdev interface.
  * Need to allocate the maximum case.
  * AP : all STAs + 1 BC/MC
  */
@@ -177,8 +178,8 @@ extern const int nx_tid_prio[NX_NB_TXQ_PER_STA];
  */
 struct aml_hwq {
     struct list_head list;
-    u8 credits[CONFIG_USER_MAX];
-    u8 size;
+    int credits[CONFIG_USER_MAX];
+    int size;
     u8 id;
     bool need_processing;
 #ifdef CONFIG_AML_SOFTMAC
@@ -205,7 +206,7 @@ enum aml_push_flags {
  * @AML_TXQ_IN_HWQ_LIST: The queue is scheduled for transmission
  * @AML_TXQ_STOP_FULL: No more credits for the queue
  * @AML_TXQ_STOP_CSA: CSA is in progress
- * @AML_TXQ_STOP_STA_PS: Destiniation sta is currently in power save mode
+ * @AML_TXQ_STOP_STA_PS: Destination sta is currently in power save mode
  * @AML_TXQ_STOP_VIF_PS: Vif owning this queue is currently in power save mode
  * @AML_TXQ_STOP_CHAN: Channel of this queue is not the current active channel
  * @AML_TXQ_STOP_MU_POS: TXQ is stopped waiting for all the buffers pushed to
@@ -225,10 +226,12 @@ enum aml_txq_flags {
     AML_TXQ_NDEV_FLOW_CTRL = BIT(7),
     AML_TXQ_STOP_COEX_INACTIVE = BIT(8),
     AML_TXQ_STOP_SUSPEND   = BIT(9),
+    AML_TXQ_STOP_DISMANTLE_AMSDU = BIT(10),
     AML_TXQ_STOP         = (AML_TXQ_STOP_FULL | AML_TXQ_STOP_CSA |
                              AML_TXQ_STOP_STA_PS | AML_TXQ_STOP_VIF_PS |
-                             AML_TXQ_STOP_CHAN | AML_TXQ_STOP_COEX_INACTIVE | AML_TXQ_STOP_SUSPEND),
+                             AML_TXQ_STOP_CHAN | AML_TXQ_STOP_COEX_INACTIVE | AML_TXQ_STOP_SUSPEND | AML_TXQ_STOP_DISMANTLE_AMSDU),
 };
+
 
 
 /**
@@ -271,15 +274,15 @@ enum aml_txq_flags {
 struct aml_txq {
     u16 idx;
     u16 status;
-    s8 credits;
-    u8 pkt_sent;
-    u8 pkt_pushed[CONFIG_USER_MAX];
+    int credits;
+    int pkt_sent;
+    int push_limit;
+    int pkt_pushed[CONFIG_USER_MAX];
     struct list_head sched_list;
     struct sk_buff_head sk_list;
     struct sk_buff *last_retry_skb;
     struct aml_hwq *hwq;
     int nb_retry;
-    u8 push_limit;
     u8 tid;
 #ifdef CONFIG_MAC80211_TXQ
     unsigned long nb_ready_mac80211;
@@ -341,6 +344,33 @@ static inline bool aml_txq_is_scheduled(struct aml_txq *txq)
     return (txq->status & AML_TXQ_IN_HWQ_LIST);
 }
 
+static inline u32 aml_txq_skb_queue_len(struct aml_txq *txq)
+{
+    return skb_queue_len(&txq->sk_list);
+}
+
+static inline bool aml_txq_is_empty(struct aml_txq *txq)
+{
+    return aml_txq_skb_queue_len(txq) == 0;
+}
+
+/**
+ * aml_txq_skb_ready - Check if skb are available for the txq
+ *
+ * @txq: Pointer on txq
+ * @return True if there are buffer ready to be pushed on this txq,
+ * false otherwise
+ */
+static inline bool aml_txq_skb_ready(struct aml_txq *txq)
+{
+#ifdef CONFIG_MAC80211_TXQ
+    if (txq->nb_ready_mac80211 != NOT_MAC80211_TXQ)
+        return ((txq->nb_ready_mac80211 > 0) || !skb_queue_empty(&txq->sk_list));
+    else
+#endif
+        return !aml_txq_is_empty(txq);
+}
+
 /**
  * aml_txq_is_ready_for_push - Check if a TXQ is ready for push
  *
@@ -391,8 +421,8 @@ static inline bool aml_txq_is_ready_for_push(struct aml_txq *txq)
          tid++, txq++)
 
 #define foreach_sta_txq_safe(sta, txq, tid, aml_hw)                          \
-    for (tid = 0, txq = aml_txq_sta_get(sta, 0, aml_hw);               \
-         txq && (tid < (is_multicast_sta(sta->sta_idx) ? 1 : NX_NB_TXQ_PER_STA)); \
+    for (tid = 0, sta && (txq = aml_txq_sta_get(sta, 0, aml_hw));               \
+         sta && txq && (tid < (is_multicast_sta(sta->sta_idx) ? 1 : NX_NB_TXQ_PER_STA)); \
          tid++, txq++)
 #endif
 
@@ -420,9 +450,9 @@ static inline bool aml_txq_is_ready_for_push(struct aml_txq *txq)
          i++, tid = nx_tid_prio[i % NX_NB_TXQ_PER_STA], txq = aml_txq_sta_get(sta, tid, aml_hw))
 
 #define foreach_sta_txq_prio_safe(sta, txq, tid, i, aml_hw)                          \
-    for (i = 0, tid = nx_tid_prio[0], txq = aml_txq_sta_get(sta, tid, aml_hw); \
+    for (i = 0, tid = nx_tid_prio[0], sta && (txq = aml_txq_sta_get(sta, tid, aml_hw)); \
          txq && i < NX_NB_TXQ_PER_STA;                                                  \
-         i++, tid = nx_tid_prio[i % NX_NB_TXQ_PER_STA], txq = aml_txq_sta_get(sta, tid, aml_hw))
+         i++, tid = nx_tid_prio[i % NX_NB_TXQ_PER_STA], sta && (txq = aml_txq_sta_get(sta, tid, aml_hw)))
 #endif
 
 /**
@@ -478,53 +508,47 @@ void aml_txq_offchan_init(struct aml_vif *aml_vif);
 void aml_txq_offchan_deinit(struct aml_vif *aml_vif);
 void aml_txq_tdls_vif_init(struct aml_vif *aml_vif);
 void aml_txq_tdls_vif_deinit(struct aml_vif *vif);
-void aml_txq_tdls_sta_start(struct aml_vif *aml_vif, u16 reason,
-                             struct aml_hw *aml_hw);
-void aml_txq_tdls_sta_stop(struct aml_vif *aml_vif, u16 reason,
-                            struct aml_hw *aml_hw);
-void aml_txq_prepare(struct aml_hw *aml_hw);
 #endif
+void aml_txq_tdls_sta_start(struct aml_vif *aml_vif, u16 reason);
+void aml_txq_tdls_sta_stop(struct aml_vif *aml_vif, u16 reason);
+void aml_txq_prepare(struct aml_hw *aml_hw);
 
-
-void aml_txq_add_to_hw_list(struct aml_txq *txq);
-void aml_txq_del_from_hw_list(struct aml_txq *txq);
 void aml_txq_stop(struct aml_txq *txq, u16 reason);
 void aml_txq_start(struct aml_txq *txq, u16 reason);
-void aml_txq_vif_start(struct aml_vif *vif, u16 reason,
-                        struct aml_hw *aml_hw);
-void aml_txq_vif_stop(struct aml_vif *vif, u16 reason,
-                       struct aml_hw *aml_hw);
+void aml_txq_vif_start(struct aml_vif *vif, u16 reason);
+void aml_txq_vif_stop(struct aml_vif *vif, u16 reason);
 
-#ifdef CONFIG_AML_SOFTMAC
-void aml_txq_sta_start(struct aml_sta *sta, u16 reason);
-void aml_txq_sta_stop(struct aml_sta *sta, u16 reason);
-void aml_txq_tdls_sta_start(struct aml_sta *aml_sta, u16 reason,
-                             struct aml_hw *aml_hw);
-void aml_txq_tdls_sta_stop(struct aml_sta *aml_sta, u16 reason,
-                            struct aml_hw *aml_hw);
-#else
-void aml_txq_sta_start(struct aml_sta *sta, u16 reason,
-                        struct aml_hw *aml_hw);
-void aml_txq_sta_stop(struct aml_sta *sta, u16 reason,
-                       struct aml_hw *aml_hw);
+void aml_txq_sta_start(struct aml_hw *aml_hw, struct aml_sta *sta, u16 reason);
+void aml_txq_sta_stop(struct aml_hw *aml_hw, struct aml_sta *sta, u16 reason);
+
+#ifdef CONFIG_AML_FULLMAC
 void aml_txq_offchan_start(struct aml_hw *aml_hw);
 void aml_txq_sta_switch_vif(struct aml_sta *sta, struct aml_vif *old_vif,
                              struct aml_vif *new_vif);
+#endif
 
-#endif /* CONFIG_AML_SOFTMAC */
-
-int aml_txq_queue_skb(struct sk_buff *skb, struct aml_txq *txq,
-                       struct aml_hw *aml_hw,  bool retry,
+void aml_txq_queue_skb(struct aml_hw *aml_hw, struct aml_txq *txq, struct sk_buff *skb, bool retry,
                        struct sk_buff *skb_prev);
 void aml_txq_confirm_any(struct aml_hw *aml_hw, struct aml_txq *txq,
-                          struct aml_hwq *hwq, struct aml_sw_txhdr *sw_txhdr);
+                         struct aml_hwq *hwq, struct aml_sw_txhdr *sw_txhdr);
 void aml_txq_drop_skb(struct aml_txq *txq,  struct sk_buff *skb, struct aml_hw *aml_hw, bool retry_packet);
+
+static inline int aml_txq_pushed(struct aml_txq *txq)
+{
+    int i;
+    int pushed = 0;
+
+    for (i = 0; i < CONFIG_USER_MAX; i++) {
+        pushed += txq->pkt_pushed[i];
+    }
+    return pushed;
+}
+
+int aml_txq_pushed_sta(struct aml_vif *aml_vif, struct aml_sta *aml_sta);
+int aml_txq_pushed_bcmc_unk(struct aml_vif *aml_vif);
 
 void aml_hwq_init(struct aml_hw *aml_hw);
 void aml_hwq_process(struct aml_hw *aml_hw, struct aml_hwq *hwq);
 void aml_hwq_process_all(struct aml_hw *aml_hw);
-int aml_txq_is_empty(struct aml_vif *aml_vif, struct aml_sta * aml_sta);
-int aml_unktxq_is_empty(struct aml_vif *aml_vif);
-int aml_bcmctxq_is_empty(struct aml_vif *aml_vif);
 
 #endif /* _AML_TXQ_H_ */

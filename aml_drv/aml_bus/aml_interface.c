@@ -1,9 +1,21 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+* Copyright (C) 202X Original Author (retain original author information)
+* Copyright (C) 202X Amlogic, Inc. All rights reserved.
+*
+* Description:
+*/
 #define AML_MODULE                  INTERFACE
 
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
+
+#ifdef CONFIG_AML_PLATFORM_ANDROID
+#include <linux/amlogic/wifi_dt.h>  /* for extern_wifi_set_enable() */
+#endif
+
 #include "aml_static_buf.h"
 #include "aml_interface.h"
 #include "usb_common.h"
@@ -16,6 +28,7 @@ unsigned char wifi_drv_rmmod_ongoing = 0;
 struct aml_bus_state_detect bus_state_detect;
 struct aml_pm_type g_wifi_pm = {0};
 unsigned char aml_wifi_detect_bt_status = 0;
+unsigned int g_aml_device_id;
 
 const char *aml_log_level_names[] = {
 #define AML_LOG_LEVEL_NAME(_level)  [LOGLEVEL_##_level] = #_level
@@ -62,6 +75,14 @@ int aml_name_index(const char *names[], const char *name)
 }
 EXPORT_SYMBOL(aml_name_index);
 
+void aml_wifi_power_on(int on)
+{
+#ifdef CONFIG_AML_PLATFORM_ANDROID
+    extern_wifi_set_enable(on);
+#endif
+}
+EXPORT_SYMBOL(aml_wifi_power_on);
+
 EXPORT_SYMBOL(bus_state_detect);
 EXPORT_SYMBOL(wifi_drv_rmmod_ongoing);
 EXPORT_SYMBOL(bus_type);
@@ -69,14 +90,11 @@ EXPORT_SYMBOL(aml_bus_type);
 EXPORT_SYMBOL(g_wifi_pm);
 EXPORT_SYMBOL(aml_wifi_detect_bt_status);
 
-extern int aml_usb_insmod(void);
-extern int aml_usb_rmmod(void);
 extern int aml_sdio_insmod(void);
 extern int aml_sdio_rmmod(void);
 extern int aml_pci_insmod(void);
 extern int aml_pci_rmmod(void);
 extern void aml_sdio_reset(void);
-extern void aml_usb_reset(void);
 
 void bus_detect_work(struct work_struct *p_work)
 {
@@ -109,7 +127,7 @@ static void state_detect_cb(struct timer_list* t)
     }
 }
 
-void aml_bus_state_detect_init()
+void aml_bus_state_detect_init(void)
 {
     bus_state_detect.bus_err = 0;
     bus_state_detect.bus_reset_ongoing = 0;
@@ -119,13 +137,15 @@ void aml_bus_state_detect_init()
     timer_setup(&bus_state_detect.timer, state_detect_cb, 0);
     mod_timer(&bus_state_detect.timer, jiffies + AML_SDIO_STATE_MON_INTERVAL);
 }
-void aml_bus_state_detect_deinit()
+
+void aml_bus_state_detect_deinit(void)
 {
     del_timer_sync(&bus_state_detect.timer);
     bus_state_detect.bus_err = 0;
     bus_state_detect.bus_reset_ongoing = 0;
     bus_state_detect.is_drv_load_finished = 0;
 }
+EXPORT_SYMBOL(aml_bus_state_detect_deinit);
 
 int aml_bus_intf_insmod(void)
 {
@@ -191,8 +211,9 @@ void aml_bus_intf_rmmod(void)
 
 bt_shutdown_func g_bt_shutdown_func = NULL;
 lp_shutdown_func g_lp_shutdown_func = NULL;
+bt_pm_func g_bt_suspend_func = NULL;
+bt_pm_func g_bt_resume_func = NULL;
 
-EXPORT_SYMBOL(aml_bus_state_detect_deinit);
 module_param(bus_type, charp,S_IRUSR | S_IRGRP | S_IROTH);
 MODULE_PARM_DESC(bus_type,"A string variable to adjust pci or sdio or usb bus interface");
 module_init(aml_bus_intf_insmod);
@@ -202,3 +223,6 @@ MODULE_LICENSE("GPL");
 
 EXPORT_SYMBOL(g_bt_shutdown_func);
 EXPORT_SYMBOL(g_lp_shutdown_func);
+EXPORT_SYMBOL(g_bt_suspend_func);
+EXPORT_SYMBOL(g_bt_resume_func);
+EXPORT_SYMBOL(g_aml_device_id);

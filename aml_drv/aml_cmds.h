@@ -18,17 +18,10 @@
 #include "usb_common.h"
 #include "sdio_common.h"
 
-#ifdef CONFIG_AML_SDM
-#define AML_80211_CMD_TIMEOUT_MS    (20 * 300)
-#elif defined(CONFIG_AML_FHOST)
-#define AML_80211_CMD_TIMEOUT_MS    (10000)
-#else
-//sj #define AML_80211_CMD_TIMEOUT_MS    300
 #ifdef CONFIG_PT_MODE
     #define AML_80211_CMD_TIMEOUT_MS    1000
 #else
-    #define AML_80211_CMD_TIMEOUT_MS    9000
-#endif
+    #define AML_80211_CMD_TIMEOUT_MS    3000
 #endif
 
 #define AML_CMD_FLAG_NONBLOCK      BIT(0)
@@ -59,7 +52,7 @@ struct aml_term_stream;
 #include "ipc_shared.h"
 #define aml_cmd_e2amsg ipc_e2a_msg
 #define aml_cmd_a2emsg lmac_msg
-#define AML_CMD_A2EMSG_LEN(m) (sizeof(struct lmac_msg) + m->param_len)
+#define AML_CMD_A2EMSG_LEN(m) (uint16_t)(sizeof(struct lmac_msg) + m->param_len)
 #define AML_CMD_E2AMSG_LEN_MAX (IPC_E2A_MSG_PARAM_SIZE * 4)
 
 #endif /* CONFIG_AML_FHOST*/

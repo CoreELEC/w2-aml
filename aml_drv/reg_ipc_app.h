@@ -221,15 +221,9 @@ __INLINE void ipc_emb2app_unmask_clearf(void *env, u32 emb2appunmask)
  *  31:00       EMB2APP_STATUS   0x0
  * </pre>
  */
-#ifdef CONFIG_AML_OLD_IPC
-#define IPC_EMB2APP_STATUS_ADDR   0x12000014
-#define IPC_EMB2APP_STATUS_OFFSET 0x00000014
-#define IPC_EMB2APP_STATUS_INDEX  0x00000005
-#else
 #define IPC_EMB2APP_STATUS_ADDR   0x1200001C
 #define IPC_EMB2APP_STATUS_OFFSET 0x0000001C
 #define IPC_EMB2APP_STATUS_INDEX  0x00000007
-#endif
 #define IPC_EMB2APP_STATUS_RESET  0x00000000
 
 __INLINE u32 ipc_emb2app_status_get(void *env)

@@ -8,7 +8,8 @@
  ******************************************************************************
  */
 
-#define AML_MODULE  GENERIC
+#define AML_MODULE          PCI
+#define AML_FMT             AML_FMT_M
 
 #include "aml_w2_v7.h"
 #include "aml_log.h"
@@ -164,7 +165,6 @@ unsigned long g_pcie_bar0_base_addr;
 void aml_pcie_write(unsigned long addr, unsigned int val)
 {
     writel(val, (void __iomem *)addr);
-    return;
 }
 
 void pcie_addr_map(struct pci_dev *pci_dev, u64 src_addr, u64 trsl_addr, u64 table_size, unsigned int address, unsigned int direction)
@@ -183,7 +183,12 @@ void pcie_addr_map(struct pci_dev *pci_dev, u64 src_addr, u64 trsl_addr, u64 tab
         atr_size++;
     }
 
-    atr_size = atr_size - 1 - 1;
+    if (atr_size >= 2)
+        atr_size = atr_size - 1 - 1;
+    else {
+        AML_ERR(" bar2 %d\n", atr_size);
+        return;
+    }
     /*
     [ATR_PARAM]
     Bit [0]:     ATR_IMPL: ATR_IMPL Field is 1 bit long. When set to 1, it
@@ -251,10 +256,15 @@ static void aml_v7_platform_deinit(struct aml_plat_pci *aml_plat_pci)
 /* aml w2 wifi/bt Recommend PCIe 1.0 */
 void aml_pcie_speed_check(struct pci_dev *dev)
 {
-    u32 lnksta;
+    u16 lnksta = 0;
+    int ret;
     enum pci_bus_speed pci_speed;
 
-    pcie_capability_read_word(dev, PCI_EXP_LNKSTA, &lnksta);
+    ret = pcie_capability_read_word(dev, PCI_EXP_LNKSTA, &lnksta);
+    if (ret) {
+        AML_ERR("pcie link speed is other, ret:%d\n", ret);
+        return;
+    }
 
     pci_speed = lnksta & PCI_EXP_LNKSTA_CLS;
     AML_INFO(" pcie link speed is %s\n",
@@ -291,8 +301,7 @@ int aml_v7_platform_init(struct pci_dev *pci_dev, struct aml_plat_pci **aml_plat
     // get ep bar4's base phy addr
     bar4_base_addr = pci_resource_start(pci_dev, 4);
 
-    AML_INFO(" ep_bar2_addr: 0x%lx, ep_bar4_addr:0x%lx\n",
-        bar2_base_addr, bar4_base_addr);
+    AML_INFO("ep_bar2_addr: 0x%lx, ep_bar4_addr:0x%lx\n", bar2_base_addr, bar4_base_addr);
 
     if (!(aml_v7->pci_bar0_vaddr = (u8 *)pci_ioremap_bar(pci_dev, 0)))
     {
@@ -361,7 +370,7 @@ int aml_v7_platform_init(struct pci_dev *pci_dev, struct aml_plat_pci **aml_plat
         goto out_bar2;
     }
 
-    AML_INFO(" bar2 0x%lx\n", (unsigned long)aml_v7->pci_bar2_vaddr);
+    AML_INFO("bar2 0x%lx\n", (unsigned long)aml_v7->pci_bar2_vaddr);
     // Get ep bar4 base addr
     if (!(aml_v7->pci_bar4_vaddr = (u8 *)pci_ioremap_bar(pci_dev, 4)))
     {
@@ -370,7 +379,7 @@ int aml_v7_platform_init(struct pci_dev *pci_dev, struct aml_plat_pci **aml_plat
         goto out_bar4;
     }
 
-    AML_INFO(" bar4 0x%lx\n", (unsigned long)aml_v7->pci_bar4_vaddr);
+    AML_INFO("bar4 0x%lx\n", (unsigned long)aml_v7->pci_bar4_vaddr);
 
     ipc_basic_address = aml_v7->pci_bar4_vaddr + PCIE_BAR4_TABLE2_OFFSET; // bar4 table2 0x60800000
     (*aml_plat_pci)->deinit = aml_v7_platform_deinit;

@@ -1,3 +1,10 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+* Copyright (C) 202X Original Author (retain original author information)
+* Copyright (C) 202X Amlogic, Inc. All rights reserved.
+*
+* Description:
+*/
 #ifndef SDIO_COMMON_H
 #define SDIO_COMMON_H
 
@@ -21,7 +28,6 @@
 #include <linux/errno.h>
 #include <linux/irq.h>
 #include <linux/interrupt.h>
-#include <linux/kernel.h> /* printk() */
 #include <linux/list.h>
 #include <linux/netdevice.h>
 #include <linux/spinlock.h>
@@ -50,23 +56,11 @@
                 } while (0)
 
 
-#ifndef ASSERT
-#define ASSERT(exp) do{    \
-                if (!(exp)) {   \
-                        printk("=>=>=>=>=>assert %s,%d\n",__func__,__LINE__);   \
-                        /*BUG();        while(1);   */  \
-                }                       \
-        } while (0);
-#endif
-
-#define ERROR_DEBUG_OUT(format,...) do {    \
-                                  printk("FUNCTION: %s LINE: %d:"format"",__FUNCTION__, __LINE__, ##__VA_ARGS__); \
-                         } while (0)
-
-
 #define OS_LOCK spinlock_t
 
-#define SDIO_ADDR_MASK (128 * 1024 - 1)
+#define SDIO_READ_MAX       (128U << 10)            /* 128K */
+#define SDIO_ADDR_MASK      (SDIO_READ_MAX - 1)
+
 #define SDIO_OPMODE_INCREMENT 1
 #define SDIO_OPMODE_FIXED 0
 
@@ -84,7 +78,6 @@
 #define RG_SDIO_IF_MISC_CTRL (WIFI_SDIO_IF+0x80)
 #define RG_SDIO_IF_MISC_CTRL2 (WIFI_SDIO_IF+0x84)
 
-
 #define ZMALLOC(size, name, gfp) kzalloc(size, gfp)
 #define FREE(a, name) kfree(a)
 #define LEN_128K (128 * 1024)
@@ -93,8 +86,9 @@
 
 /*sdio max block count when we use scatter/gather list.*/
 
-#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#ifndef MIN
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
+#endif
 
 typedef unsigned long SYS_TYPE;
 
@@ -113,21 +107,13 @@ extern struct aml_hwif_sdio g_hwif_sdio;
 
 struct aml_hwif_sdio {
     struct sdio_func * sdio_func_if[SDIO_FUNCNUM_MAX];
-    bool scatter_enabled;
-
-    /* protects access to scat_req */
-    OS_LOCK scat_lock;
-
-    /* scatter request list head */
-    struct amlw_hif_scatter_req *scat_req;
 };
 
 extern unsigned char g_sdio_driver_insmoded;
 extern struct sdio_func *aml_priv_to_func(int func_n);
 
 int aml_sdio_init(void);
-void aml_sdio_calibration(void);
-extern void sdio_reinit(void);
+void aml_sdio_hw_init(void);
 extern void amlwifi_set_sdio_host_clk(int clk);
 extern void set_usb_bt_power(int is_on);
 struct sdio_func *aml_priv_to_func(int func_n);

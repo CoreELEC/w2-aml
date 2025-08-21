@@ -16,14 +16,8 @@
 #include "aml_msg_tx.h"
 
 /// The maximum number of response data that can be added
-#define MDNS_INDEX_ERR              (-1)
-#define MDNS_INDEX_MAX              (3)
-#define MDNS_RAW_DATA_LENGTH_MAX    (492)
-
-extern struct auc_hif_ops g_auc_hif_ops;
-extern void aml_pci_writel(u32 data, u8* addr);
-
-int g_mdns_offload_debug = 0;
+#define MDNS_INDEX_ERR (-1)
+#define MDNS_INDEX_MAX (3)
 
 static u32_boolean setOffloadState(struct aml_hw *aml_hw, u32_boolean enabled)
 {
@@ -55,7 +49,6 @@ static void resetAll(struct aml_hw *aml_hw)
 static int addProtocolResponses(struct aml_hw *aml_hw, char *networkInterface,
     mdnsProtocolData *offloadData)
 {
-    matchCriteria *list = offloadData->matchCriteriaList;
     struct match_criteria list_lmac[MDNS_LIST_CRITERIA_MAX] = {0};
     int i = 0;
     int ret;

@@ -36,7 +36,7 @@
 #define WF2BT_ICCM_RAM      (0x00300000)  //BT DCCM RAM baseAddr seen from wifi system side
 #define WF2BT_DCCM_RAM      (0x00400000)  //BT DCCM RAM baseAddr seen from wifi system side
 #define WF2BT_MAC_ARC       (WF2BT_APB_BASE + 0x0c)
-#define RW_OPERTION_SIZE    (4)
+#define RW_OPERATION_SIZE    (4)
 
 //base address
 #define   PRODUCT_AMLOGIC_ADDR  (MAC_SRAM_BASE+0x000000)
@@ -100,7 +100,7 @@
 #define PREAMBLE_SHORT 1
 
 ///BA_TYPE
-#define immidiate_BA_TYPE 1
+#define immediate_BA_TYPE 1
 
 ///AuthRole
 #define BA_INITIATOR 0
@@ -320,8 +320,8 @@ typedef struct HW_TxBufferInfo
 
 enum
 {
-        SMOOHING_NOT_REC = 0,
-        SMOOHING_REC =1
+        SMOOTHING_NOT_REC = 0,
+        SMOOTHING_REC =1
 };
 enum
 {
@@ -395,7 +395,7 @@ typedef struct hw_tx_vector_bits
                      tv_fw_duration_valid:1,
                      tv_rty_flag:1,
                      /*ip/tcp/udp checksum hw calculate enable, hw will check if ip/tcp/udp */
-                     tv_txcsum_enbale:1,
+                     tv_txcsum_enable:1,
                      /*the final encrypted function is decided by tv_encrypted_disable and "encrypt type" */
                      tv_encrypted_disable:1,
                      /*not use, must be 0 */
@@ -539,7 +539,7 @@ typedef struct hw_tx_vector_bits
            CSI_MATRICES indicates that EXPANSION_MAT is a set of channel
            state matrices.
          */
-        unsigned int tv_usr_postion: 2,
+        unsigned int tv_usr_position: 2,
                      tv_group_id:6,
                      tv_partial_id:9,
                      tv_num_users:2,
@@ -775,7 +775,7 @@ typedef struct Fw_TxPriv
         unsigned char PageNum;
         /* such as TX_DESCRIPTOR_STATUS_SUCCESS ... */
         unsigned char txstatus;
-        /* rssi of ack responsed to the txed frame, for tx rate control */
+        /* rssi of ack responded to the txed frame, for tx rate control */
         unsigned char ackrssi;
         /* wnet_vif_id */
         unsigned char vid;

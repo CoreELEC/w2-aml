@@ -11,10 +11,10 @@
 #ifndef _AML_CFG_H_
 #define _AML_CFG_H_
 
-#ifdef CONFIG_LINUXPC_VERSION
-#define AML_CFG_DEFAULT_PATH   "/lib/firmware/wifi_conf.txt"
-#else
+#ifdef CONFIG_AML_PLATFORM_ANDROID
 #define AML_CFG_DEFAULT_PATH   "/data/vendor/wifi/wifi_conf.txt"
+#else
+#define AML_CFG_DEFAULT_PATH   "/lib/firmware/wifi_conf.txt"
 #endif
 
 #define AML_CFG_LBUF_MAXLEN    (64)

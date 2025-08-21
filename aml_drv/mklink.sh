@@ -1,4 +1,11 @@
 #!/bin/bash
+# SPDX-License-Identifier: GPL-2.0 */
+#
+#Copyright (C) 2025 Original Author (retain original author information)
+#Copyright (C) 2025 Amlogic, Inc. All rights reserved.
+#
+#Description:
+#
 #
 # Generate link for shared .c files in softmac and fullmac directories
 # Note:

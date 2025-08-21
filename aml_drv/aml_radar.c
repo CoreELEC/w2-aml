@@ -504,7 +504,7 @@ u32 pde_get_multiple(u32 val, u32 fraction, u32 tolerance)
  *             (With this pulse there is already a sequence with @min_count
  *              pulse, so if we can't create a sequence with more pulse don't
  *              create it)
- * @return: false if an error occured (memory allocation) true otherwise
+ * @return: false if an error occurred (memory allocation) true otherwise
  *
  * For each pulses queued check if we can create a sequence with
  * pri = (ts - pulse_queued.ts) which contains more than @min_count pulses.
@@ -683,7 +683,7 @@ struct pri_sequence * pde_short_check_detection(struct pri_detector *pde)
  *                  SHORT/WEATHER/INTERLEAVED radar waveform
  * @pde: pointer on pri_detector
  *
- * Initialize pri_detector window size to the maximun size of one burst
+ * Initialize pri_detector window size to the maximum size of one burst
  * for the radar specification associated.
  */
 static
@@ -900,8 +900,8 @@ static struct pri_detector_ops pri_detector_long = {
  * @radar_type: index of radar pattern
  * @freq: Frequency of the pri detector
  */
-struct pri_detector *pri_detector_init(struct dfs_pattern_detector *dpd,
-                                       u16 radar_type, u16 freq)
+static struct pri_detector *pri_detector_init(struct dfs_pattern_detector *dpd,
+                                              u16 radar_type, u16 freq)
 {
     struct pri_detector *pde;
 
@@ -1355,8 +1355,10 @@ static void aml_radar_process_pulse(struct work_struct *ws)
                 u16 idx = radar->detected[chain].index;
 
                 if (chain == AML_RADAR_RIU) {
+                    spin_lock_bh(&radar->lock);
                     /* operating chain, inform upper layer to change channel */
                     if (radar->dpd[chain]->enabled == AML_RADAR_DETECT_REPORT) {
+                        spin_unlock_bh(&radar->lock);
                         aml_radar_detected(aml_hw);
                         /* no need to report new radar until upper layer set a
                            new channel. This prevent warning if a new radar is
@@ -1368,6 +1370,8 @@ static void aml_radar_process_pulse(struct work_struct *ws)
                            function (we are sure not to interfer with tasklet
                            as we disable detection just before) */
                         radar->pulses[chain].count = 0;
+                    } else {
+                        spin_unlock_bh(&radar->lock);
                     }
                 } else {
                     /* secondary radar detection chain, simply report info in
@@ -1416,6 +1420,7 @@ static void aml_radar_cac_work(struct work_struct *ws)
 
 bool aml_radar_detection_init(struct aml_radar *radar)
 {
+    /* coverity[USELESS_CALL] - standard kernel interface */
     spin_lock_init(&radar->lock);
 
     radar->dpd[AML_RADAR_RIU] = dfs_pattern_detector_init(NL80211_DFS_UNSET,
@@ -1466,17 +1471,23 @@ bool aml_radar_set_domain(struct aml_radar *radar,
 
 void aml_radar_detection_enable(struct aml_radar *radar, u8 enable, u8 chain)
 {
+    spin_lock_bh(&radar->lock);
     if (chain < AML_RADAR_LAST ) {
         trace_radar_enable_detection(radar->dpd[chain]->region, enable, chain);
-        spin_lock_bh(&radar->lock);
         radar->dpd[chain]->enabled = enable;
-        spin_unlock_bh(&radar->lock);
     }
+    spin_unlock_bh(&radar->lock);
 }
 
 bool aml_radar_detection_is_enable(struct aml_radar *radar, u8 chain)
 {
-    return radar->dpd[chain]->enabled != AML_RADAR_DETECT_DISABLE;
+    bool enable;
+
+    spin_lock_bh(&radar->lock);
+    enable = radar->dpd[chain]->enabled != AML_RADAR_DETECT_DISABLE;
+    spin_unlock_bh(&radar->lock);
+
+    return enable;
 }
 
 #ifdef CONFIG_AML_FULLMAC

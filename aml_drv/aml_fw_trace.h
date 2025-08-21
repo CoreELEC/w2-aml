@@ -19,6 +19,7 @@
 #define FILE_SIZE_UNLIMIT_FLAG   0xFFFF
 #define TRACE_LEVEL_READ         1
 #define TRACE_LEVEL_WRITE        0
+#define MAX_PARAM_LEN            (1824)
 
 /**
  * struct aml_fw_trace_desc - Trace buffer info as provided by fw in ipc
@@ -122,8 +123,21 @@ struct aml_fw_trace {
 
 struct log_file_info {
     uint8_t *log_buf;
-    uint8_t *ptr;
+    uint16_t *ptr;
     struct mutex mutex;
+    uint32_t trace_type;
+    uint32_t trace_buf;
+    uint32_t end;
+    /*control aml_comm_diag order, start first then stop*/
+    uint32_t net_switch;
+};
+
+enum trace_type
+{
+    LOG_TO_UART = 0,
+    LOG_TO_HOST,
+    TRACE_TO_HOST,
+    TRACE_TO_MAX,
 };
 
 struct aml_trace_nl_info {
@@ -143,6 +157,7 @@ enum {
     AML_TRACE_FW_LOG_UPLOAD,
     AML_LA_MACTRACE_UPLOAD,
     AML_MEM_DUMP_UPLOAD,
+    AML_CLOSE_NETLINK_SOCKET,
 };
 
 int aml_fw_trace_init(struct aml_fw_trace *trace,
@@ -153,7 +168,7 @@ int aml_fw_trace_buf_init(struct aml_fw_trace_buf *shared_buf,
                            struct aml_fw_trace_ipc_desc *ipc);
 
 int _aml_fw_trace_reset(struct aml_fw_trace *trace, bool lock);
-void _aml_fw_trace_dump(struct aml_hw *aml_hw, struct aml_fw_trace_buf *trace);
+void _aml_fw_trace_dump(struct aml_fw_trace_buf *trace);
 
 int aml_fw_trace_alloc_local(struct aml_fw_trace_local_buf *local,
                               int size);
@@ -192,6 +207,11 @@ static inline bool aml_fw_trace_empty(struct aml_fw_trace_buf *shared_buf)
 }
 int aml_log_nl_init(void);
 void aml_log_nl_destroy(void);
-int aml_send_log_to_user(char *pbuf, uint16_t len, int msg_type);
+int aml_send_log_to_user(char *pbuf, int len, int msg_type);
+int aml_trace_buf_init(void);
+void aml_trace_buf_deinit(void);
+
+int aml_trace_buf_init(void);
+void aml_trace_buf_deinit(void);
 
 #endif /* _AML_FW_TRACE_H_ */

@@ -192,7 +192,7 @@
 
 /* Cataxia Radio Controller */
 #define RC_SYSTEM_CONFIGURATION_ADDR   0x00C0C000
-#define RC_ACCES_TO_CATAXIA_REG_ADDR   0x00C0C004
+#define RC_ACCESS_TO_CATAXIA_REG_ADDR   0x00C0C004
 
 /* RF ITF */
 #if 0 //old pcie

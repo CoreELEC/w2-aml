@@ -27,6 +27,7 @@
 #include "aml_compat.h"
 #include "aml_main.h"
 #include <linux/inetdevice.h>
+#include <linux/time.h>
 #if LINUX_VERSION_CODE > KERNEL_VERSION(4,10,0)
 #include <net/addrconf.h>
 #endif
@@ -94,8 +95,6 @@ static inline int aml_rx_mm_ba_add_ind(struct aml_hw *aml_hw,
     BUG_ON(cmd);    /* no cmd is associated to */
     BUG_ON(msg->param_len != sizeof(*req));
 
-    aml_sdio_usb_host_reorder_detected(aml_hw);
-
     AML_M_NOTICE(BA,"ADDBA %s %pM[%d] bufsz %u ssn %u\n",
                  (req->type == BA_AGMT_TX) ? "TX" : "RX",
                  aml_sta_mac(aml_hw, req->sta_idx), req->tid, req->bufsz, req->ssn);
@@ -104,8 +103,11 @@ static inline int aml_rx_mm_ba_add_ind(struct aml_hw *aml_hw,
         g_agg_parse.def_ampdu_tx = req->bufsz;
         return 0;
     }
+    aml_sdio_usb_host_reo_detected(&aml_hw->rx);
     g_agg_parse.ampdu_rx = req->bufsz;
-    return aml_reo_session_create(aml_hw, req->sta_idx, req->tid, req->bufsz, req->ssn);
+
+    return aml_reo_session_create(&aml_hw->rx, aml_sta_get(aml_hw, req->sta_idx),
+                                  req->tid, req->bufsz, req->ssn);
 }
 
 static inline int aml_rx_mm_ba_del_ind(struct aml_hw *aml_hw,
@@ -117,8 +119,6 @@ static inline int aml_rx_mm_ba_del_ind(struct aml_hw *aml_hw,
     BUG_ON(cmd);    /* no cmd is associated to */
     BUG_ON(msg->param_len != sizeof(*req));
 
-    aml_sdio_usb_host_reorder_detected(aml_hw);
-
     AML_M_NOTICE(BA, "DELBA %s %pM[%d]\n",
                  (req->type == BA_AGMT_TX) ? "TX" : "RX",
                  aml_sta_mac(aml_hw, req->sta_idx), req->tid);
@@ -126,7 +126,9 @@ static inline int aml_rx_mm_ba_del_ind(struct aml_hw *aml_hw,
     if (req->type == BA_AGMT_TX)
         return 0;
 
-    return aml_reo_session_delete(aml_hw, req->sta_idx, req->tid);
+    aml_sdio_usb_host_reo_detected(&aml_hw->rx);
+
+    return aml_reo_session_delete(&aml_hw->rx, aml_sta_get(aml_hw, req->sta_idx), req->tid);
 }
 
 static int aml_rx_mm_ba_cfm(struct aml_hw *aml_hw, int add, struct ipc_e2a_msg *msg)
@@ -181,13 +183,13 @@ static inline int aml_rx_chan_pre_switch_ind(struct aml_hw *aml_hw,
 
     list_for_each_entry(aml_vif, &aml_hw->vifs, list) {
         if (aml_vif->chanctx && (aml_vif->chanctx->index == chan_idx)) {
-            aml_txq_vif_stop(aml_vif, AML_TXQ_STOP_CHAN, aml_hw);
+            aml_txq_vif_stop(aml_vif, AML_TXQ_STOP_CHAN);
         }
     }
 #else
     list_for_each_entry(aml_vif, &aml_hw->vifs, list) {
         if (aml_vif->up && aml_vif->ch_index == chan_idx) {
-            aml_txq_vif_stop(aml_vif, AML_TXQ_STOP_CHAN, aml_hw);
+            aml_txq_vif_stop(aml_vif, AML_TXQ_STOP_CHAN);
         }
     }
 #endif /* CONFIG_AML_SOFTMAC */
@@ -201,120 +203,58 @@ static inline int aml_rx_chan_switch_ind(struct aml_hw *aml_hw,
                                           struct aml_cmd *cmd,
                                           struct ipc_e2a_msg *msg)
 {
-#ifdef CONFIG_AML_SOFTMAC
-    struct aml_chanctx *chan_ctxt;
-    struct aml_sta *aml_sta;
-#endif
+    struct mm_channel_switch_ind *ind = (void *)msg->param;
     struct aml_vif *aml_vif;
-    int chan_idx = ((struct mm_channel_switch_ind *)msg->param)->chan_index;
-    bool roc_req = ((struct mm_channel_switch_ind *)msg->param)->roc;
-    bool roc_tdls = ((struct mm_channel_switch_ind *)msg->param)->roc_tdls;
 
-    //AML_INFO("chan_idx:%d, req:%d, tdls:%d", chan_idx, roc_req, roc_tdls);
+    //AML_INFO("chan_idx:%d, req:%d, tdls:%d", chan_idx, param->roc, param->roc_tdls);
 
     REG_SW_SET_PROFILING_CHAN(aml_hw, SW_PROF_CHAN_CTXT_SWTCH_BIT);
 
-#ifdef CONFIG_AML_SOFTMAC
-    if (roc_tdls) {
-        u8 vif_index = ((struct mm_channel_switch_ind *)msg->param)->vif_index;
-        // Enable traffic only for TDLS station
-        list_for_each_entry(aml_vif, &aml_hw->vifs, list) {
-            if (aml_vif->vif_index == vif_index) {
-                list_for_each_entry(aml_sta, &aml_vif->stations, list) {
-                    if (aml_sta->tdls.active) {
-                        aml_vif->roc_tdls = true;
-                        aml_txq_tdls_sta_start(aml_sta, AML_TXQ_STOP_CHAN, aml_hw);
-                        break;
-                    }
-                }
-                break;
-            }
+    if (ind->roc_tdls) {
+        aml_vif = aml_vif_get(aml_hw, ind->vif_index);
+        if (aml_vif) {
+            aml_vif->roc_tdls = true;
+            aml_txq_tdls_sta_start(aml_vif, AML_TXQ_STOP_CHAN);
         }
-    } else if (!roc_req) {
+    } else if (!ind->roc) {
         list_for_each_entry(aml_vif, &aml_hw->vifs, list) {
-            if (aml_vif->chanctx && (aml_vif->chanctx->index == chan_idx)) {
-                aml_txq_vif_start(aml_vif, AML_TXQ_STOP_CHAN, aml_hw);
-            }
-        }
-    } else {
-        u8 vif_index = ((struct mm_channel_switch_ind *)msg->param)->vif_index;
-
-        // Inform the host that the offchannel period has been started
-        ieee80211_ready_on_channel(aml_hw->hw);
-
-        // Enable traffic for associated VIF (roc may happen without chanctx)
-        list_for_each_entry(aml_vif, &aml_hw->vifs, list) {
-            if (aml_vif->vif_index == vif_index) {
-                aml_txq_vif_start(aml_vif, AML_TXQ_STOP_CHAN, aml_hw);
-            }
-        }
-    }
-
-    /* keep cur_chan up to date */
-    list_for_each_entry(chan_ctxt, &aml_hw->chan_ctxts, list) {
-        if (chan_ctxt->index == chan_idx) {
-            chan_ctxt->active = true;
-            aml_hw->cur_freq = chan_ctxt->ctx->def.center_freq1;
-            aml_hw->cur_band = chan_ctxt->ctx->def.chan->band;
-            if (chan_ctxt->ctx->def.chan->flags & IEEE80211_CHAN_RADAR) {
-                aml_radar_detection_enable(&aml_hw->radar,
-                                            AML_RADAR_DETECT_REPORT,
-                                            AML_RADAR_RIU);
-            } else {
-                aml_radar_detection_enable(&aml_hw->radar,
-                                            AML_RADAR_DETECT_DISABLE,
-                                            AML_RADAR_RIU);
-            }
-            break;
-        }
-    }
-
-#else
-    if (roc_tdls) {
-        u8 vif_index = ((struct mm_channel_switch_ind *)msg->param)->vif_index;
-        list_for_each_entry(aml_vif, &aml_hw->vifs, list) {
-            if (aml_vif->vif_index == vif_index) {
-                aml_vif->roc_tdls = true;
-                aml_txq_tdls_sta_start(aml_vif, AML_TXQ_STOP_CHAN, aml_hw);
-            }
-        }
-    } else if (!roc_req) {
-        list_for_each_entry(aml_vif, &aml_hw->vifs, list) {
-            if (aml_vif->up && aml_vif->ch_index == chan_idx) {
+            if (aml_vif->up && aml_vif->ch_index == ind->chan_index) {
                 if (aml_hw->show_switch_info > 0) {
-                    AML_INFO("txq_start,vif:%d vif_chan:%d chan:%d",aml_vif->vif_index,aml_vif->ch_index,chan_idx);
+                    AML_INFO("txq_start,vif:%d vif_chan:%d chan:%d\n",
+                             aml_vif->vif_index, aml_vif->ch_index, ind->chan_index);
                     aml_hw->show_switch_info--;
                 }
-                aml_txq_vif_start(aml_vif, AML_TXQ_STOP_CHAN, aml_hw);
+                aml_txq_vif_start(aml_vif, AML_TXQ_STOP_CHAN);
             }
         }
     } else {
-        struct aml_roc *roc = aml_hw->roc;
+        struct aml_roc *roc;
 
-        if (!roc)
+        spin_lock_bh(&aml_hw->roc_lock);
+        roc = aml_hw->roc;
+        if (!roc) {
+            spin_unlock_bh(&aml_hw->roc_lock);
             return 0;
+        }
 
         aml_vif = roc->vif;
-
         trace_switch_roc(aml_vif->vif_index);
-
         if (!roc->internal) {
             // If RoC has been started by the user space, inform it that we have
             // switched on the requested off-channel
-            cfg80211_ready_on_channel(&aml_vif->wdev, (u64)(roc),
+            cfg80211_ready_on_channel(&aml_vif->wdev, (u64)(unsigned long)(roc),
                                       roc->chan, roc->duration, GFP_ATOMIC);
         }
-
         // Keep in mind that we have switched on the channel
         roc->on_chan = true;
+        spin_unlock_bh(&aml_hw->roc_lock);
+
         // Enable traffic on OFF channel queue
         aml_txq_offchan_start(aml_hw);
     }
 
-    aml_hw->cur_chanctx = chan_idx;
+    aml_hw->cur_chanctx = ind->chan_index;
     aml_radar_detection_enable_on_cur_channel(aml_hw);
-
-#endif /* CONFIG_AML_SOFTMAC */
 
     REG_SW_CLEAR_PROFILING_CHAN(aml_hw, SW_PROF_CHAN_CTXT_SWTCH_BIT);
 
@@ -332,165 +272,78 @@ static inline int aml_rx_tdls_chan_switch_ind(struct aml_hw *aml_hw,
                                                struct aml_cmd *cmd,
                                                struct ipc_e2a_msg *msg)
 {
-#ifdef CONFIG_AML_SOFTMAC
-    struct aml_chanctx *chan_ctxt;
-    u8 chan_idx = ((struct tdls_chan_switch_ind *)msg->param)->chan_ctxt_index;
-
-    AML_DBG(AML_FN_ENTRY_STR);
-
-    // Enable channel context
-    list_for_each_entry(chan_ctxt, &aml_hw->chan_ctxts, list) {
-        if (chan_ctxt->index == chan_idx) {
-            chan_ctxt->active = true;
-            aml_hw->cur_freq = chan_ctxt->ctx->def.center_freq1;
-            aml_hw->cur_band = chan_ctxt->ctx->def.chan->band;
-        }
-    }
-
-    return 0;
-#else
     // Enable traffic on OFF channel queue
     aml_txq_offchan_start(aml_hw);
 
     return 0;
-#endif
 }
 
 static inline int aml_rx_tdls_chan_switch_base_ind(struct aml_hw *aml_hw,
                                                     struct aml_cmd *cmd,
                                                     struct ipc_e2a_msg *msg)
 {
-    struct aml_vif *aml_vif;
-    u8 vif_index = ((struct tdls_chan_switch_base_ind *)msg->param)->vif_index;
-#ifdef CONFIG_AML_SOFTMAC
-    struct aml_sta *aml_sta;
-#endif
+    struct tdls_chan_switch_base_ind *ind = (void *)msg->param;
+    struct aml_vif *aml_vif = aml_vif_get(aml_hw, ind->vif_index);
 
     AML_DBG(AML_FN_ENTRY_STR);
 
-#ifdef CONFIG_AML_SOFTMAC
-    // Disable traffic for associated VIF
-    list_for_each_entry(aml_vif, &aml_hw->vifs, list) {
-        if (aml_vif->vif_index == vif_index) {
-            if (aml_vif->chanctx)
-                aml_vif->chanctx->active = false;
-            list_for_each_entry(aml_sta, &aml_vif->stations, list) {
-                if (aml_sta->tdls.active) {
-                    aml_vif->roc_tdls = false;
-                    aml_txq_tdls_sta_stop(aml_sta, AML_TXQ_STOP_CHAN, aml_hw);
-                    break;
-                }
-            }
-            break;
-        }
+    if (aml_vif) {
+        aml_vif->roc_tdls = false;
+        aml_txq_tdls_sta_stop(aml_vif, AML_TXQ_STOP_CHAN);
     }
     return 0;
-#else
-    list_for_each_entry(aml_vif, &aml_hw->vifs, list) {
-        if (aml_vif->vif_index == vif_index) {
-            aml_vif->roc_tdls = false;
-            aml_txq_tdls_sta_stop(aml_vif, AML_TXQ_STOP_CHAN, aml_hw);
-        }
-    }
-    return 0;
-#endif
 }
 
 static inline int aml_rx_tdls_peer_ps_ind(struct aml_hw *aml_hw,
                                            struct aml_cmd *cmd,
                                            struct ipc_e2a_msg *msg)
 {
-    struct aml_vif *aml_vif;
-    u8 vif_index = ((struct tdls_peer_ps_ind *)msg->param)->vif_index;
-    bool ps_on = ((struct tdls_peer_ps_ind *)msg->param)->ps_on;
+    struct tdls_peer_ps_ind *ind = (void *)msg->param;
+    struct aml_vif *aml_vif = aml_vif_get(aml_hw, ind->vif_index);
 
-#ifdef CONFIG_AML_SOFTMAC
-    u8 sta_idx = ((struct tdls_peer_ps_ind *)msg->param)->sta_idx;
-    struct aml_sta *aml_sta;
-    list_for_each_entry(aml_vif, &aml_hw->vifs, list) {
-        if (aml_vif->vif_index == vif_index) {
-            list_for_each_entry(aml_sta, &aml_vif->stations, list) {
-                if (aml_sta->sta_idx == sta_idx) {
-                    aml_sta->tdls.ps_on = ps_on;
-                    if (ps_on) {
-                        // disable TXQ for TDLS peer
-                        aml_txq_tdls_sta_stop(aml_sta, AML_TXQ_STOP_STA_PS, aml_hw);
-                    } else {
-                        // Enable TXQ for TDLS peer
-                        aml_txq_tdls_sta_start(aml_sta, AML_TXQ_STOP_STA_PS, aml_hw);
-                    }
-                    break;
-                }
-            }
-            break;
-        }
-    }
-    return 0;
-#else
-    list_for_each_entry(aml_vif, &aml_hw->vifs, list) {
-        if (aml_vif->vif_index == vif_index) {
-            aml_vif->sta.tdls_sta->tdls.ps_on = ps_on;
-            // Update PS status for the TDLS station
-            aml_ps_bh_enable(aml_hw, aml_vif->sta.tdls_sta, ps_on);
-        }
+    if (aml_vif) {
+        aml_vif->sta.tdls_sta->tdls.ps_on = ind->ps_on;
+        // Update PS status for the TDLS station
+        aml_ps_bh_enable(aml_hw, aml_vif->sta.tdls_sta, ind->ps_on);
     }
 
     return 0;
-#endif
 }
 
 static inline int aml_rx_remain_on_channel_exp_ind(struct aml_hw *aml_hw,
                                                     struct aml_cmd *cmd,
                                                     struct ipc_e2a_msg *msg)
 {
-#ifdef CONFIG_AML_SOFTMAC
     struct aml_vif *aml_vif;
     u8 vif_index = ((struct mm_remain_on_channel_exp_ind *)msg->param)->vif_index;
 
-    AML_DBG(AML_FN_ENTRY_STR);
+    aml_vif = aml_hw->vif_table[vif_index];
+    aml_txq_offchan_deinit(aml_vif);
 
-    ieee80211_remain_on_channel_expired(aml_hw->hw);
-
-    // Disable traffic for associated VIF
-    list_for_each_entry(aml_vif, &aml_hw->vifs, list) {
-        if (aml_vif->vif_index == vif_index) {
-            if (aml_vif->chanctx)
-                aml_vif->chanctx->active = false;
-
-            aml_txq_vif_stop(aml_vif, AML_TXQ_STOP_CHAN, aml_hw);
-            break;
-        }
+    spin_lock_bh(&aml_hw->roc_lock);
+    if (!aml_hw->roc) {
+        spin_unlock_bh(&aml_hw->roc_lock);
+        return 0;
+    }
+    if ((aml_hw->roc->vif) && (aml_hw->roc->vif != aml_vif)) {
+        AML_INFO("err roc vif index not %d\n",vif_index);
+        aml_vif = aml_hw->roc->vif;
     }
 
-    return 0;
-
-#else
-    struct aml_roc *roc = aml_hw->roc;
-    struct aml_vif *aml_vif;
-
-    if (!aml_hw->roc)
-        return 0;
-
-    aml_vif= roc->vif;
-
-    aml_tx_cfm_wait_rsp(aml_hw, false, __func__, __LINE__);
+    aml_tx_cfm_wait_rsp(aml_hw, false, (u8 *)__func__, __LINE__);
     trace_roc_exp(aml_vif->vif_index);
 
-    AML_INFO("roc internal=%d, on_chan=%d cookie:0x%llu\n",roc->internal,roc->on_chan,roc);
-    if (!roc->internal && roc->on_chan) {
+    AML_INFO("roc internal=%d, on_chan=%d cookie:0x%p\n", aml_hw->roc->internal, aml_hw->roc->on_chan, aml_hw->roc);
+    if (!aml_hw->roc->internal && aml_hw->roc->on_chan) {
         // If RoC has been started by the user space and hasn't been cancelled,
         // inform it that off-channel period has expired
-        cfg80211_remain_on_channel_expired(&aml_vif->wdev, (u64)(roc),
-                                           roc->chan, GFP_ATOMIC);
+        cfg80211_remain_on_channel_expired(&aml_vif->wdev, (u64)(unsigned long)(aml_hw->roc),
+                                           aml_hw->roc->chan, GFP_ATOMIC);
     }
-
-    aml_txq_offchan_deinit(aml_vif);
-    spin_lock_bh(&aml_hw->roc_lock);
-    kfree(roc);
+    kfree(aml_hw->roc);
     aml_hw->roc = NULL;
     spin_unlock_bh(&aml_hw->roc_lock);
 
-#endif /* CONFIG_AML_SOFTMAC */
     return 0;
 }
 
@@ -498,50 +351,15 @@ static inline int aml_rx_p2p_vif_ps_change_ind(struct aml_hw *aml_hw,
                                                 struct aml_cmd *cmd,
                                                 struct ipc_e2a_msg *msg)
 {
-    int vif_idx  = ((struct mm_p2p_vif_ps_change_ind *)msg->param)->vif_index;
-    int ps_state = ((struct mm_p2p_vif_ps_change_ind *)msg->param)->ps_state;
-    struct aml_vif *vif_entry;
+    struct mm_p2p_vif_ps_change_ind *ind = (void *)msg->param;
+    struct aml_vif *aml_vif = aml_vif_get(aml_hw, ind->vif_index);
 
-    //AML_DBG(AML_FN_ENTRY_STR);
-
-#ifdef CONFIG_AML_SOFTMAC
-    // Look for VIF entry
-    list_for_each_entry(vif_entry, &aml_hw->vifs, list) {
-        if (vif_entry->vif_index == vif_idx) {
-            goto found_vif;
-        }
+    if (aml_vif) {
+        if (ind->ps_state == MM_PS_MODE_OFF)
+            aml_txq_vif_start(aml_vif, AML_TXQ_STOP_VIF_PS);
+        else
+            aml_txq_vif_stop(aml_vif, AML_TXQ_STOP_VIF_PS);
     }
-#else
-    vif_entry = aml_hw->vif_table[vif_idx];
-
-    if (vif_entry) {
-        goto found_vif;
-    }
-#endif /* CONFIG_AML_SOFTMAC */
-
-    goto exit;
-
-found_vif:
-
-#ifdef CONFIG_AML_SOFTMAC
-    if (ps_state == MM_PS_MODE_OFF) {
-        aml_txq_vif_start(vif_entry, AML_TXQ_STOP_VIF_PS, aml_hw);
-    }
-    else {
-        aml_txq_vif_stop(vif_entry, AML_TXQ_STOP_VIF_PS, aml_hw);
-    }
-#else
-    if (ps_state == MM_PS_MODE_OFF) {
-        // Start TX queues for provided VIF
-        aml_txq_vif_start(vif_entry, AML_TXQ_STOP_VIF_PS, aml_hw);
-    }
-    else {
-        // Stop TX queues for provided VIF
-        aml_txq_vif_stop(vif_entry, AML_TXQ_STOP_VIF_PS, aml_hw);
-    }
-#endif /* CONFIG_AML_SOFTMAC */
-
-exit:
     return 0;
 }
 
@@ -557,7 +375,7 @@ static inline int aml_rx_channel_survey_ind(struct aml_hw *aml_hw,
 
     //AML_DBG(AML_FN_ENTRY_STR);
 
-    if (idx >  ARRAY_SIZE(aml_hw->survey))
+    if (idx >= SCAN_CHANNEL_MAX)
         return 0;
 
     aml_survey = &aml_hw->survey[idx];
@@ -595,16 +413,6 @@ static inline int aml_rx_rssi_status_ind(struct aml_hw *aml_hw,
 
     AML_DBG(AML_FN_ENTRY_STR);
 
-#ifdef CONFIG_AML_SOFTMAC
-    list_for_each_entry(vif_entry, &aml_hw->vifs, list) {
-        if (vif_entry->vif_index == vif_idx) {
-            ieee80211_cqm_rssi_notify(vif_entry->vif,
-                                      rssi_status ? NL80211_CQM_RSSI_THRESHOLD_EVENT_LOW :
-                                                    NL80211_CQM_RSSI_THRESHOLD_EVENT_HIGH,
-                                      ind->rssi, GFP_ATOMIC);
-        }
-    }
-#else
     vif_entry = aml_hw->vif_table[vif_idx];
     if (vif_entry) {
         cfg80211_cqm_rssi_notify(vif_entry->ndev,
@@ -612,7 +420,6 @@ static inline int aml_rx_rssi_status_ind(struct aml_hw *aml_hw,
                                                NL80211_CQM_RSSI_THRESHOLD_EVENT_HIGH,
                                  ind->rssi, GFP_ATOMIC);
     }
-#endif /* CONFIG_AML_SOFTMAC */
 
     return 0;
 }
@@ -642,95 +449,29 @@ static inline int aml_rx_csa_counter_ind(struct aml_hw *aml_hw,
                                           struct aml_cmd *cmd,
                                           struct ipc_e2a_msg *msg)
 {
-    struct mm_csa_counter_ind *ind = (struct mm_csa_counter_ind *)msg->param;
-    struct aml_vif *vif;
-    bool found = false;
+    struct mm_csa_counter_ind *ind = (void *)msg->param;
+    struct aml_vif *aml_vif = aml_vif_get(aml_hw, ind->vif_index);
 
-    AML_DBG(AML_FN_ENTRY_STR);
-
-    // Look for VIF entry
-    list_for_each_entry(vif, &aml_hw->vifs, list) {
-        if (vif->vif_index == ind->vif_index) {
-            found=true;
-            break;
-        }
-    }
-
-    if (found) {
-#ifdef CONFIG_AML_SOFTMAC
-        if (ind->csa_count == 1)
-            ieee80211_csa_finish(vif->vif);
+    if (aml_vif) {
+        if (aml_vif->ap.csa)
+            aml_vif->ap.csa->count = ind->csa_count;
         else
-            ieee80211_beacon_update_cntdwn(vif->vif);
-#else
-        if (vif->ap.csa)
-            vif->ap.csa->count = ind->csa_count;
-        else
-            netdev_err(vif->ndev, "CSA counter update but no active CSA");
-
-#endif
+            AML_ERR("%s: CSA counter update but no active CSA\n", aml_vif->ndev->name);
     }
 
     return 0;
 }
 
-#ifdef CONFIG_AML_SOFTMAC
-static inline int aml_rx_connection_loss_ind(struct aml_hw *aml_hw,
-                                              struct aml_cmd *cmd,
-                                              struct ipc_e2a_msg *msg)
-{
-    struct aml_vif *aml_vif;
-    u8 inst_nbr;
-
-    AML_DBG(AML_FN_ENTRY_STR);
-
-    inst_nbr = ((struct mm_connection_loss_ind *)msg->param)->inst_nbr;
-
-    /* Search the VIF entry corresponding to the instance number */
-    list_for_each_entry(aml_vif, &aml_hw->vifs, list) {
-        if (aml_vif->vif_index == inst_nbr) {
-            ieee80211_connection_loss(aml_vif->vif);
-            break;
-        }
-    }
-
-    return 0;
-}
-
-
-#ifdef CONFIG_AML_BCN
-static inline int aml_rx_prm_tbtt_ind(struct aml_hw *aml_hw,
-                                       struct aml_cmd *cmd,
-                                       struct ipc_e2a_msg *msg)
-{
-    AML_DBG(AML_FN_ENTRY_STR);
-
-    aml_tx_bcns(aml_hw);
-
-    return 0;
-}
-#endif
-
-#else /* !CONFIG_AML_SOFTMAC */
 static inline int aml_rx_csa_finish_ind(struct aml_hw *aml_hw,
                                          struct aml_cmd *cmd,
                                          struct ipc_e2a_msg *msg)
 {
     struct mm_csa_finish_ind *ind = (struct mm_csa_finish_ind *)msg->param;
-    struct aml_vif *vif;
-    bool found = false;
+    struct aml_vif *vif = aml_vif_get(aml_hw, ind->vif_index);
 
     AML_DBG(AML_FN_ENTRY_STR);
 
-    // Look for VIF entry
-    list_for_each_entry(vif, &aml_hw->vifs, list) {
-        if (vif->vif_index == ind->vif_index) {
-            found=true;
-            break;
-        }
-    }
-
-    if (found) {
+    if (vif) {
         if (AML_VIF_TYPE(vif) == NL80211_IFTYPE_AP ||
             AML_VIF_TYPE(vif) == NL80211_IFTYPE_P2P_GO) {
             if (vif->ap.csa) {
@@ -738,17 +479,15 @@ static inline int aml_rx_csa_finish_ind(struct aml_hw *aml_hw,
                 vif->ap.csa->ch_idx = ind->chan_idx;
                 schedule_work(&vif->ap.csa->work);
             } else
-                netdev_err(vif->ndev, "CSA finish indication but no active CSA");
-        } else {
-            if (ind->status == 0) {
-                aml_chanctx_unlink(vif);
-                aml_chanctx_link(vif, ind->chan_idx, NULL);
-                if (aml_hw->cur_chanctx == ind->chan_idx) {
-                    aml_radar_detection_enable_on_cur_channel(aml_hw);
-                    aml_txq_vif_start(vif, AML_TXQ_STOP_CHAN, aml_hw);
-                } else
-                    aml_txq_vif_stop(vif, AML_TXQ_STOP_CHAN, aml_hw);
-            }
+                AML_ERR("%s: CSA finish indication but no active CSA!\n", vif->ndev->name);
+        } else if (ind->status == 0) {
+            aml_chanctx_unlink(vif);
+            aml_chanctx_link(vif, ind->chan_idx, NULL);
+            if (aml_hw->cur_chanctx == ind->chan_idx) {
+                aml_radar_detection_enable_on_cur_channel(aml_hw);
+                aml_txq_vif_start(vif, AML_TXQ_STOP_CHAN);
+            } else
+                aml_txq_vif_stop(vif, AML_TXQ_STOP_CHAN);
         }
     }
 
@@ -813,6 +552,12 @@ void aml_sta_notify_csa_ch_switch(struct aml_hw *aml_hw, struct ipc_e2a_msg *msg
 #endif
             aml_check_scc();
         }
+
+        if ((AML_VIF_TYPE(vif) == NL80211_IFTYPE_STATION) ||
+             (AML_VIF_TYPE(vif) == NL80211_IFTYPE_P2P_CLIENT)) {
+            if (vif->sta.ap)
+                vif->sta.ap->stats.bw_max = ind->chan.type;
+        }
     }
 
     return;
@@ -823,24 +568,13 @@ static inline int aml_rx_csa_traffic_ind(struct aml_hw *aml_hw,
                                           struct ipc_e2a_msg *msg)
 {
     struct mm_csa_traffic_ind *ind = (struct mm_csa_traffic_ind *)msg->param;
-    struct aml_vif *vif;
-    bool found = false;
+    struct aml_vif *vif = aml_vif_get(aml_hw, ind->vif_index);
 
-    AML_DBG(AML_FN_ENTRY_STR);
-
-    // Look for VIF entry
-    list_for_each_entry(vif, &aml_hw->vifs, list) {
-        if (vif->vif_index == ind->vif_index) {
-            found=true;
-            break;
-        }
-    }
-
-    if (found) {
+    if (vif) {
         if (ind->enable)
-            aml_txq_vif_start(vif, AML_TXQ_STOP_CSA, aml_hw);
+            aml_txq_vif_start(vif, AML_TXQ_STOP_CSA);
         else
-            aml_txq_vif_stop(vif, AML_TXQ_STOP_CSA, aml_hw);
+            aml_txq_vif_stop(vif, AML_TXQ_STOP_CSA);
     }
 
     return 0;
@@ -896,7 +630,6 @@ static inline int aml_rx_traffic_req_ind(struct aml_hw *aml_hw,
 
     return 0;
 }
-#endif /* CONFIG_AML_SOFTMAC */
 
 /***************************************************************************
  * Messages from SCAN task
@@ -934,7 +667,7 @@ static inline int aml_rx_scanu_start_cfm(struct aml_hw *aml_hw,
                                           struct aml_cmd *cmd,
                                           struct ipc_e2a_msg *msg)
 {
-    AML_INFO(AML_FN_ENTRY_STR);
+    AML_INFO("%s, cur_chan:%d", __func__, aml_hw->cur_chanctx);
 
     aml_ipc_buf_dealloc(aml_hw, &aml_hw->scan_ie);
     spin_lock_bh(&aml_hw->scan_req_lock);
@@ -945,11 +678,13 @@ static inline int aml_rx_scanu_start_cfm(struct aml_hw *aml_hw,
             aml_sdio_rx_scanu_result_ind(aml_hw);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 8, 0)
-        struct cfg80211_scan_info info = {
-            .aborted = false,
-        };
+        {
+            struct cfg80211_scan_info info = {
+                .aborted = false,
+            };
 
-        cfg80211_scan_done(aml_hw->scan_request, &info);
+            cfg80211_scan_done(aml_hw->scan_request, &info);
+        }
 #else
         cfg80211_scan_done(aml_hw->scan_request, false);
 #endif
@@ -970,13 +705,11 @@ static inline int aml_rx_scanu_start_cfm(struct aml_hw *aml_hw,
     return 0;
 }
 
-struct ieee80211_channel *aml_get_bss_channel(struct wiphy *wiphy, const u8 *ie, size_t ielen,
-    struct ieee80211_channel *channel, enum nl80211_bss_scan_width scan_width)
+static int aml_get_freq_from_ie(struct wiphy *wiphy, const u8 *ie, size_t ielen)
 {
     const u8 *tmp;
-    u32 freq;
+    int band;
     int channel_number = -1;
-    struct ieee80211_channel *alt_channel;
 
     tmp = cfg80211_find_ie(WLAN_EID_DS_PARAMS, ie, ielen);
     if (tmp && tmp[1] == 1) {
@@ -992,43 +725,16 @@ struct ieee80211_channel *aml_get_bss_channel(struct wiphy *wiphy, const u8 *ie,
 
     if (channel_number < 0) {
         /* No channel information in frame payload */
-        return channel;
+        return 0;
     }
+    if (channel_number <= 14)
+        band = NL80211_BAND_2GHZ;
+    else if (channel_number <= 177)
+        band = NL80211_BAND_5GHZ;
+    else
+        return 0;
 
-    freq = ieee80211_channel_to_frequency(channel_number, channel->band);
-    alt_channel = ieee80211_get_channel(wiphy, freq);
-    if (!alt_channel) {
-        if (channel->band == NL80211_BAND_2GHZ) {
-            /*
-             * Better not allow unexpected channels when that could
-             * be going beyond the 1-11 range (e.g., discovering
-             * BSS on channel 12 when radio is configured for
-             * channel 11.
-             */
-            return NULL;
-        }
-
-        /* No match for the payload channel number - ignore it */
-        return channel;
-    }
-
-    if (scan_width == NL80211_BSS_CHAN_WIDTH_10 ||
-        scan_width == NL80211_BSS_CHAN_WIDTH_5) {
-        /*
-         * Ignore channel number in 5 and 10 MHz channels where there
-         * may not be an n:1 or 1:n mapping between frequencies and
-         * channel numbers.
-        */
-        return channel;
-    }
-
-    /*
-     * Use the channel determined through the payload channel number
-     * instead of the RX channel reported by the driver.
-     */
-    if (alt_channel->flags & IEEE80211_CHAN_DISABLED)
-        return NULL;
-    return alt_channel;
+    return ieee80211_channel_to_frequency(channel_number, band);
 }
 
 int aml_sdio_rx_scanu_result_ind(struct aml_hw *aml_hw)
@@ -1040,7 +746,7 @@ int aml_sdio_rx_scanu_result_ind(struct aml_hw *aml_hw)
     struct scan_results *scan_res, *next;
     const u8 *ie;
     size_t ielen;
-    struct ieee80211_channel tmp, *tmp_ret;
+    int freq;
 
     spin_lock_bh(&aml_hw->scan_lock);
     list_for_each_entry_safe(scan_res, next, &aml_hw->scan_res_list, list) {
@@ -1057,31 +763,27 @@ int aml_sdio_rx_scanu_result_ind(struct aml_hw *aml_hw)
 
         mgmt = (struct ieee80211_mgmt *)ind->payload;
 
-        if ((uint8_t *)mgmt < aml_hw->scanres_payload_buf || (uint8_t *)mgmt >  (aml_hw->scanres_payload_buf + (SCAN_RESULTS_MAX_CNT*500) - 21)) {
-            AML_INFO("buf start:%08x buf end:%08x mgmt:%08x\n", aml_hw->scanres_payload_buf,
-                (aml_hw->scanres_payload_buf + SCAN_RESULTS_MAX_CNT*500) ,mgmt);
-            AML_INFO("ind:%08x len:%d\n", ind, ind->length);
+        if ((uint8_t *)mgmt < aml_hw->scanres_payload_buf || (uint8_t *)mgmt > (aml_hw->scanres_payload_buf + (SCAN_RESULTS_MAX_CNT * 500) - 21)) {
+            AML_INFO("buf start:%p buf end:%p mgmt:%p\n", aml_hw->scanres_payload_buf, (aml_hw->scanres_payload_buf + SCAN_RESULTS_MAX_CNT * 500), mgmt);
+            AML_INFO("ind:%p len:%d\n", ind, ind->length);
+
             list_del(&scan_res->list);
             list_add_tail(&scan_res->list, &aml_hw->scan_res_available_list);
             continue;
         }
 
-        tmp.band = ind->band;
         mgmt->u.probe_resp.timestamp = timestamp;
         ie = mgmt->u.probe_resp.variable;
         ielen = ind->length - offsetof(struct ieee80211_mgmt, u.probe_resp.variable);
 
-        tmp_ret = aml_get_bss_channel(aml_hw->wiphy, ie, ielen, &tmp, NL80211_BSS_CHAN_WIDTH_20);
-        if (tmp_ret == NULL)
-        {
-            list_del(&scan_res->list);
-            list_add_tail(&scan_res->list, &aml_hw->scan_res_available_list);
-            continue;
+        freq = aml_get_freq_from_ie(aml_hw->wiphy, ie, ielen);
+        if (freq == 0) {
+            freq = ind->center_freq;
         }
 
-        /*
         if ((ie[0] == WLAN_EID_SSID) && (ie + 2 + ie[1] < (u8 *) mgmt + ind->length)) {
-        AML_INFO("ssid:%-32.32s bssid:%02x:%02x:%02x:%02x:%02x:%02x, frm ctrl 0x%08x",
+            AML_M_INFO(SCAN, "ind freq:%d, get from ie:%d, ssid:%-32.32s bssid:%02x:%02x:%02x:%02x:%02x:%02x, frm ctrl 0x%x,",
+                ind->center_freq, freq,
                 ssid_sprintf(&ie[2], ie[1]),
                 mgmt->bssid[0],
                 mgmt->bssid[1],
@@ -1090,18 +792,13 @@ int aml_sdio_rx_scanu_result_ind(struct aml_hw *aml_hw)
                 mgmt->bssid[4],
                 mgmt->bssid[5], mgmt->frame_control);
         }
-        */
-        //AML_DBG(AML_FN_ENTRY_STR);
 
-        chan = ieee80211_get_channel(aml_hw->wiphy, ind->center_freq);
-
+        chan = ieee80211_get_channel(aml_hw->wiphy, freq);
         if (chan != NULL)
-        bss = cfg80211_inform_bss_frame(aml_hw->wiphy, chan,
-                                        mgmt,
-                                        ind->length, ind->rssi * 100, GFP_ATOMIC);
-
+            bss = cfg80211_inform_bss_frame(aml_hw->wiphy, chan, mgmt,
+                    ind->length, ind->rssi * 100, GFP_ATOMIC);
         if (bss != NULL)
-        cfg80211_put_bss(aml_hw->wiphy, bss);
+            cfg80211_put_bss(aml_hw->wiphy, bss);
 
         list_del(&scan_res->list);
         scan_res->scanu_res_ind.payload = NULL;
@@ -1124,14 +821,22 @@ static inline int aml_pcie_rx_scanu_result_ind(struct aml_hw *aml_hw,
     struct scanu_result_ind *ind = (struct scanu_result_ind *)msg->param;
     u8* ie = NULL;
     size_t ielen;
-    struct ieee80211_channel tmp, *tmp_ret;
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 20, 0) && LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 39))
+    int freq;
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 20, 0))
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 39))
     struct timespec ts;
-    get_monotonic_boottime(&ts);
+#else
+    struct timeval ts;
 #endif
+#endif
+
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0))
     timestamp = ktime_to_us(ktime_get_boottime());
 #elif (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 39))
+    get_monotonic_boottime(&ts);
+    timestamp = ((u64)ts.tv_sec * 1000000) + ts.tv_nsec / 1000;
+#else
+    do_gettimeofday(&ts);
     timestamp = ((u64)ts.tv_sec * 1000000) + ts.tv_nsec / 1000;
 #endif
     mgmt = (struct ieee80211_mgmt *)ind->payload;
@@ -1139,25 +844,22 @@ static inline int aml_pcie_rx_scanu_result_ind(struct aml_hw *aml_hw,
     ie = mgmt->u.probe_resp.variable;
     ielen = ind->length - offsetof(struct ieee80211_mgmt, u.probe_resp.variable);
 
-    tmp.band = ind->band;
-    tmp_ret = aml_get_bss_channel(aml_hw->wiphy, ie, ielen, &tmp, NL80211_BSS_CHAN_WIDTH_20);
-    if (tmp_ret == NULL)
-    {
-        return -1;
+    freq = aml_get_freq_from_ie(aml_hw->wiphy, ie, ielen);
+    if (freq == 0) {
+        freq = ind->center_freq;
     }
-    /*
+
     if ((ie[0] == WLAN_EID_SSID) && (ie + 2 + ie[1] < (u8 *) mgmt + ind->length)) {
-        AML_INFO("ssid:%-32.32s bssid:%02x:%02x:%02x:%02x:%02x:%02x",
+        AML_M_INFO(SCAN, "ind freq:%d, get from ie:%d, ssid:%-32.32s bssid:%02x:%02x:%02x:%02x:%02x:%02x, frm ctrl 0x%x,",
+                ind->center_freq, freq,
                 ssid_sprintf(&ie[2], ie[1]),
                 mgmt->bssid[0],
                 mgmt->bssid[1],
                 mgmt->bssid[2],
                 mgmt->bssid[3],
                 mgmt->bssid[4],
-                mgmt->bssid[5]);
+                mgmt->bssid[5], mgmt->frame_control);
     }
-    */
-    //AML_DBG(AML_FN_ENTRY_STR);
 
 #ifdef CONFIG_AML_RECOVERY
     if (aml_recy && aml_recy->link_loss.is_enabled
@@ -1166,13 +868,10 @@ static inline int aml_pcie_rx_scanu_result_ind(struct aml_hw *aml_hw,
     }
 #endif
 
-    chan = ieee80211_get_channel(aml_hw->wiphy, ind->center_freq);
-
+    chan = ieee80211_get_channel(aml_hw->wiphy, freq);
     if (chan != NULL)
-        bss = cfg80211_inform_bss_frame(aml_hw->wiphy, chan,
-                                        mgmt,
-                                        ind->length, ind->rssi * 100, GFP_ATOMIC);
-
+        bss = cfg80211_inform_bss_frame(aml_hw->wiphy, chan, mgmt,
+                ind->length, ind->rssi * 100, GFP_ATOMIC);
     if (bss != NULL)
         cfg80211_put_bss(aml_hw->wiphy, bss);
 
@@ -1382,7 +1081,6 @@ static inline int aml_rx_sm_connect_ind(struct aml_hw *aml_hw,
             ind->chan.prim20_freq, ind->chan.center1_freq, ind->roamed,
             (const u8 *)ind->bssid.array);
     aml_set_scan_hang(aml_vif, 0, __func__, __LINE__);
-    aml_connect_flags_clr(aml_vif, AML_CONNECTING);
     /* Retrieve IE addresses and lengths */
     req_ie = (const u8 *)ind->assoc_ie_buf;
     rsp_ie = req_ie + ind->assoc_req_ie_len;
@@ -1435,12 +1133,7 @@ static inline int aml_rx_sm_connect_ind(struct aml_hw *aml_hw,
             txq_status = AML_TXQ_STOP_CHAN;
         }
         memcpy(sta->ac_param, ind->ac_param, sizeof(sta->ac_param));
-        aml_txq_sta_init(aml_hw, sta, txq_status);
-        aml_dbgfs_register_sta(aml_hw, sta);
-#ifndef CONFIG_AML_DEBUGFS
-        aml_recy_flags_set(AML_RECY_RX_RATE_ALLOC);
-        aml_rx_rate_wq(&sta->sta_idx);
-#endif
+        aml_sta_init(aml_hw, sta, txq_status);
         aml_txq_tdls_vif_init(aml_vif);
         aml_mu_group_sta_init(sta, NULL);
         /* Look for TDLS Channel Switch Prohibited flag in the Extended Capability
@@ -1522,7 +1215,7 @@ static inline int aml_rx_sm_connect_ind(struct aml_hw *aml_hw,
                 aml_recy->reconnect_rest = 0;
             }
             /*recovery connect fail,try again */
-            if (ind->status_code != 0 && aml_recy->reconnect_rest != 0 && (aml_recy_connect_retry() == true)) {
+            if (ind->status_code && aml_recy->reconnect_rest && aml_recy_connect_retry() == 0) {
                 aml_recy->reconnect_rest--;
                 AML_INFO("recy retry connect,rest cnt:%d", aml_recy->reconnect_rest);
             }
@@ -1541,10 +1234,13 @@ static inline int aml_rx_sm_connect_ind(struct aml_hw *aml_hw,
                     AML_INFO("channel is null");
                 }
                 if (bss != NULL) {
+                    /* coverity[overrun-buffer-val] - the string 'ssid' is configured without a null terminator */
                     AML_INFO("ssid:%s, bss_freq:%d", ssid_sprintf(aml_vif->sta.assoc_ssid, aml_vif->sta.assoc_ssid_len),
                             bss->channel->center_freq);
                     // if vif has ip, flag should not be set. eg: recover and roam
-                    if ((ind->status_code == 0) && !memcmp(aml_vif->ipv4_addr, ipv4_addr, IPV4_ADDR_LEN))
+                    if ((aml_connect_flags_chk(aml_vif, AML_CONNECTING))
+                        && (ind->status_code == 0)
+                        && !memcmp(aml_vif->ipv4_addr, ipv4_addr, IPV4_ADDR_LEN))
                         aml_connect_flags_set(aml_vif, AML_GETTING_IP);
                 } else {
                     AML_INFO("can't find bss in kernel");
@@ -1569,11 +1265,15 @@ static inline int aml_rx_sm_connect_ind(struct aml_hw *aml_hw,
                     cfg80211_disconnected(dev, 0, NULL, 0, false, GFP_ATOMIC);
                 }
 #endif
+                /* normal connect, but fail */
+                if (ind->status_code != 0) {
+                    aml_wake_source_relax(aml_hw);
+                }
             }
     }
     netif_tx_start_all_queues(dev);
     netif_carrier_on(dev);
-
+    aml_connect_flags_clr(aml_vif, AML_CONNECTING);
     return 0;
 }
 
@@ -1613,9 +1313,13 @@ static inline int aml_rx_sm_disconnect_ind(struct aml_hw *aml_hw,
                 aml_vif->sta.ft_assoc_ies_len = 0;
             }
         }
+        if (aml_connect_flags_chk(aml_vif, AML_CONNECTING | AML_GETTING_IP)) {
+            aml_wake_source_relax(aml_hw);
+        }
         netif_tx_stop_all_queues(dev);
         netif_carrier_off(dev);
     }
+    spin_lock_bh(&aml_vif->vif_lock);
     if (aml_vif->sta.ap) {
 #ifdef CONFIG_AML_BFMER
         /* Disable Beamformer if supported */
@@ -1624,16 +1328,11 @@ static inline int aml_rx_sm_disconnect_ind(struct aml_hw *aml_hw,
 
         aml_sta_deinit(aml_hw, aml_vif->sta.ap);
         aml_txq_tdls_vif_deinit(aml_vif);
-        aml_dbgfs_unregister_sta(aml_hw, aml_vif->sta.ap);
-#ifndef CONFIG_AML_DEBUGFS
-        aml_dealloc_global_rx_rate(aml_hw, aml_vif->sta.ap);
-#endif
         AML_INFO("sta assoc ap info was cleared, sta_idx:%d", aml_vif->sta.ap->sta_idx);
-        spin_lock_bh(&aml_vif->vif_lock);
         aml_vif->sta.ap->valid = false;
         aml_vif->sta.ap = NULL;
-        spin_unlock_bh(&aml_vif->vif_lock);
     }
+    spin_unlock_bh(&aml_vif->vif_lock);
     aml_vif->generation++;
     aml_external_auth_disable(aml_vif);
     aml_chanctx_unlink(aml_vif);
@@ -1790,7 +1489,6 @@ static inline int aml_rx_mesh_peer_update_ind(struct aml_hw *aml_hw,
             list_del_init(&aml_sta->list);
 
             aml_sta_deinit(aml_hw, aml_sta);
-            aml_dbgfs_unregister_sta(aml_hw, aml_sta);
         } else {
             WARN_ON(0);
         }
@@ -1828,7 +1526,7 @@ static inline int aml_rx_mesh_peer_update_ind(struct aml_hw *aml_hw,
                 aml_dbgfs_register_sta(aml_hw, aml_sta);
 
 #ifdef CONFIG_AML_BFMER
-                // TODO: update indication to contains vht capabilties
+                // TODO: update indication to contains vht capabilities
                 if (aml_hw->mod_params->bfmer)
                     aml_send_bfmer_enable(aml_hw, aml_sta, NULL);
 
@@ -1847,7 +1545,6 @@ static inline int aml_rx_mesh_peer_update_ind(struct aml_hw *aml_hw,
                 list_del_init(&aml_sta->list);
 
                 aml_sta_deinit(aml_hw, aml_sta);
-                aml_dbgfs_unregister_sta(aml_hw, aml_sta);
             } else {
                 WARN_ON(0);
             }
@@ -2076,28 +1773,13 @@ static inline int aml_dma_dl_result_ind(struct aml_hw *aml_hw,
 }
 #endif
 
-int update_rxptr = 0;
-static int aml_resume_sync_rxbuf_ptr(struct aml_hw *aml_hw,
-                                               struct aml_cmd *cmd,
-                                               struct ipc_e2a_msg *msg)
-{
-    struct resume_sync_ptr *ind = (struct resume_sync_ptr *)msg->param;
-
-    aml_hw->fw_buf_pos  = ind->hw_rd;
-    AML_INFO("resume update fw_buf_pos = %x\n", aml_hw->fw_buf_pos);
-    if (update_rxptr == RXBUF_PTR_UPDATE_WAIT)
-        update_rxptr = RXBUF_PTR_UPDATE_DONE;
-
-    return 0;
-}
-
 static inline int aml_coex_get_status_ind(struct aml_hw *aml_hw,
                                       struct aml_cmd *cmd,
                                       struct ipc_e2a_msg *msg)
 {
     struct coex_get_status *ind = (struct coex_get_status *)msg->param;
     int wifi_act_sum = 0;
-    int wifi_intact_sum = 0;
+    int wifi_inactive_sum = 0;
     int time_sum = 0;
     int ratio = 0;
 
@@ -2108,15 +1790,28 @@ static inline int aml_coex_get_status_ind(struct aml_hw *aml_hw,
         if (ind->wifi_act_sum > 0)
         {
             wifi_act_sum = (ind->wifi_act_sum) / 1000;
-            wifi_intact_sum = (ind->wifi_intact_sum) / 1000;
-            time_sum = wifi_act_sum + wifi_intact_sum;
+            wifi_inactive_sum = (ind->wifi_inactive_sum) / 1000;
+            time_sum = wifi_act_sum + wifi_inactive_sum;
         }
         if (wifi_act_sum > 0)
         {
             ratio = (wifi_act_sum * 100) / time_sum;
         }
         AML_INFO("coex work on TDD, work mode: %x; \n", ind->work_mode);
-        AML_INFO("In %dms; wifi_time: %dms; bt_time: %dms; wifi ratio: %d%%\n", time_sum, wifi_act_sum, wifi_intact_sum, ratio);
+        AML_INFO("In %dms; wifi_time: %dms; bt_time: %dms; wifi ratio: %d%%\n", time_sum, wifi_act_sum, wifi_inactive_sum, ratio);
+
+        if (ind->null_data_enable)
+        {
+            if (ind->null_data_send_cnt > 0)
+            {
+                ratio = (ind->null_data_send_succ_cnt_before_bt_s * 100) / ind->null_data_send_cnt;
+            }
+            AML_INFO("null data status: send cnt: %d, success cnt: %d, success ratio: %d%%\n", ind->null_data_send_cnt, ind->null_data_send_succ_cnt_before_bt_s, ratio);
+        }
+        else
+        {
+            AML_INFO("Do not need send null data now; \n");
+        }
     }
     else
     {
@@ -2172,11 +1867,13 @@ static inline int aml_scanu_cancel_cfm(struct aml_hw *aml_hw,
             aml_sdio_rx_scanu_result_ind(aml_hw);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 8, 0)
-        struct cfg80211_scan_info info = {
-            .aborted = true,
-        };
+        {
+            struct cfg80211_scan_info info = {
+                .aborted = true,
+            };
 
-        cfg80211_scan_done(aml_hw->scan_request, &info);
+            cfg80211_scan_done(aml_hw->scan_request, &info);
+        }
 #else
         cfg80211_scan_done(aml_hw->scan_request, true);
 #endif
@@ -2208,7 +1905,7 @@ static inline int aml_sched_scan_cfm(struct aml_hw *aml_hw,
 {
     struct scanu_start_cfm *cfm = (struct scanu_start_cfm *)msg->param;
 
-    AML_INFO(" status:%x, vif_id=%x, cfm->result_cnt %d, aml_hw->pno_scan_reqid %d \n",
+    AML_INFO("status:%x, vif_id=%x, cfm->result_cnt %d, aml_hw->pno_scan_reqid %lld \n",
             cfm->status, cfm->vif_idx, cfm->result_cnt, aml_hw->pno_scan_reqid);
 
     if (cfm->result_cnt) {
@@ -2243,27 +1940,24 @@ static int aml_dhcp_offload_ind(struct aml_hw *aml_hw,
     struct in_ifaddr *ifa_v4;
     unsigned int local_ip = 0;
     struct aml_vif *aml_vif;
+    bool found = false;
 
     if (fw_event == NULL) {
         return -1;
     }
 
     list_for_each_entry(aml_vif, &aml_hw->vifs, list) {
-        if (aml_vif == NULL) {
-            AML_FN_ENTRY();
-            continue;
-        }
-
         if (!aml_vif->up || aml_vif->ndev == NULL) {
             continue;
         }
 
         if (AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_STATION) {
+            found = true;
             break;
         }
     }
 
-    if (aml_vif->ndev == NULL) {
+    if (!found) {
         AML_ERR("%s %d\n", __func__, __LINE__);
         return -1;
     }
@@ -2285,29 +1979,9 @@ static int aml_dhcp_offload_ind(struct aml_hw *aml_hw,
 }
 
 #ifdef CONFIG_AML_SDIO_USB_FW_REORDER
-struct fw_reo_info reorder_info[IEEE80211_NUM_UPS];
-
-static inline int aml_sdio_usb_rx_reord_flush_ind(struct aml_hw *aml_hw, struct aml_cmd *cmd, struct ipc_e2a_msg *msg)
+static inline int aml_sdio_usb_rx_record_flush_ind(struct aml_hw *aml_hw, struct aml_cmd *cmd, struct ipc_e2a_msg *msg)
 {
-    struct fw_reo_info *map_info = (struct fw_reo_info *)msg->param;
-    u8 tid = map_info->tid;
-
-    if (WARN_ON(tid >= ARRAY_SIZE(reorder_info))) {
-        AML_INFO("tid %u >= 8!\n", tid);
-        return -1;
-    }
-    /* host id = sn + 1 */
-    if (WARN_ON(map_info->hostid == 0 || map_info->hostid > IEEE80211_SN_MODULO)) {
-        AML_INFO("invalid host id %u!\n", map_info->hostid);
-        return -1;
-    }
-    if (map_info->reorder_len == 0)
-        return 0;
-
-    spin_lock_bh(&aml_hw->reorder_lock);
-    reorder_info[tid] = *map_info;
-    spin_unlock_bh(&aml_hw->reorder_lock);
-    return 0;
+    return aml_sdio_usb_fw_reo_inst_save(&aml_hw->rx, (struct fw_reo_inst *)msg->param);
 }
 #endif
 
@@ -2339,13 +2013,6 @@ static inline int aml_traffic_busy_ind(struct aml_hw *aml_hw,
             AML_INFO("traffic idle!!\n");
         }
         break;
-    case TRAFFIC_TXCFM_FLAG:
-        if (aml_bus_type == PCIE_MODE)
-            break;
-#ifdef CONFIG_SDIO_TX_ENH
-        aml_update_dyn_txcfm(aml_hw, traffic->traffic_busy_flag);
-#endif
-        break;
     default:
         break;
     }
@@ -2367,7 +2034,7 @@ static inline int aml_rx_coexist_stop_restore_txq_ind(struct aml_hw *aml_hw,
     {
         list_for_each_entry(aml_vif, &aml_hw->vifs, list) {
             if (aml_vif->up) {
-                aml_txq_vif_stop(aml_vif, AML_TXQ_STOP_COEX_INACTIVE, aml_hw);
+                aml_txq_vif_stop(aml_vif, AML_TXQ_STOP_COEX_INACTIVE);
             }
         }
     }
@@ -2379,7 +2046,7 @@ static inline int aml_rx_coexist_stop_restore_txq_ind(struct aml_hw *aml_hw,
                     AML_INFO("coex txq_start,vif:%d vif_chan:%d",aml_vif->vif_index,aml_vif->ch_index);
                     aml_hw->show_switch_info--;
                 }
-                aml_txq_vif_start(aml_vif, AML_TXQ_STOP_COEX_INACTIVE, aml_hw);
+                aml_txq_vif_start(aml_vif, AML_TXQ_STOP_COEX_INACTIVE);
             }
         }
     }
@@ -2499,7 +2166,7 @@ static msg_cb_fct priv_hdlrs[MSG_I(PRIV_SUB_E2A_MAX)] = {
     [MSG_I(PRIV_SET_SUSPEND_IND)]   = aml_suspend_ind,
     [MSG_I(PRIV_APM_DIS_STA_IND)]   = aml_apm_handle_disconnect_sta,
 #ifdef CONFIG_AML_SDIO_USB_FW_REORDER
-    [MSG_I(PRIV_SDIO_USB_REORD_INFO_IND)] = aml_sdio_usb_rx_reord_flush_ind,
+    [MSG_I(PRIV_SDIO_USB_RECORD_INFO_IND)] = aml_sdio_usb_rx_record_flush_ind,
 #endif
     [MSG_I(PRIV_FT_AUTH_RSP_TIMEOUT_IND)] = aml_rx_sm_ft_auth_rsp_timeout_ind,
     [MSG_I(PRIV_TRAFFIC_BUSY_IND)]    = aml_traffic_busy_ind,
@@ -2507,7 +2174,6 @@ static msg_cb_fct priv_hdlrs[MSG_I(PRIV_SUB_E2A_MAX)] = {
     [MSG_I(PRIV_COEX_STOP_RESTORE_TXQ_IND)] = aml_rx_coexist_stop_restore_txq_ind,
     [MSG_I(PRIV_COEX_GET_STATUS)]     = aml_coex_get_status_ind,
     [MSG_I(PRIV_EX_MM_VERSION_IND)] = aml_extend_mm_version_ind,
-    [MSG_I(PRIV_RESUME_RXBUF_PTR_IND)]     = aml_resume_sync_rxbuf_ptr,
 };
 
 #define MSG_SUB_HDLRS(_sub_hdlrs)       { ARRAY_SIZE(_sub_hdlrs), _sub_hdlrs, }

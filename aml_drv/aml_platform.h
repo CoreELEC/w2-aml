@@ -1,7 +1,7 @@
 /**
  ******************************************************************************
  *
- * @file aml_platorm.h
+ * @file aml_platform.h
  *
  * Copyright (C) Amlogic 2012-2021
  *
@@ -23,39 +23,26 @@
 #include "chip_intf_reg.h"
 #endif
 
-#define AML_CONFIG_FW_NAME             "aml_settings.ini"
 #define AML_PHY_CONFIG_TRD_NAME        "aml_trident.ini"
-#define AML_PHY_CONFIG_KARST_NAME      "aml_karst.ini"
 
-//change version when update agcram configuration
-#define AML_AGC_FW_NAME                "agcram_ind_20230223.bin"
-
-#define AML_LDPC_RAM_NAME              "ldpcram.bin"
-#define AML_CATAXIA_FW_NAME            "cataxia.fw"
-#ifdef CONFIG_AML_SOFTMAC
-#define AML_MAC_FW_BASE_NAME           "lmacfw"
-#elif defined CONFIG_AML_FULLMAC
-#define AML_MAC_FW_BASE_NAME           "fmacfw"
-#elif defined CONFIG_AML_FHOST
-#define AML_MAC_FW_BASE_NAME           "fhostfw"
-#endif /* CONFIG_AML_SOFTMAC */
-
-#ifdef CONFIG_AML_TL4
-#define AML_MAC_FW_NAME AML_MAC_FW_BASE_NAME".hex"
-#else
-#define AML_MAC_FW_NAME  AML_MAC_FW_BASE_NAME".ihex"
-#define AML_MAC_FW_NAME2 AML_MAC_FW_BASE_NAME".bin"
 #define AML_MAC_FW_SDIO "wifi_w2_fw_sdio.bin"
 #define AML_MAC_FW_USB "wifi_w2_fw_usb.bin"
 #define AML_MAC_FW_PCIE "wifi_w2_fw_pcie.bin"
-#endif
 
-#define AML_FCU_FW_NAME                "fcuram.bin"
+#define AML_MAC_REVC_FW_SDIO "wifi_w2_revC_fw_sdio.bin"
+#define AML_MAC_REVC_FW_USB "wifi_w2_revC_fw_usb.bin"
+#define AML_MAC_REVC_FW_PCIE "wifi_w2_revC_fw_pcie.bin"
+
+#define W2s_C_PRODUCT_AMLOGIC_EFUSE 0x0680
+#define W2u_PRODUCT_C_AMLOGIC_EFUSE 0x0681
+#define W2pRevC_PRODUCT_AMLOGIC_EFUSE 0x0682
+
 #define MAC_SRAM_BASE 0x00a10000
 #define UBUNTU_PC_VERSION   0xA1B2C3D4  // indicate ubuntu pc + w2
 #define UBUNTU_SYNC_PATTERN 0x4D3C2B1A
 #define UBUNTU_SYNC_ADDR    0x00a10018
 
+#define AML_SHOW_RSSI(value) ((((int8_t)(u8)(value)) >= 0) ? ((u8)(value)) : ((u8)(value) - 256))
 #define REG_OF_SYNC_TWO_RSSI    0x00a1001c
 #define REG_OF_SYNC_RSSI (MAC_SRAM_BASE + 0x14)
 #define REG_OF_VENDOR_ID (MAC_SRAM_BASE + 0x4)
@@ -64,8 +51,8 @@
 #define CPU_CLK_VALUE 0x4f530033 // 240M
 
 #ifndef CONFIG_AML_FPGA_PCIE
-#define BAR2_TABLE_NUM 0x4
-#define BAR4_TABLE_NUM 0x6
+#define BAR2_TABLE_NUM 0x6
+#define BAR4_TABLE_NUM 0x8
 #define PCIE_TABLE_NUM (BAR2_TABLE_NUM + BAR4_TABLE_NUM)
 #define ISTATUS_HOST 0x00a0218c
 
@@ -166,6 +153,9 @@ enum aml_platform_addr {
     AML_ADDR_SYSTEM,
     AML_ADDR_MAX,
 };
+
+#define AML_BASE_ADDR  0x60000000   /* base address of AML_ADDR_SYSTEM */
+
 extern unsigned int aml_bus_type;
 extern char * aml_wifi_get_bus_type(void);
 extern u32 aml_pci_readl(u8* addr);
@@ -182,7 +172,7 @@ struct aml_hw;
  * @enable: Configure communication with the fw (i.e. configure the transfers
  *         enable and register interrupt)
  * @disable: Stop communication with the fw
- * @deinit: Free all ressources allocated for the embedded platform
+ * @deinit: Free all resources allocated for the embedded platform
  * @get_address: Return the virtual address to access the requested address on
  *              the platform.
  * @ack_irq: Acknowledge the irq at link level.
@@ -274,17 +264,17 @@ static inline u32 aml_reg_read(struct aml_plat *plat, u32 base, u32 offset)
 #ifdef CONFIG_AML_POWER_SAVE_MODE
         if (offset == RG_AON_A54) {
             return aml_pci_readl(AML_ADDR(plat, base, offset));
-    }
+        }
 
-            aml_prevent_fw_sleep(plat, PS_READ_WRITE_REG);
-            aml_wait_fw_wake(plat);
-            reg_value = aml_pci_readl(AML_ADDR(plat, base, offset));
-            aml_allow_fw_sleep(plat, PS_READ_WRITE_REG);
-            return reg_value;
+        aml_prevent_fw_sleep(plat, PS_READ_WRITE_REG);
+        aml_wait_fw_wake(plat);
+        reg_value = aml_pci_readl(AML_ADDR(plat, base, offset));
+        aml_allow_fw_sleep(plat, PS_READ_WRITE_REG);
+        return reg_value;
 #else
         return aml_pci_readl(AML_ADDR(plat, base, offset));
 #endif
-        }
+    }
 
 }
 
@@ -298,15 +288,14 @@ static inline void aml_reg_write(u32 val, struct aml_plat *plat, u32 base, u32 o
 #ifdef CONFIG_AML_POWER_SAVE_MODE
         if (offset == RG_AON_A54) {
             aml_pci_writel(val, AML_ADDR(plat, base, offset));
-    }
-        else {
+        } else {
             aml_prevent_fw_sleep(plat, PS_READ_WRITE_REG);
             aml_wait_fw_wake(plat);
             aml_pci_writel(val, AML_ADDR(plat, base, offset));
             aml_allow_fw_sleep(plat, PS_READ_WRITE_REG);
-    }
+        }
 #else
-    aml_pci_writel(val, AML_ADDR(plat, base, offset));
+        aml_pci_writel(val, AML_ADDR(plat, base, offset));
 #endif
     }
 }
@@ -342,7 +331,6 @@ static inline unsigned int aml_platform_get_irq(struct aml_plat *aml_plat)
 }
 u8* aml_pci_get_map_address(struct net_device *dev, unsigned int offset);
 
-
 int aml_platform_init(struct aml_plat *aml_plat, void **platform_data);
 void aml_platform_deinit(struct aml_hw *aml_hw);
 
@@ -355,7 +343,6 @@ void aml_platform_unregister_pcie_drv(void);
 int aml_platform_register_usb_drv(void);
 void aml_platform_unregister_usb_drv(void);
 
-
 int aml_platform_register_sdio_drv(void);
 void aml_platform_unregister_sdio_drv(void);
 void aml_get_vid(struct aml_plat *aml_plat);
@@ -363,8 +350,7 @@ void aml_get_vid(struct aml_plat *aml_plat);
 int aml_platform_reset(struct aml_plat *aml_plat);
 int aml_plat_lmac_load(struct aml_plat *aml_plat);
 void aml_plat_mpif_sel(struct aml_plat *aml_plat);
-int aml_sdio_create_thread(struct aml_hw *aml_hw);
-void aml_sdio_destroy_thread(struct aml_hw *aml_hw);
+
 int aml_cpufreq_boost_update(struct aml_hw *aml_hw);
 int aml_cpufreq_boost_remove(struct aml_hw *aml_hw);
 

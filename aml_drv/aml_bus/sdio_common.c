@@ -1,7 +1,21 @@
-
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+* Copyright (C) 202X Original Author (retain original author information)
+* Copyright (C) 202X Amlogic, Inc. All rights reserved.
+*
+* Description:
+*/
 #define AML_MODULE  COMMON
 
+#include <linux/version.h>
 #include <linux/mutex.h>
+#include <linux/delay.h>
+#include <linux/firmware.h>
+
+#ifdef CONFIG_AML_PLATFORM_ANDROID
+void sdio_reinit(void);             /* exported by meson-gx-mmx.c */
+#endif
+
 #include "chip_ana_reg.h"
 #include "chip_pmu_reg.h"
 #include "chip_intf_reg.h"
@@ -9,12 +23,14 @@
 #include "wifi_top_addr.h"
 #include "wifi_sdio_cfg_addr.h"
 #include "wifi_w2_shared_mem_cfg.h"
+#include "aml_log.h"
 #include "sdio_common.h"
 #include "sg_common.h"
 #include "aml_interface.h"
 #include "w2_sdio.h"
 #include "aml_log.h"
-
+#include "chip_bt_pmu_reg.h"
+#include "wifi_aon_addr.h"
 #ifdef CONFIG_PT_MODE
 unsigned char g_sdio_is_probe = 0;
 #endif
@@ -42,61 +58,72 @@ static DEFINE_MUTEX(wifi_ipc_mutex);
 unsigned char (*host_wake_req)(void);
 int (*host_suspend_req)(struct device *device);
 int (*host_resume_req)(struct device *device);
-extern void extern_wifi_set_enable(int is_on);
 extern void aml_sdio_random_word_write(unsigned int addr, unsigned int data);
 extern unsigned int aml_sdio_random_word_read(unsigned int addr);
+extern unsigned char aml_sdio_self_define_domain_read8(int addr);
+extern unsigned char aml_sdio_self_define_domain_write8(int addr, unsigned char data);
+
+#if defined(CONFIG_AML_PLATFORM_ANDROID) && \
+    !defined(CONFIG_AML_SDIO_IRQ_VIA_GPIO) && \
+    LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0)
+extern void sdio_clk_always_on(int on);
+#endif
 
 struct sdio_func *aml_priv_to_func(int func_n)
 {
-    ASSERT(func_n >= 0 &&  func_n < SDIO_FUNCNUM_MAX);
+    BUG_ON(func_n < 0 ||  func_n >= SDIO_FUNCNUM_MAX);
     return g_hwif_sdio.sdio_func_if[func_n];
 }
 
-int aml_sdio_suspend(unsigned int suspend_enable)
+bool aml_sdio_block_bus_opt(void)
+{
+    if (atomic_read(&g_wifi_pm.is_shut_down) == 1)
+    {
+        ERROR_DEBUG_OUT("fw shut down(%d) , do not read/write now!\n",
+        atomic_read(&g_wifi_pm.is_shut_down));
+        return true;
+    }
+    else
+    {
+        return false;
+    }
+}
+
+int aml_sdio_suspend(struct device *device)
 {
     mmc_pm_flag_t flags;
     struct sdio_func *func = NULL;
-    int ret = 0, i;
-
-    if (suspend_enable == 0)
-    {
-        /* when enable == 0 that's resume operation
-        and we do nothing for resume now. */
-        return ret;
-    }
+    int ret = 0;
 
     /* just clear sdio clock value for emmc init when resume */
     //amlwifi_set_sdio_host_clk(0);
 
+    func = dev_to_sdio_func(device);
+
     AML_BT_WIFI_MUTEX_ON();
+
     /* we shall suspend all card for sdio. */
-    for (i = SDIO_FUNC1; i <= FUNCNUM_SDIO_LAST; i++)
-    {
-        func = aml_priv_to_func(i);
-        if (func == NULL)
-            continue;
-        flags = sdio_get_host_pm_caps(func);
+    flags = sdio_get_host_pm_caps(func);
 
-        if ((flags & MMC_PM_KEEP_POWER) != 0)
-            ret = sdio_set_host_pm_flags(func, MMC_PM_KEEP_POWER);
+    if ((flags & MMC_PM_KEEP_POWER) != 0)
+        ret = sdio_set_host_pm_flags(func, MMC_PM_KEEP_POWER);
 
-        if (ret != 0) {
-            AML_BT_WIFI_MUTEX_OFF();
-            return -1;
-        }
+    if (ret != 0) {
+        AML_BT_WIFI_MUTEX_OFF();
+        return -1;
+    }
 
-        /*
-         * if we don't use sdio irq, we can't get functions' capability with
-         * MMC_PM_WAKE_SDIO_IRQ, so we don't need set irq for wake up
-         * sdio for upcoming suspend.
-         */
-        if ((flags & MMC_PM_WAKE_SDIO_IRQ) != 0)
-            ret = sdio_set_host_pm_flags(func, MMC_PM_WAKE_SDIO_IRQ);
+    /*
+     * if we don't use sdio irq, we can't get functions' capability with
+     * MMC_PM_WAKE_SDIO_IRQ, so we don't need set irq for wake up
+     * sdio for upcoming suspend.
+     */
+    if ((flags & MMC_PM_WAKE_SDIO_IRQ) != 0)
+        ret = sdio_set_host_pm_flags(func, MMC_PM_WAKE_SDIO_IRQ);
 
-        if (ret != 0) {
-            AML_BT_WIFI_MUTEX_OFF();
-            return -1;
-        }
+    if (ret != 0) {
+        AML_BT_WIFI_MUTEX_OFF();
+        return -1;
     }
 
     AML_BT_WIFI_MUTEX_OFF();
@@ -116,9 +143,10 @@ int _aml_sdio_request_buffer(unsigned char func_num,
         return -1;
     }
 
-    ASSERT(fix_incr == SDIO_OPMODE_FIXED|| fix_incr == SDIO_OPMODE_INCREMENT);
-    ASSERT(func->num == func_num);
+    BUG_ON(fix_incr != SDIO_OPMODE_FIXED && fix_incr != SDIO_OPMODE_INCREMENT);
+    BUG_ON(func->num != func_num);
 
+    AML_PROF_CNT(cmd53, nbytes);
     /* Claim host controller */
     sdio_claim_host(func);
 
@@ -147,6 +175,7 @@ int _aml_sdio_request_buffer(unsigned char func_num,
 
     /* Release host controller */
     sdio_release_host(func);
+    AML_PROF_CNT(cmd53, 0);
 
     return (err_ret == 0) ? SDIOH_API_RC_SUCCESS : SDIOH_API_RC_FAIL;
 }
@@ -172,13 +201,9 @@ int aml_sdio_probe(struct sdio_func *func, const struct sdio_device_id *id)
     if (ret)
         goto sdio_enable_error;
 
-    if (func->num == 4)
-        sdio_set_block_size(func, 512);
-    else
-        sdio_set_block_size(func, 512);
+    sdio_set_block_size(func, 512);
 
-    AML_DBG("func->num %d sdio block size=%d, \n",
-        func->num,  func->cur_blksize);
+    AML_DBG("func->num %d sdio block size=%d, \n", func->num,  func->cur_blksize);
 
     if (func->num == 1)
     {
@@ -187,21 +212,20 @@ int aml_sdio_probe(struct sdio_func *func, const struct sdio_device_id *id)
         g_hwif_sdio.sdio_func_if[0] = &sdio_func_0;
     }
     g_hwif_sdio.sdio_func_if[func->num] = func;
-    AML_DBG(" func->num %d sdio_func=%p, \n", func->num,  func);
+    AML_DBG("func->num %d sdio_func=%p, \n", func->num,  func);
 
     sdio_release_host(func);
     sdio_set_drvdata(func, (void *)(&g_hwif_sdio));
     if (func->num != FUNCNUM_SDIO_LAST)
     {
-        AML_DBG("func_num=%d, last func num=%d\n",
-            func->num, FUNCNUM_SDIO_LAST);
+        AML_DBG("func_num=%d, last func num=%d\n", func->num, FUNCNUM_SDIO_LAST);
         return 0;
     }
-    AML_INFO(" sdio probe success\n");
+    g_aml_device_id = id->device;
+    AML_INFO("device id 0x%x\n", g_aml_device_id);
+    AML_INFO("sdio probe success\n");
     aml_sdio_init_base_addr();
     aml_sdio_init_ops();
-    g_hif_sdio_ops.hi_enable_scat(&g_hwif_sdio);
-   // g_hif_sdio_ops.hi_enable_scat(&g_hwif_rx_sdio);
 
 #ifdef CONFIG_PT_MODE
     dev_set_drvdata(&func->dev, g_drv_data);
@@ -211,7 +235,7 @@ int aml_sdio_probe(struct sdio_func *func, const struct sdio_device_id *id)
     return ret;
 
 sdio_enable_error:
-    AML_ERR("sdio_enable_error:  line \n");
+    AML_ERR("sdio_enable_error: %d!\n", ret);
     sdio_release_host(func);
 
     return ret;
@@ -241,37 +265,182 @@ static void  aml_sdio_remove(struct sdio_func *func)
  int aml_sdio_pm_suspend(struct device *device)
 {
     int ret = 0;
-    int cnt = 0;
+    u64 start_time_ns;
+    u64 elapsed_time_ns = 0;
+    u64 wait_bt_time_ns = 8000000000; //wait bt 8s
+    u64 wait_wifi_time_ns = 12000000000; //wait wifi 12s
 
-    if (atomic_read(&g_wifi_pm.wifi_enable))
+    //bt open
+    if (aml_sdio_random_word_read(RG_BT_PMU_A16) & BIT(31))
     {
-        while (atomic_read(&g_wifi_pm.drv_suspend_cnt) == 0)
+        start_time_ns = sched_clock();
+        //bt drv suspend set bit25
+        while ((aml_sdio_random_word_read(RG_AON_A24) & BIT(25)) &&
+                (bus_state_detect.bus_err == 0) &&
+                (bus_state_detect.is_recy_ongoing == 0) &&
+                (elapsed_time_ns < wait_bt_time_ns))
         {
-            msleep(50);
-            cnt++;
-            if (cnt > 40)
-            {
-                AML_ERR("wifi suspend fail \n");
-                return -1;
-            }
+            elapsed_time_ns = sched_clock() - start_time_ns;
+            msleep(10);
+        }
+
+        if (elapsed_time_ns >= wait_bt_time_ns)
+        {
+            AML_INFO("bt suspend fail, return\n");
+            return -1;
+        }
+
+        // Detect a bus error or ongoing recovery,
+        // exit immediately to prevent blocking the kernel USB resume call.
+        if (bus_state_detect.bus_err || bus_state_detect.is_recy_ongoing)
+        {
+            printk("Detect a bus error or ongoing recovery, return\n");
+            return -1;
         }
     }
 
-    if (host_suspend_req != NULL)
-        ret = host_suspend_req(device);
-    else
-        ret = aml_sdio_suspend(1);
-    atomic_set(&g_wifi_pm.bus_suspend_cnt, 1);
+    elapsed_time_ns = 0;
+    if (atomic_read(&g_wifi_pm.wifi_enable))
+    {
+        start_time_ns = sched_clock();
+        while ((atomic_read(&g_wifi_pm.drv_suspend_cnt) == 0) &&
+                (bus_state_detect.bus_err == 0) &&
+                (bus_state_detect.is_recy_ongoing == 0) &&
+                (elapsed_time_ns < wait_wifi_time_ns))
+        {
+            elapsed_time_ns = sched_clock() - start_time_ns;
+            msleep(10);
+        }
+
+        if (elapsed_time_ns >= wait_wifi_time_ns)
+        {
+            AML_INFO("wifi suspend fail, return\n");
+            return -1;
+        }
+
+        if (atomic_read(&g_wifi_pm.wifi_suspend_state) != 0)
+        {
+            AML_INFO("Detect wifi suspend fail\n");
+            return -1;
+        }
+
+        // Detect a bus error or ongoing recovery,
+        // exit immediately to prevent blocking the kernel USB resume call.
+        if (bus_state_detect.bus_err || bus_state_detect.is_recy_ongoing)
+        {
+            printk("Detect a bus error or ongoing recovery, return\n");
+            return -1;
+        }
+    }
+
+    ret = aml_sdio_suspend(device);
+
+    atomic_inc(&g_wifi_pm.bus_suspend_cnt);
+    if (atomic_read(&g_wifi_pm.bus_suspend_cnt) == FUNCNUM_SDIO_LAST)
+    {
+        AML_INFO("aml_sdio_pm_suspend, cnt:0x%x \n", atomic_read(&g_wifi_pm.bus_suspend_cnt));
+    }
     return ret;
 }
 
- int aml_sdio_pm_resume(struct device *device)
+void aml_set_fw_wake(void)
+{
+    aml_sdio_self_define_domain_write8(RG_SDIO_PMU_WAKE, BIT(0));
+}
+
+ void aml_clear_fw_wake(void)
+{
+    unsigned char reg_value;
+
+    reg_value = aml_sdio_self_define_domain_read8(RG_SDIO_PMU_WAKE);
+    aml_sdio_self_define_domain_write8(RG_SDIO_PMU_WAKE, (reg_value & ~BIT(0)));
+}
+
+unsigned char aml_get_fw_ps_status(void)
+{
+    return aml_sdio_self_define_domain_read8(RG_SDIO_PMU_STATUS);
+}
+
+int aml_wake_fw_req(void)
+{
+    unsigned char fw_ps_st;
+    unsigned char fw_sleep, host_sleep_req;
+    unsigned int loop = 0, wake_flag = 0;
+    unsigned char host_req_status;
+
+    while (1)
+    {
+        fw_ps_st = aml_get_fw_ps_status();
+        fw_sleep = ((fw_ps_st & FW_SLEEP) != 0) ? 1 : 0;
+        host_req_status = aml_sdio_self_define_domain_read8(RG_SDIO_PMU_HOST_REQ);
+        host_sleep_req = ((host_req_status & HOST_SLEEP_REQ) != 0) ? 1 : 0;
+        fw_ps_st = fw_ps_st & 0xF;
+        if (fw_ps_st != PMU_ACT_MODE)
+        {
+            if (wake_flag == 0)
+            {
+                wake_flag = 1;
+                //delay 10ms for pmu deep sleep
+                msleep(10);
+                continue;
+            }
+            else if ((fw_ps_st == PMU_SLEEP_MODE) && (wake_flag == 1))
+            {
+                wake_flag = 2;
+                aml_clear_fw_wake();
+                aml_set_fw_wake();
+                udelay(20);
+            }
+        }
+
+        if (host_sleep_req == 1)
+        {
+            // clear sleep req flag
+            host_req_status &= ~HOST_SLEEP_REQ;
+            aml_sdio_self_define_domain_write8(RG_SDIO_PMU_HOST_REQ, host_req_status);
+        }
+
+        if ((fw_ps_st == PMU_ACT_MODE) && (fw_sleep == 0) && (host_sleep_req == 0))
+        {
+            if (wake_flag == 2)
+            {
+                aml_clear_fw_wake();
+            }
+            return 0;
+        }
+
+        loop++;
+        if (loop < 1000)
+        {
+            udelay(200);
+        }
+        else
+        {
+            AML_INFO("fw ps st 0x%x, fw_sleep 0x%x, host_sleep_req 0x%x\n", fw_ps_st, fw_sleep, host_sleep_req);
+            return -1;
+        }
+    }
+}
+
+int aml_sdio_pm_resume(struct device *device)
 {
     int ret = 0;
+    struct sdio_func *func = NULL;
 
-    if (host_resume_req != NULL)
-        ret = host_resume_req(device);
-    atomic_set(&g_wifi_pm.bus_suspend_cnt, 0);
+    func = dev_to_sdio_func(device);
+
+    if (func->num == SDIO_FUNC1) {
+        if (aml_wake_fw_req() != 0) {
+            AML_ERR("host wake fw fail \n");
+            return -1;
+        }
+    }
+
+    atomic_dec(&g_wifi_pm.bus_suspend_cnt);
+    if (atomic_read(&g_wifi_pm.bus_suspend_cnt) == 0)
+    {
+        AML_INFO("aml_sdio_pm_resume, cnt:0x%x \n", atomic_read(&g_wifi_pm.bus_suspend_cnt));
+    }
 
     return ret;
 }
@@ -310,23 +479,10 @@ void aml_sdio_shutdown(struct device *device)
     //notify bt wifi will go shutdown
     aml_sdio_random_word_write(RG_AON_A16, aml_sdio_random_word_read(RG_AON_A16) | BIT(28));
 
-    //prevrnt msg_send & reg read_write
+    //prevent msg_send & reg read_write
     atomic_set(&g_wifi_pm.is_shut_down, 1);
 }
 
-bool aml_sdio_block_bus_opt(void)
-{
-    if (atomic_read(&g_wifi_pm.is_shut_down) == 1)
-    {
-       ERROR_DEBUG_OUT("fw shut down(%d) , do not read/write now!\n",
-       atomic_read(&g_wifi_pm.is_shut_down));
-       return true;
-    }
-    else
-    {
-       return false;
-    }
-}
 static SIMPLE_DEV_PM_OPS(aml_sdio_pm_ops, aml_sdio_pm_suspend,
                      aml_sdio_pm_resume);
 
@@ -336,6 +492,7 @@ static const struct sdio_device_id aml_sdio[] =
     {SDIO_DEVICE(W2_VENDOR_AMLOGIC_EFUSE,W2_PRODUCT_AMLOGIC_EFUSE)},
     {SDIO_DEVICE(W2s_VENDOR_AMLOGIC_EFUSE,W2s_A_PRODUCT_AMLOGIC_EFUSE)},
     {SDIO_DEVICE(W2s_VENDOR_AMLOGIC_EFUSE,W2s_B_PRODUCT_AMLOGIC_EFUSE)},
+    {SDIO_DEVICE(W2s_VENDOR_AMLOGIC_EFUSE,W2s_C_PRODUCT_AMLOGIC_EFUSE)},
     {}
 };
 
@@ -354,6 +511,13 @@ int  aml_sdio_init(void)
     int err = 0;
 
     //amlwifi_set_sdio_host_clk(200000000);//200MHZ
+
+#if defined(CONFIG_AML_PLATFORM_ANDROID) && \
+    !defined(CONFIG_AML_SDIO_IRQ_VIA_GPIO) && \
+    LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0)
+    /* kernel-4.9 needs to set sdio clock always on for data1 interrupt */
+    sdio_clk_always_on(1);
+#endif
 
     err = sdio_register_driver(&aml_sdio_driver);
     g_sdio_driver_insmoded = 1;
@@ -387,24 +551,21 @@ void aml_sdio_reset(void)
     int try_count = 0;
 
     AML_INFO("******* sdio reset begin *******\n");
-Try_again:
-#ifndef CONFIG_PT_MODE
-#ifndef CONFIG_LINUXPC_VERSION
-    extern_wifi_set_enable(0);
-#endif
-#endif
+try_again:
+    aml_wifi_power_on(0);
     aml_sdio_exit();
     while (g_sdio_driver_insmoded == 1) {
         msleep(5);
     }
-#ifndef CONFIG_PT_MODE
-#ifndef CONFIG_LINUXPC_VERSION
-    extern_wifi_set_enable(1);
+    aml_wifi_power_on(1);
+
+#ifdef CONFIG_AML_PLATFORM_ANDROID
     msleep(100);
     sdio_reinit();
 #endif
-#endif
+
     aml_sdio_init();
+
     while (g_sdio_driver_insmoded == 0) {
         msleep(5);
     }
@@ -414,7 +575,7 @@ Try_again:
         if ((bus_state_detect.bus_err) && try_count <= 3) {
             try_count++;
             AML_ERR(" *******sdio reset failed, try again(%d)", try_count);
-            goto Try_again;
+            goto try_again;
         }
         bus_state_detect.bus_reset_ongoing = 0;
     }
@@ -443,7 +604,6 @@ void set_wifi_bt_sdio_driver_bit(bool is_register, int shift)
     AML_BT_WIFI_MUTEX_OFF();
 }
 
-
 int aml_sdio_insmod(void)
 {
     aml_sdio_init();
@@ -451,19 +611,18 @@ int aml_sdio_insmod(void)
 #ifdef CONFIG_PT_MODE
     if (!g_sdio_is_probe) {
         aml_sdio_exit();
-        AML_ERR(" err found! g_sdio_is_probe: %d\n", g_sdio_is_probe);
+        AML_ERR("err found! g_sdio_is_probe: %d\n", g_sdio_is_probe);
         return -1;
     }
 #endif
 
-    AML_INFO(" start...\n");
+    AML_INFO("start...\n");
     return 0;
 }
 
 void aml_sdio_rmmod(void)
 {
     aml_sdio_exit();
-    g_hif_sdio_ops.hi_cleanup_scat(&g_hwif_sdio);
     wifi_drv_rmmod_ongoing = 0;
 }
 

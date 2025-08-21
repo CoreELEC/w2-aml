@@ -1,3 +1,10 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+* Copyright (C) 202X Original Author (retain original author information)
+* Copyright (C) 202X Amlogic, Inc. All rights reserved.
+*
+* Description:
+*/
 #ifdef RF_D_ADDA_RECV_REG
 #else
 #define RF_D_ADDA_RECV_REG
@@ -458,7 +465,7 @@ typedef union RG_RECV_A27_FIELD
 
 #define RG_RECV_A28                               (RF_D_ADDA_RECV_REG_BASE + 0x70)
 // Bit 24          rg_rxirr_comp_gain_select      U     RW        default = 'h1
-// Bit 28          rg_rxirr_comp_manaul           U     RW        default = 'h0
+// Bit 28          rg_rxirr_comp_manual           U     RW        default = 'h0
 typedef union RG_RECV_A28_FIELD
 {
   unsigned int data;
@@ -467,7 +474,7 @@ typedef union RG_RECV_A28_FIELD
     unsigned int rsvd_0 : 24;
     unsigned int rg_rxirr_comp_gain_select : 1;
     unsigned int rsvd_1 : 3;
-    unsigned int rg_rxirr_comp_manaul : 1;
+    unsigned int rg_rxirr_comp_manual : 1;
     unsigned int rsvd_2 : 3;
   } b;
 } RG_RECV_A28_FIELD_T;

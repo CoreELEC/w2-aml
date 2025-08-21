@@ -11,19 +11,26 @@
 #ifndef _AML_PROF_H_
 #define _AML_PROF_H_
 
-#include "reg_access.h"
-#include "aml_platform.h"
+#include "linux/gpio.h"
 
-static inline void aml_prof_set(struct aml_hw *aml_hw, int val)
+#define AML_PROF_CNT(name, counter)         AML_PROF('C', #name, counter)
+#define AML_PROF_HI(name)                   AML_PROF('S', #name, 1000) // 'B' doesn't work
+#define AML_PROF_LO(name)                   AML_PROF('F', #name, 1000) // 'E' doesn't work
+#define AML_PROF_START(name, cookie)        AML_PROF('S', #name, AML_PROF_COOKIE(cookie))
+#define AML_PROF_FIN(name, cookie)          AML_PROF('F', #name, AML_PROF_COOKIE(cookie))
+
+#define AML_PROF(flag, name, value)         do { } while(0)
+
+struct aml_hw;
+
+static inline void aml_prof_set(struct aml_hw *aml_hw, int gpio)
 {
-    struct aml_plat *aml_plat = aml_hw->plat;
-    AML_REG_WRITE(val, aml_plat, AML_ADDR_SYSTEM, NXMAC_SW_SET_PROFILING_ADDR);
+    gpio_set_value(gpio, 1);
 }
 
-static inline void aml_prof_clear(struct aml_hw *aml_hw, int val)
+static inline void aml_prof_clear(struct aml_hw *aml_hw, int gpio)
 {
-    struct aml_plat *aml_plat = aml_hw->plat;
-    AML_REG_WRITE(val, aml_plat, AML_ADDR_SYSTEM, NXMAC_SW_CLEAR_PROFILING_ADDR);
+    gpio_set_value(gpio, 0);
 }
 
 #if 0

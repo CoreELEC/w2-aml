@@ -13,28 +13,43 @@
 #ifndef __AML_STATIC_BUF__
 #define __AML_STATIC_BUF__
 
-#define WLAN_AML_HW_RX_SIZE (5 * (324 * 1024))
-#define WLAN_AML_SDIO_SIZE (320 * 1024)
-#define WLAN_AML_AMSDU_SIZE (388 * 1024)
-#define FW_VERBOSE_RING_SIZE (260 * 1024)
-#define AML_PREALLOC_BUF_TYPE_TXQ_SIZE (36 * 1024)
-#define AML_PREALLOC_BUF_TYPE_DUMP_SIZE (1290 * 1024)
-#define AML_PREALLOC_TRACE_PTR_EXPEND_BUF_SIZE (21 * 1024)
-#define AML_PREALLOC_TRACE_STR_EXPEND_BUF_SIZE (84 * 1024)
+#include "ipc_shared.h"
 
-enum aml_prealloc_index {
-    AML_PREALLOC_BUF_TYPE_TXQ = 7,
-    AML_PREALLOC_BUF_TYPE_DUMP = 11,
-    AML_PREALLOC_DOWNLOAD_FW = 20,
-    AML_PREALLOC_HW_RX = 24,
-    AML_PREALLOC_SDIO = 25,
-    AML_PREALLOC_AMSDU = 26,
-    AML_PREALLOC_TRACE_PTR_EXPEND_BUF = 27,
-    AML_PREALLOC_TRACE_STR_EXPEND_BUF = 28,
-    AML_PREALLOC_MAX
+#define PREALLOC_BUF_FW_DL_SIZE         (260 * 1024)
+#define PREALLOC_BUF_BUS_SIZE           (320 * 1024)
+#ifdef LIGHT_WEIGHT_MEM
+#define PREALLOC_BUF_TYPE_DUMP_SIZE     sizeof(struct dbg_debug_info_tag)
+#else
+#define PREALLOC_BUF_TYPE_DUMP_SIZE     sizeof(struct dbg_debug_dump_tag)
+#endif
+#define PREALLOC_BUF_TYPE_RXBUF_SIZE    (5 * 324 * 1024)
+#define PREALLOC_BUF_TYPE_TXQ_SIZE      (36 * 1024)
+#define PREALLOC_BUF_TYPE_AMSDU_SIZE    (388 * 1024)
+#define PREALLOC_TRACE_PTR_EXPEND_SIZE  (21 * 1024)
+#define PREALLOC_TRACE_STR_EXPEND_SIZE  (84 * 1024)
+
+enum prealloc_buf_type {
+    PREALLOC_BUF_FW_DL = 0,
+    PREALLOC_BUF_BUS,
+
+    /* used by Wi-Fi */
+    PREALLOC_BUF_TYPE_DUMP,
+    PREALLOC_BUF_TYPE_RXBUF,
+    PREALLOC_BUF_TYPE_TXQ,
+    PREALLOC_BUF_TYPE_AMSDU,
+    PREALLOC_TRACE_PTR_EXPEND,
+    PREALLOC_TRACE_STR_EXPEND,
+
+    PREALLOC_BUF_TYPE_MAX,
 };
 
-extern void* aml_mem_prealloc(int section, unsigned long size);
+void *__aml_mem_prealloc(enum prealloc_buf_type buf_type, size_t req_size, size_t *actual_size);
+
+static inline void *aml_mem_prealloc(enum prealloc_buf_type buf_type, size_t req_size)
+{
+    return __aml_mem_prealloc(buf_type, req_size, NULL);
+}
+
 int aml_init_wlan_mem(void);
 void aml_deinit_wlan_mem(void);
 

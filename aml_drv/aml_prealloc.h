@@ -17,27 +17,17 @@
 
 #ifdef CONFIG_AML_PREALLOC_BUF_STATIC
 
-#define PREALLOC_BUF_DUMP_SIZE AML_PREALLOC_BUF_TYPE_DUMP_SIZE
-#define PREALLOC_BUF_INFO_SIZE AML_PREALLOC_BUF_TYPE_TXQ_SIZE
+static inline void *aml_prealloc_get_ex(enum prealloc_buf_type buf_type,
+                                        size_t req_size,
+                                        size_t *actual_size)
+{
+    return __aml_mem_prealloc(buf_type, req_size, actual_size);
+}
 
-/* inner buffer type */
-enum prealloc_buf_type {
-    PREALLOC_BUF_TYPE_MSG = 0,
-    PREALLOC_BUF_TYPE_DBG,
-    PREALLOC_BUF_TYPE_RADAR,
-    PREALLOC_BUF_TYPE_TXCFM,
-    PREALLOC_BUF_TYPE_TXPATTERN,
-    PREALLOC_BUF_TYPE_BEACON,
-    PREALLOC_BUF_TYPE_DUMP,
-    PREALLOC_BUF_TYPE_RX,
-    PREALLOC_BUF_TYPE_TXQ,
-    PREALLOC_BUF_TYPE_AMSDU,
-    PREALLOC_TRACE_PTR_EXPEND,
-    PREALLOC_TRACE_STR_EXPEND,
-    PREALLOC_BUF_TYPE_MAX,
-};
-void *aml_prealloc_get(int buf_type, size_t buf_size, size_t *alloc_size);
-
+static inline void *aml_prealloc_get(enum prealloc_buf_type buf_type, size_t req_size)
+{
+    return aml_prealloc_get_ex(buf_type, req_size, NULL);
+}
 
 #endif  // CONFIG_PREALLOC_BUF_STATIC
 

@@ -16,14 +16,18 @@
 #include "aml_sap.h"
 
 #define AML_MIN_ROC_DUR   102
-#define SUSPEND_TX_REQ_FLUSH_TO   3000000000 //3s
-#define SUSPEND_TX_FLUSH_TO       5000000000 //5s
-
+#define SUSPEND_TX_REQ_FLUSH_TO   5000000000 //5s
+#define SUSPEND_TX_FLUSH_TO       10000000000 //10s
 
 int aml_cfg80211_init(struct aml_plat *aml_plat, void **platform_data);
 void aml_cfg80211_deinit(struct aml_hw *aml_hw);
 int aml_cfg80211_change_iface(struct wiphy *wiphy,
-        struct net_device *dev, enum nl80211_iftype type, struct vif_params *params);
+                                      struct net_device *dev,
+                                      enum nl80211_iftype type,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 12, 0)
+                                      u32 *flags,
+#endif
+                                      struct vif_params *params);
 const char *aml_get_version(void);
 void aml_cfg80211_sched_scan_results(struct wiphy *wiphy, uint64_t reqid);
 int aml_cancel_scan(struct aml_hw *aml_hw, struct aml_vif *vif);
@@ -33,9 +37,8 @@ int aml_cfg80211_start_ap(struct wiphy *wiphy,
 int aml_cfg80211_del_station(struct wiphy *wiphy,
         struct net_device *dev, struct station_del_parameters *params);
 int aml_config_cali_param(struct aml_hw *aml_hw);
-void aml_set_scan_hang(struct aml_vif *aml_vif, int scan_hang, u8* func, u32 line);
-u32 aml_pci_readl(u8* addr);
-void aml_pci_writel(u32 data, u8* addr);
-int aml_ps_wow_resume(struct aml_hw *aml_hw);
+void aml_set_scan_hang(struct aml_vif *aml_vif, int scan_hang, const char* func, u32 line);
+void aml_get_dbg_info(struct aml_hw *aml_hw);
+int aml_ps_wow_resume(struct aml_hw *aml_hw, bool wifi_suspend_err);
 
 #endif /* _AML_MAIN_H_ */

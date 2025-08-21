@@ -1,4 +1,11 @@
 #!/bin/bash
+# SPDX-License-Identifier: GPL-2.0 */
+#
+#Copyright (C) 2025 Original Author (retain original author information)
+#Copyright (C) 2025 Amlogic, Inc. All rights reserved.
+#
+#Description:
+#
 #
 # Outputs svn revision of directory $VERDIR into $TARGET if it changes $TARGET
 # example output omitting enclosing quotes:
@@ -46,7 +53,7 @@ then
 	    elif [ $idx -gt 0 ] || (git status -uno --porcelain | grep -q '^ M')
 	    then
 		# If this is not the HEAD, or working copy is not clean then we're
-		# not at a commited svn revision so add 'M'
+		# not at a committed svn revision so add 'M'
 		svnrev=$svnrev"M"
 	    fi
 	done

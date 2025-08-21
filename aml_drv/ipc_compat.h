@@ -18,7 +18,7 @@
 #define ASSERT_ERR(condition)                                                           \
     do {                                                                                \
         if (unlikely(!(condition))) {                                                   \
-            printk(KERN_ERR "%s:%d:ASSERT_ERR(" #condition ")\n", __FILE__,  __LINE__); \
+            AML_ERR("ASSERT_ERR(" #condition ")\n");                                    \
         }                                                                               \
     } while(0)
 

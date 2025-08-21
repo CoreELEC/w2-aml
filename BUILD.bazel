@@ -1,6 +1,5 @@
-load("@kleaf//build/kernel/kleaf:kernel.bzl", "ddk_headers", "ddk_module")
+load("//build/kernel/kleaf:kernel.bzl", "ddk_headers", "ddk_module")
 load("//driver_modules/wifi_bt/wifi:configs/wifi_ko_list.bzl", "driver_files")
-load("//common_drivers:amlogic_utils.bzl", "kernel_select")
 
 driver_files()
 
@@ -39,6 +38,25 @@ ddk_module(
         "//common_drivers:soc_headers",
         "//driver_modules/wifi_bt/wifi/amlogic/w2:w2_comm_headers",
     ],
+    local_defines = [
+        "CONFIG_AML_FULLMAC",
+        "CONFIG_AML_W2L_RX_MINISIZE",
+        "CONFIG_AML_SDIO_IRQ_VIA_GPIO",
+        "CONFIG_CUSTOMER_11D_FORBIDDEN",
+        "SDIO_MODE_ON",
+        "NX_VIRT_DEV_MAX=4",    # FW VARS
+        "NX_REMOTE_STA_MAX=10", # FW VARS
+        "NX_MU_GROUP_MAX=62",   # FW VARS
+        "NX_TX_MAX_RATES=4",    # FW VARS
+        "NX_CHAN_CTXT_CNT=3",   # FW VARS
+        "NX_TXQ_CNT=CONFIG_NX_TXQ_CNT",
+        "CONFIG_USER_MAX=CONFIG_USER_MAX",
+        "DEBUG_CODE",
+        "DRV_P2P_SCC_MODE",  # drv scc mode for p2p
+        "SCC_STA_SOFTAP",  #hostapd cannot handle sta+softap scc mode,so do sta_softap scc in fw&drv
+        "SYSTEM64",
+        "SYSTEM_TYPE=SYSTEM64",
+    ],
     copts = [
         "-Wno-sometimes-uninitialized",
         "-Wno-uninitialized",
@@ -50,7 +68,9 @@ ddk_module(
         "-Wno-extra-tokens",
     ],
     out = "w2_comm.ko",
-    kernel_build = kernel_select(),
+    defconfig  = "defconfig",
+    kconfig = "Kconfig",
+    kernel_build = "//common_drivers:amlogic",
     visibility = ["//visibility:public"],
     deps = [
         "//common_drivers/drivers/mmc/host:amlogic-mmc",
@@ -77,7 +97,6 @@ ddk_module(
         "aml_drv/aml_txq.c",
         "aml_drv/aml_mod_params.c",
         "aml_drv/aml_platform.c",
-        "aml_drv/aml_dini.c",
         "aml_drv/ipc_host.c",
         "aml_drv/hal_desc.c",
         "aml_drv/aml_prealloc.c",
@@ -94,6 +113,9 @@ ddk_module(
         "aml_drv/aml_sap.c",
         "aml_drv/aml_mdns_offload.c",
         "aml_drv/aml_fw_trace.c",
+        "aml_drv/aml_rate.c",
+        "aml_drv/aml_sdio_usb_rx.c",
+        "aml_drv/aml_cfgvendor.c",
     ],
     conditional_srcs = {
         "CONFIG_AML_RADAR": {
@@ -127,6 +149,7 @@ ddk_module(
         "NX_TX_MAX_RATES=4",    # FW VARS
         "NX_CHAN_CTXT_CNT=3",   # FW VARS
         "NX_TXQ_CNT=CONFIG_NX_TXQ_CNT",
+        "CONFIG_USER_MAX=CONFIG_USER_MAX",
         "DEBUG_CODE",
         "DRV_P2P_SCC_MODE",  # drv scc mode for p2p
         "SCC_STA_SOFTAP",  #hostapd cannot handle sta+softap scc mode,so do sta_softap scc in fw&drv
@@ -157,7 +180,7 @@ ddk_module(
     out = "w2.ko",
     defconfig  = "defconfig",
     kconfig = "Kconfig",
-    kernel_build = kernel_select(),
+    kernel_build = "//common_drivers:amlogic",
     visibility = ["//visibility:public"],
     deps = [
         "//common_drivers/drivers/mmc/host:amlogic-mmc",

@@ -36,7 +36,9 @@
 /* Offset of OUI Subtype field in Vendor Public Action Frame format */
 #define MGMT_ACTION_OUI_SUBTYPE_OFFSET (5)
 
-const char *ftrace_print_mgmt_info(struct trace_seq *p, u16 frame_control, u8 cat, u8 type, u8 vendor) {
+static inline const char *
+ftrace_print_mgmt_info(struct trace_seq *p, u16 frame_control, u8 cat, u8 type, u8 vendor)
+{
     const char *ret = trace_seq_buffer_ptr(p);
 
     switch (frame_control & IEEE80211_FCTL_STYPE) {
@@ -59,9 +61,9 @@ const char *ftrace_print_mgmt_info(struct trace_seq *p, u16 frame_control, u8 ca
                 // 'cat' is the 1 first after OUI and 'type' the second byte
                 if (vendor == 0x09) {
                     switch (cat) {
-                        case (P2P_ACTION_GO_NEG_REQ): trace_seq_printf(p, ": GO Negociation Request"); break;
-                        case (P2P_ACTION_GO_NEG_RSP): trace_seq_printf(p, ": GO Negociation Response"); break;
-                        case (P2P_ACTION_GO_NEG_CFM): trace_seq_printf(p, ": GO Negociation Confirmation"); break;
+                        case (P2P_ACTION_GO_NEG_REQ): trace_seq_printf(p, ": GO Negotiation Request"); break;
+                        case (P2P_ACTION_GO_NEG_RSP): trace_seq_printf(p, ": GO Negotiation Response"); break;
+                        case (P2P_ACTION_GO_NEG_CFM): trace_seq_printf(p, ": GO Negotiation Confirmation"); break;
                         case (P2P_ACTION_INVIT_REQ): trace_seq_printf(p, ": P2P Invitation Request"); break;
                         case (P2P_ACTION_INVIT_RSP): trace_seq_printf(p, ": P2P Invitation Response"); break;
                         case (P2P_ACTION_DEV_DISC_REQ): trace_seq_printf(p, ": Device Discoverability Request"); break;
@@ -252,7 +254,7 @@ TRACE_EVENT(
 #include <linux/ftrace_event.h>
 #endif
 
-const char *
+static inline const char *
 ftrace_print_txq(struct trace_seq *p, int txq_idx) {
     const char *ret = trace_seq_buffer_ptr(p);
 
@@ -287,7 +289,7 @@ ftrace_print_txq(struct trace_seq *p, int txq_idx) {
     return ret;
 }
 
-const char *
+static inline const char *
 ftrace_print_sta(struct trace_seq *p, int sta_idx) {
     const char *ret = trace_seq_buffer_ptr(p);
 
@@ -302,7 +304,7 @@ ftrace_print_sta(struct trace_seq *p, int sta_idx) {
     return ret;
 }
 
-const char *
+static inline const char *
 ftrace_print_hwq(struct trace_seq *p, int hwq_idx) {
 
     static const struct trace_print_flags symbols[] =
@@ -319,7 +321,7 @@ ftrace_print_hwq(struct trace_seq *p, int hwq_idx) {
     return trace_print_symbols_seq(p, hwq_idx, symbols);
 }
 
-const char *
+static inline const char *
 ftrace_print_hwq_cred(struct trace_seq *p, u8 *cred) {
     const char *ret = trace_seq_buffer_ptr(p);
 
@@ -337,7 +339,7 @@ ftrace_print_hwq_cred(struct trace_seq *p, u8 *cred) {
     return ret;
 }
 
-const char *
+static inline const char *
 ftrace_print_mu_info(struct trace_seq *p, u8 mu_info) {
     const char *ret = trace_seq_buffer_ptr(p);
 
@@ -348,7 +350,7 @@ ftrace_print_mu_info(struct trace_seq *p, u8 mu_info) {
     return ret;
 }
 
-const char *
+static inline const char *
 ftrace_print_mu_group(struct trace_seq *p, int nb_user, u8 *users) {
     const char *ret = trace_seq_buffer_ptr(p);
 #if CONFIG_USER_MAX > 1
@@ -372,7 +374,7 @@ ftrace_print_mu_group(struct trace_seq *p, int nb_user, u8 *users) {
     return ret;
 }
 
-const char *
+static inline const char *
 ftrace_print_amsdu(struct trace_seq *p, u16 nb_pkt) {
     const char *ret = trace_seq_buffer_ptr(p);
 
@@ -383,7 +385,7 @@ ftrace_print_amsdu(struct trace_seq *p, u16 nb_pkt) {
     return ret;
 }
 
-const char *
+static inline const char *
 ftrace_print_sn(struct trace_seq *p, u16 sn) {
     const char *ret = trace_seq_buffer_ptr(p);
 

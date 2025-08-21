@@ -85,7 +85,7 @@ int aml_msg_task(void *data)
 {
     struct aml_hw *aml_hw = (struct aml_hw *)data;
     struct aml_cmd_mgr *cmd_mgr = &aml_hw->cmd_mgr;
-    struct aml_cmd *cmd = NULL;
+    struct aml_cmd *cmd;
     bool found = false;
 
     aml_sched_rt_set(SCHED_RR, AML_TASK_PRI);
@@ -100,7 +100,7 @@ int aml_msg_task(void *data)
         }
 
         spin_lock_bh(&cmd_mgr->lock);
-        cmd = NULL;
+        found = false;
         list_for_each_entry(cmd, &cmd_mgr->cmds, list) {
             if (cmd->flags & AML_CMD_FLAG_WAIT_PUSH) {
                 found = true;
@@ -109,7 +109,7 @@ int aml_msg_task(void *data)
         }
         spin_unlock_bh(&cmd_mgr->lock);
 
-        if (found) {
+       if (found) {
             int ret;
 
             CMD_PRINT(cmd);
@@ -118,12 +118,18 @@ int aml_msg_task(void *data)
             spin_unlock_bh(&cmd_mgr->lock);
 
             trace_msg_send(cmd->id);
-            ret = aml_ipc_msg_push(aml_hw, cmd, AML_CMD_A2EMSG_LEN(cmd->a2e_msg));
             spin_lock_bh(&cmd_mgr->lock);
             if (cmd->a2e_msg) {
+                spin_unlock_bh(&cmd_mgr->lock);
+                ret = aml_ipc_msg_push(aml_hw, cmd, AML_CMD_A2EMSG_LEN(cmd->a2e_msg));
+                spin_lock_bh(&cmd_mgr->lock);
                 kfree(cmd->a2e_msg);
                 cmd->a2e_msg = NULL;
             }
+            else {
+                ret = -1;
+            }
+
             if (ret) {
                 cmd->flags &= ~(AML_CMD_FLAG_WAIT_ACK | AML_CMD_FLAG_WAIT_CFM);
                 cmd_complete(cmd_mgr, cmd);
@@ -135,6 +141,7 @@ int aml_msg_task(void *data)
             found = false;
         }
     }
+
     if (aml_hw->aml_msg_completion_init) {
         aml_hw->aml_msg_completion_init = 0;
 #if LINUX_VERSION_CODE <= KERNEL_VERSION(5, 16, 20)
@@ -164,12 +171,18 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
 
     trace_msg_send(cmd->id);
 
+    if (cmd_mgr->queue_sz + 1 > 2)
+        tout = msecs_to_jiffies(AML_80211_CMD_TIMEOUT_MS * 2);
+
     spin_lock_bh(&cmd_mgr->lock);
 
     if (cmd_mgr->state == AML_CMD_MGR_STATE_CRASHED) {
         u32 i;
         AML_ERR("cmd queue crashed\n");
         cmd->result = -EPIPE;
+        kfree(cmd->a2e_msg);
+        if (cmd->flags & AML_CMD_FLAG_NONBLOCK)
+            kfree(cmd);
         spin_unlock_bh(&cmd_mgr->lock);
         if (aml_bus_type == PCIE_MODE) {
             for (i = 0; i < NX_VIRT_DEV_MAX; i++) {
@@ -194,6 +207,9 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
             AML_ERR("Too many cmds (%d) already queued\n",
                    cmd_mgr->max_queue_sz);
             cmd->result = -ENOMEM;
+            kfree(cmd->a2e_msg);
+            if (cmd->flags & AML_CMD_FLAG_NONBLOCK)
+                kfree(cmd);
             spin_unlock_bh(&cmd_mgr->lock);
             return -ENOMEM;
         }
@@ -227,24 +243,28 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
         if ((aml_bus_type != PCIE_MODE) && (cmd->flags & AML_CMD_FLAG_CALL_THREAD)) {
             cmd->flags |= AML_CMD_FLAG_WAIT_PUSH;
             up(&aml_hw->aml_msg_sem);
-            spin_unlock_bh(&cmd_mgr->lock);
         } else {
-            spin_unlock_bh(&cmd_mgr->lock);
-            ret = aml_ipc_msg_push(aml_hw, cmd, AML_CMD_A2EMSG_LEN(cmd->a2e_msg));
-            spin_lock_bh(&cmd_mgr->lock);
             if (cmd->a2e_msg) {
+                spin_unlock_bh(&cmd_mgr->lock);
+                /* coverity[MISSING_LOCK] - aml_ipc_msg_push call sleep or call trace */
+                ret = aml_ipc_msg_push(aml_hw, cmd, AML_CMD_A2EMSG_LEN(cmd->a2e_msg));
+                spin_lock_bh(&cmd_mgr->lock);
                 kfree(cmd->a2e_msg);
                 cmd->a2e_msg = NULL;
             }
+            else
+                ret = -1;
+
             if (ret) {
                 cmd->flags &= ~(AML_CMD_FLAG_WAIT_ACK | AML_CMD_FLAG_WAIT_CFM);
                 cmd_complete(cmd_mgr, cmd);
                 spin_unlock_bh(&cmd_mgr->lock);
                 return ret;
             }
-            spin_unlock_bh(&cmd_mgr->lock);
         }
+        spin_unlock_bh(&cmd_mgr->lock);
     }
+
 
     if (!(cmd_flags & AML_CMD_FLAG_NONBLOCK)) {
         #ifdef CONFIG_AML_FHOST
@@ -288,6 +308,13 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
                     break;
                 }
             }
+            spin_lock_bh(&cmd_mgr->lock);
+            if (list_empty(&cmd_mgr->cmds)) {
+                spin_unlock_bh(&cmd_mgr->lock);
+                AML_INFO("cmd_mgr->cmds is null");
+                return 0;
+            }
+            spin_unlock_bh(&cmd_mgr->lock);
             AML_ERR("cmd timed-out\n");
             cmd_dump(cmd);
             spin_lock_bh(&cmd_mgr->lock);
@@ -322,26 +349,29 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
     return 0;
 }
 
-
 static void cmd_mgr_next_cmd(struct aml_hw *aml_hw, struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
 {
     struct aml_cmd *cur;
     int ret;
-    bool found;
+    bool found = false;
 
     do {
         cmd->flags &= ~AML_CMD_FLAG_WAIT_PUSH;
-        ret = aml_ipc_msg_push(aml_hw, cmd, AML_CMD_A2EMSG_LEN(cmd->a2e_msg));
         if (cmd->a2e_msg) {
+            ret = aml_ipc_msg_push(aml_hw, cmd, AML_CMD_A2EMSG_LEN(cmd->a2e_msg));
             kfree(cmd->a2e_msg);
             cmd->a2e_msg = NULL;
+        } else {
+            ret = -1;
         }
+
         /* push msg fail */
         if (ret) {
             CMD_PRINT(cmd);
             cmd->flags &= ~(AML_CMD_FLAG_WAIT_ACK | AML_CMD_FLAG_WAIT_CFM);
             cmd_complete(cmd_mgr, cmd);
             found = false;
+            /* coverity[UNREACHABLE], just loop one time for find next cmd */
             list_for_each_entry(cur, &cmd_mgr->cmds, list) {
                 if ((cur->list.next != &cmd_mgr->cmds) && (cur->flags & AML_CMD_FLAG_WAIT_PUSH)) {
                     cmd = cur;
@@ -354,6 +384,8 @@ static void cmd_mgr_next_cmd(struct aml_hw *aml_hw, struct aml_cmd_mgr *cmd_mgr,
                 }
             }
         }
+        else
+            found = false;
     }while (cmd && found);
 }
 
@@ -393,18 +425,16 @@ static int cmd_mgr_llind(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
     }
 
     if (next && !defer_push) {
-        if (aml_bus_type != PCIE_MODE) {
-            up(&aml_hw->aml_msg_sem);
-        } else {
-            cmd_mgr_next_cmd(aml_hw, cmd_mgr, next);
-        }
+       if (aml_bus_type != PCIE_MODE) {
+           up(&aml_hw->aml_msg_sem);
+       } else {
+           cmd_mgr_next_cmd(aml_hw, cmd_mgr, next);
+       }
     }
     aml_spin_unlock(&cmd_mgr->lock);
 
     return 0;
 }
-
-
 
 static int cmd_mgr_run_callback(struct aml_hw *aml_hw, struct aml_cmd *cmd,
                                 struct aml_cmd_e2amsg *msg, msg_cb_fct cb)
@@ -422,7 +452,6 @@ static int cmd_mgr_run_callback(struct aml_hw *aml_hw, struct aml_cmd *cmd,
 
 /**
  *
-
  */
 static int cmd_mgr_msgind(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd_e2amsg *msg,
                           msg_cb_fct cb)
@@ -539,8 +568,11 @@ void aml_cmd_mgr_init(struct aml_cmd_mgr *cmd_mgr)
 
     INIT_LIST_HEAD(&cmd_mgr->cmds);
 
+    /* coverity[side_effect_free] - standard kernel interface */
     spin_lock_init(&cmd_mgr->lock);
+    spin_lock_bh(&cmd_mgr->lock);
     cmd_mgr->state = AML_CMD_MGR_STATE_INITED;
+    spin_unlock_bh(&cmd_mgr->lock);
     cmd_mgr->max_queue_sz = AML_CMD_MAX_QUEUED;
     cmd_mgr->queue  = &cmd_mgr_queue;
     cmd_mgr->print  = &cmd_mgr_print;
@@ -554,7 +586,9 @@ void aml_cmd_mgr_init(struct aml_cmd_mgr *cmd_mgr)
  */
 void aml_cmd_mgr_deinit(struct aml_cmd_mgr *cmd_mgr)
 {
+    spin_lock_bh(&cmd_mgr->lock);
     cmd_mgr->state = AML_CMD_MGR_STATE_DEINIT;
+    spin_unlock_bh(&cmd_mgr->lock);
     cmd_mgr->print(cmd_mgr);
     cmd_mgr->drain(cmd_mgr);
     cmd_mgr->print(cmd_mgr);

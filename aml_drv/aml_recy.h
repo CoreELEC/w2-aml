@@ -21,6 +21,7 @@
 
 #define AML_RECY_RECONNECT_TIMES    (5)
 #define AML_RECY_MON_INTERVAL       (4 * HZ)
+#define AML_WAKE_SRC_INTERVAL       (3 * HZ)
 
 /* disconnect reason code for link loss, use internally */
 #define AML_RECY_REASON_CODE_LINK_LOSS (40)
@@ -38,7 +39,6 @@
 #define AML_RECY_OPEN_VIF_PROC      BIT(9)
 #define AML_RECY_CLOSE_VIF_PROC     BIT(10)
 #define AML_RECY_DROP_XMIT_PKT      BIT(11)
-#define AML_RECY_RX_RATE_ALLOC      BIT(12)
 
 
 #define AML_AGCCNTL_ADDR            0x00C0B390
@@ -81,6 +81,14 @@ struct aml_recy_link_loss {
     u16 scan_result_cnt;
 };
 
+struct aml_recy_counter {
+    uint32_t total_recy_cnt;
+    uint32_t recy_reason_cmd_crash_cnt;
+    uint32_t recy_reason_cmd_fw_linkloss_cnt;
+    uint32_t recy_reason_cmd_bus_error_cnt;
+    uint32_t recy_reason_cmd_tx_timeout_cnt;
+};
+
 struct aml_recy {
    /* AML_RECY_x flags */
     u32 flags;
@@ -92,7 +100,17 @@ struct aml_recy {
     struct aml_recy_assoc_info assoc_info;
     struct aml_recy_ap_info ap_info;
     struct timer_list timer;
+    struct aml_recy_counter recy_counter;
 };
+
+#define aml_recy_memcpy(dst, src, len) do { \
+    if (src && len > 0) { \
+        if (dst) { kfree(dst); dst = NULL; } \
+        if (!dst) { dst = kmalloc(len, GFP_KERNEL); } \
+        if (!dst) { AML_DBG("kmalloc failed"); return; } \
+        memcpy(dst, src, len); \
+    } \
+} while (0);
 
 extern struct aml_recy *aml_recy;
 
@@ -105,19 +123,20 @@ void aml_recy_save_assoc_info(struct cfg80211_connect_params *sme, u8 vif_index)
 void aml_recy_save_ap_info(struct cfg80211_ap_settings *settings);
 void aml_recy_save_bcn_info(u8 *bcn, size_t bcn_len);
 void aml_recy_link_loss_test(void);
-int aml_recy_doit(struct aml_hw *aml_hw);
+int aml_recy_doit(struct aml_hw *aml_hw, void *reason, int len);
 int aml_recy_init(struct aml_hw *aml_hw);
-int aml_recy_deinit(void);
+void aml_recy_deinit(void);
 
-bool aml_recy_connect_retry(void);
-int aml_recy_sta_connect(struct aml_hw *aml_hw, uint8_t *status);
+int aml_recy_connect_retry(void);
 bool aml_recy_check_aml_vif_exit(struct aml_hw *aml_hw, struct aml_vif *aml_vif);
 
-#define RECY_DBG(fmt, ...) do { \
-    if (recy_dbg) { \
-        printk("[recy_dbg][%-20.20s %4d] "fmt, __func__, __LINE__, ##__VA_ARGS__); \
-    } \
-} while (0);
+int aml_recy_fw_reload_for_usb_sdio(struct aml_hw *aml_hw);
 
 #endif  // CONFIG_AML_RECOVERY
+
+void aml_wake_source_relax(struct aml_hw *aml_hw);
+void aml_wake_source_set(struct aml_hw *aml_hw);
+void aml_wake_source_deinit(struct aml_hw *aml_hw);
+void aml_wake_source_init(struct aml_hw *aml_hw);
+
 #endif  //__AML_RECY__

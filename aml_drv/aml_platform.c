@@ -34,6 +34,7 @@
 #include <linux/interrupt.h>
 #include "aml_prealloc.h"
 #include "aml_task.h"
+#include "aml_wq.h"
 
 #include <linux/notifier.h>
 #include <linux/module.h>
@@ -52,149 +53,17 @@ extern unsigned char g_pci_msg_suspend;
 extern unsigned char g_sdio_after_porbe;
 extern unsigned char g_usb_after_probe;
 extern unsigned char wifi_drv_rmmod_ongoing;
-
+extern unsigned int g_aml_device_id;
 #ifndef CONFIG_AML_FPGA_PCIE
-extern struct pcie_mem_map_struct pcie_ep_addr_range[PCIE_TABLE_NUM];
+extern const struct pcie_mem_map_struct pcie_ep_addr_range[PCIE_TABLE_NUM];
 #endif
 
 struct pci_dev *g_pci_dev = NULL;
 struct aml_hw *g_aml_hw = NULL;
+extern struct aml_pm_type g_wifi_pm;
 
 int wifi_fw_download(char *firmware_filename);
 int start_wifi(void);
-
-#ifdef CONFIG_AML_TL4
-/**
- * aml_plat_tl4_fw_upload() - Load the requested FW into embedded side.
- *
- * @aml_plat: pointer to platform structure
- * @fw_addr: Virtual address where the fw must be loaded
- * @filename: Name of the fw.
- *
- * Load a fw, stored as a hex file, into the specified address
- */
-static int aml_plat_tl4_fw_upload(struct aml_plat *aml_plat, u8* fw_addr,
-                                   char *filename)
-{
-    struct device *dev = aml_platform_get_dev(aml_plat);
-    const struct firmware *fw;
-    int err = 0;
-    u32 *dst;
-    u8 const *file_data;
-    char typ0, typ1;
-    u32 addr0, addr1;
-    u32 dat0, dat1;
-    int remain;
-
-    err = request_firmware(&fw, filename, dev);
-    if (err) {
-        return err;
-    }
-    file_data = fw->data;
-    remain = fw->size;
-
-    /* Copy the file on the Embedded side */
-    dev_dbg(dev, "\n### Now copy %s firmware, @ = %p\n", filename, fw_addr);
-
-    /* Walk through all the lines of the configuration file */
-    while (remain >= 16) {
-        u32 data, offset;
-
-        if (sscanf(file_data, "%c:%08X %04X", &typ0, &addr0, &dat0) != 3)
-            break;
-        if ((addr0 & 0x01) != 0) {
-            addr0 = addr0 - 1;
-            dat0 = 0;
-        } else {
-            file_data += 16;
-            remain -= 16;
-        }
-        if ((remain < 16) ||
-            (sscanf(file_data, "%c:%08X %04X", &typ1, &addr1, &dat1) != 3) ||
-            (typ1 != typ0) || (addr1 != (addr0 + 1))) {
-            typ1 = typ0;
-            addr1 = addr0 + 1;
-            dat1 = 0;
-        } else {
-            file_data += 16;
-            remain -= 16;
-        }
-
-        if (typ0 == 'C') {
-            offset = 0x00200000;
-            if ((addr1 % 4) == 3)
-                offset += 2*(addr1 - 3);
-            else
-                offset += 2*(addr1 + 1);
-
-            data = dat1 | (dat0 << 16);
-        } else {
-            offset = 2*(addr1 - 1);
-            data = dat0 | (dat1 << 16);
-        }
-        dst = (u32 *)(fw_addr + offset);
-        *dst = data;
-    }
-
-    release_firmware(fw);
-
-    return err;
-}
-#endif
-
-/**
- * aml_plat_bin_fw_upload() - Load the requested binary FW into embedded side.
- *
- * @aml_plat: pointer to platform structure
- * @fw_addr: Virtual address where the fw must be loaded
- * @filename: Name of the fw.
- *
- * Load a fw, stored as a binary file, into the specified address
- */
-#if 0
-static int aml_plat_bin_fw_upload(struct aml_plat *aml_plat, u8* fw_addr,
-                               char *filename)
-{
-    const struct firmware *fw = NULL;
-    struct device *dev = aml_platform_get_dev(aml_plat);
-    int err = 0;
-    unsigned int size;
-    u32 *src, *dst;
-    unsigned int i;
-
-    AML_FN_ENTRY();
-
-    err = request_firmware(&fw, filename, dev);
-    if (err) {
-        AML_ERR("Please check version of agcram.bin, need update to %s !!!\n", filename);
-        return err;
-    }
-
-    /* Copy the file on the Embedded side */
-    dev_dbg(dev, "\n### Now copy %s firmware, @ = %p\n", filename, fw_addr);
-
-    src = (u32 *)fw->data;
-    dst = (u32 *)fw_addr;
-    size = (unsigned int)fw->size;
-
-    AML_INFO(" size %d\n", size);
-    AML_INFO(" src %x\n", *src);
-
-    /* check potential platform bug on multiple stores vs memcpy */
-    if (aml_bus_type == USB_MODE) {
-        aml_plat->hif_ops->hi_write_sram((unsigned char *)src, (unsigned char *)dst, size, USB_EP4);
-    } else if (aml_bus_type == SDIO_MODE) {
-        aml_plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)src, (unsigned char *)dst, size);
-    } else {
-        for (i = 0; i < size; i += 4) {
-            *dst++ = *src++;
-        }
-    }
-    release_firmware(fw);
-
-    return err;
-}
-#endif
 
 static int aml_plat_agc_download(struct aml_plat *aml_plat, u8* fw_addr)
 {
@@ -206,7 +75,7 @@ static int aml_plat_agc_download(struct aml_plat *aml_plat, u8* fw_addr)
     size = sizeof(agc_ram);
     dst = (u32 *)fw_addr;
 
-    AML_INFO(" src addr 0x%x, size %d\n", fw_addr, size);
+    AML_INFO("src addr %p, size %d\n", fw_addr, size);
 
     /* check potential platform bug on multiple stores vs memcpy */
     if (aml_bus_type == USB_MODE) {
@@ -222,7 +91,6 @@ static int aml_plat_agc_download(struct aml_plat *aml_plat, u8* fw_addr)
     return 0;
 }
 
-//sj
 #define ICCM_ROM_LEN (256 * 1024)
 #define ICCM_RAM_LEN (256 * 1024)
 #define ICCM_ALL_LEN (ICCM_ROM_LEN + ICCM_RAM_LEN)
@@ -245,6 +113,19 @@ static int aml_plat_agc_download(struct aml_plat *aml_plat, u8* fw_addr)
         }                                                    \
         src += BYTE_IN_LINE;                                 \
     }
+
+char * aml_get_fw_version(unsigned int bus_type)
+{
+    if (bus_type == SDIO_MODE)
+        return (g_aml_device_id == W2s_C_PRODUCT_AMLOGIC_EFUSE) ? AML_MAC_REVC_FW_SDIO : AML_MAC_FW_SDIO;
+    else if (bus_type == USB_MODE)
+        return (g_aml_device_id == W2u_PRODUCT_C_AMLOGIC_EFUSE) ? AML_MAC_REVC_FW_USB : AML_MAC_FW_USB;
+    else if (bus_type == PCIE_MODE)
+        return (g_aml_device_id == W2pRevC_PRODUCT_AMLOGIC_EFUSE) ? AML_MAC_REVC_FW_PCIE : AML_MAC_FW_PCIE;
+    else
+        return NULL;
+}
+
 
 static int aml_plat_fw_upload(struct aml_plat *aml_plat, u8* fw_addr,
                                char *filename)
@@ -275,8 +156,9 @@ static int aml_plat_fw_upload(struct aml_plat *aml_plat, u8* fw_addr,
         size = ICCM_ALL_LEN;
     }
 
-    AML_INFO(" iccm dst %x\n", dst);
-    AML_INFO(" iccm len %d\n", size/1024);
+    AML_INFO("iccm dst %p\n", dst);
+    AML_INFO("iccm len %d\n", size/1024);
+
     for (i = 1; i <= size / 4; i += 1) {
         IHEX_READ32(data);
         *dst = __swab32(data);
@@ -295,7 +177,7 @@ static int aml_plat_fw_upload(struct aml_plat *aml_plat, u8* fw_addr,
 #else
     dst = (u32 *)AML_ADDR(aml_plat, AML_ADDR_CPU, DCCM_RAM_ADDR);
 #endif
-    AML_INFO(" dccm dst %x, size %d\n", dst, size/1024);
+    AML_INFO("dccm dst %px, size %d\n", dst, size/1024);
     for (i = 1; i <= size / 4; i += 1) {
         IHEX_READ32(data);
         *dst = __swab32(data);
@@ -313,7 +195,7 @@ static int aml_plat_fw_upload(struct aml_plat *aml_plat, u8* fw_addr,
 
     dst = (u32 *)AML_ADDR(aml_plat, AML_ADDR_CPU, DCCM_RAM_ADDR);
     for (i = 1; i < 50; i++)
-        printk(" dccm check addr %x data %x\n", dst, *dst++);
+        AML_INFO(" dccm check addr %x data %x\n", dst, *dst++);
 #endif
 
 end:
@@ -322,194 +204,8 @@ end:
     return err;
 }
 
-#ifndef CONFIG_AML_TL4
-#define IHEX_REC_DATA           0
-#define IHEX_REC_EOF            1
-#define IHEX_REC_EXT_SEG_ADD    2
-#define IHEX_REC_START_SEG_ADD  3
-#define IHEX_REC_EXT_LIN_ADD    4
-#define IHEX_REC_START_LIN_ADD  5
-
 /**
- * aml_plat_ihex_fw_upload() - Load the requested intel hex 8 FW into embedded side.
- *
- * @aml_plat: pointer to platform structure
- * @fw_addr: Virtual address where the fw must be loaded
- * @filename: Name of the fw.
- *
- * Load a fw, stored as a ihex file, into the specified address.
- */
- #if 0
-static int aml_plat_ihex_fw_upload(struct aml_plat *aml_plat, u8* fw_addr,
-                                    char *filename)
-{
-    const struct firmware *fw;
-    struct device *dev = aml_platform_get_dev(aml_plat);
-    u8 const *src, *end;
-    u32 *dst;
-    u16 haddr, segaddr, addr;
-    u32 hwaddr;
-    u8 load_fw, byte_count, checksum, csum, rec_type;
-    int err, rec_idx;
-    char hex_buff[9];
-
-    err = request_firmware(&fw, filename, dev);
-    if (err) {
-        return err;
-    }
-
-    /* Copy the file on the Embedded side */
-    dev_dbg(dev, "\n### Now copy %s firmware, @ = %p\n", filename, fw_addr);
-
-    src = fw->data;
-    end = src + (unsigned int)fw->size;
-    haddr = 0;
-    segaddr = 0;
-    load_fw = 1;
-    err = -EINVAL;
-    rec_idx = 0;
-    hwaddr = 0;
-
-#define IHEX_READ8(_val, _cs) {                  \
-        hex_buff[2] = 0;                         \
-        strncpy(hex_buff, src, 2);               \
-        if (kstrtou8(hex_buff, 16, &_val))       \
-            goto end;                            \
-        src += 2;                                \
-        if (_cs)                                 \
-            csum += _val;                        \
-    }
-
-#define IHEX_READ16(_val) {                        \
-        hex_buff[4] = 0;                           \
-        strncpy(hex_buff, src, 4);                 \
-        if (kstrtou16(hex_buff, 16, &_val))        \
-            goto end;                              \
-        src += 4;                                  \
-        csum += (_val & 0xff) + (_val >> 8);       \
-    }
-
-#define IHEX_READ32(_val) {                              \
-        hex_buff[8] = 0;                                 \
-        strncpy(hex_buff, src, 8);                       \
-        if (kstrtouint(hex_buff, 16, &_val))             \
-            goto end;                                    \
-        src += 8;                                        \
-        csum += (_val & 0xff) + ((_val >> 8) & 0xff) +   \
-            ((_val >> 16) & 0xff) + (_val >> 24);        \
-    }
-
-#define IHEX_READ32_PAD(_val, _nb) {                    \
-        memset(hex_buff, '0', 8);                       \
-        hex_buff[8] = 0;                                \
-        strncpy(hex_buff, src, (2 * _nb));              \
-        if (kstrtouint(hex_buff, 16, &_val))            \
-            goto end;                                   \
-        src += (2 * _nb);                               \
-        csum += (_val & 0xff) + ((_val >> 8) & 0xff) +  \
-            ((_val >> 16) & 0xff) + (_val >> 24);       \
-}
-
-    /* loop until end of file is read*/
-    while (load_fw) {
-        rec_idx++;
-        csum = 0;
-
-        /* Find next colon start code */
-        while (*src != ':') {
-            src++;
-            if ((src + 3) >= end) /* 3 = : + rec_len */
-                goto end;
-        }
-        src++;
-
-        /* Read record len */
-        IHEX_READ8(byte_count, 1);
-        if ((src + (byte_count * 2) + 8) >= end) /* 8 = rec_addr + rec_type + chksum */
-            goto end;
-
-        /* Read record addr */
-        IHEX_READ16(addr);
-
-        /* Read record type */
-        IHEX_READ8(rec_type, 1);
-
-        switch(rec_type) {
-            case IHEX_REC_DATA:
-            {
-                /* Update destination address */
-                dst = (u32 *) (fw_addr + hwaddr + addr);
-
-                while (byte_count) {
-                    u32 val;
-                    if (byte_count >= 4) {
-                        IHEX_READ32(val);
-                        byte_count -= 4;
-                    } else {
-                        IHEX_READ32_PAD(val, byte_count);
-                        byte_count = 0;
-                    }
-                    *dst++ = __swab32(val);
-                }
-                break;
-            }
-            case IHEX_REC_EOF:
-            {
-                load_fw = 0;
-                err = 0;
-                break;
-            }
-            case IHEX_REC_EXT_SEG_ADD: /* Extended Segment Address */
-            {
-                IHEX_READ16(segaddr);
-                hwaddr = (haddr << 16) + (segaddr << 4);
-                break;
-            }
-            case IHEX_REC_EXT_LIN_ADD: /* Extended Linear Address */
-            {
-                IHEX_READ16(haddr);
-                hwaddr = (haddr << 16) + (segaddr << 4);
-                break;
-            }
-            case IHEX_REC_START_LIN_ADD: /* Start Linear Address */
-            {
-                u32 val;
-                IHEX_READ32(val); /* need to read for checksum */
-                break;
-            }
-            case IHEX_REC_START_SEG_ADD:
-            default:
-            {
-                dev_err(dev, "ihex: record type %d not supported\n", rec_type);
-                load_fw = 0;
-            }
-        }
-
-        /* Read and compare checksum */
-        IHEX_READ8(checksum, 0);
-        if (checksum != (u8)(~csum + 1))
-            goto end;
-    }
-
-#undef IHEX_READ8
-#undef IHEX_READ16
-#undef IHEX_READ32
-#undef IHEX_READ32_PAD
-
-  end:
-    release_firmware(fw);
-
-    if (err)
-        dev_err(dev, "%s: Invalid ihex record around line %d\n", filename, rec_idx);
-
-    return err;
-}
-#endif
-#endif /* CONFIG_AML_TL4 */
-
-#ifndef CONFIG_AML_SDM
-/**
- * aml_plat_get_rf() - Retrun the RF used in the platform
+ * aml_plat_get_rf() - return the RF used in the platform
  *
  * @aml_plat: pointer to platform structure
  */
@@ -526,14 +222,12 @@ static u32 aml_plat_get_rf(struct aml_plat *aml_plat)
 
     return ver;
 }
-#endif
 
 /**
  * aml_plat_get_clkctrl_addr() - Return the clock control register address
  *
  * @aml_plat: platform data
  */
-#ifndef CONFIG_AML_SDM
 static u32 aml_plat_get_clkctrl_addr(struct aml_plat *aml_plat)
 {
     u32 regval;
@@ -549,14 +243,13 @@ static u32 aml_plat_get_clkctrl_addr(struct aml_plat *aml_plat)
     else
         return MDM_CLKGATEFCTRL0_ADDR;
 }
-#endif /* CONFIG_AML_SDM */
 
 /**
  * aml_plat_stop_agcfsm() - Stop a AGC state machine
  *
  * @aml_plat: pointer to platform structure
  * @agg_reg: Address of the agccntl register (within AML_ADDR_SYSTEM)
- * @agcctl: Updated with value of the agccntl rgister before stop
+ * @agcctl: Updated with value of the agccntl register before stop
  * @memclk: Updated with value of the clock register before stop
  * @agc_ver: Version of the AGC load procedure
  * @clkctrladdr: Indicates which AGC clock register should be accessed
@@ -575,13 +268,11 @@ static void aml_plat_stop_agcfsm(struct aml_plat *aml_plat, int agc_reg,
     /* Force clock */
     if (agc_ver > 0) {
         /* CLKGATEFCTRL0[AGCCLKFORCE]=1 */
-        AML_REG_WRITE((*memclk) | BIT(29), aml_plat, AML_ADDR_SYSTEM,
-                       clkctrladdr);
-        AML_INFO(" read 0x%x, 0x%x\n", clkctrladdr, AML_REG_READ(aml_plat, AML_ADDR_SYSTEM,clkctrladdr));
+        AML_REG_WRITE((*memclk) | BIT(29), aml_plat, AML_ADDR_SYSTEM, clkctrladdr);
+        AML_INFO("read 0x%x, 0x%x\n", clkctrladdr, AML_REG_READ(aml_plat, AML_ADDR_SYSTEM,clkctrladdr));
     } else {
         /* MEMCLKCTRL0[AGCMEMCLKCTRL]=0 */
-        AML_REG_WRITE((*memclk) & ~BIT(3), aml_plat, AML_ADDR_SYSTEM,
-                       clkctrladdr);
+        AML_REG_WRITE((*memclk) & ~BIT(3), aml_plat, AML_ADDR_SYSTEM, clkctrladdr);
     }
 }
 
@@ -624,7 +315,6 @@ static void aml_plat_start_agcfsm(struct aml_plat *aml_plat, int agc_reg,
  *
  * c.f Modem UM (AGC/CCA initialization)
  */
-#ifndef CONFIG_AML_SDM
 static u8 aml_plat_get_agc_load_version(struct aml_plat *aml_plat, u32 rf,
                                          u32 *clkctrladdr)
 {
@@ -647,7 +337,6 @@ static u8 aml_plat_get_agc_load_version(struct aml_plat *aml_plat, u32 rf,
 
     return agc_load_ver;
 }
-#endif /* CONFIG_AML_SDM */
 
 /**
  * aml_plat_agc_load() - Load AGC ucode
@@ -659,7 +348,6 @@ static u8 aml_plat_get_agc_load_version(struct aml_plat *aml_plat, u32 rf,
 static int aml_plat_agc_load(struct aml_plat *aml_plat)
 {
     int ret = 0;
-#ifndef CONFIG_AML_SDM
     u32 agc = 0, agcctl, memclk;
     u32 clkctrladdr;
     u32 rf = aml_plat_get_rf(aml_plat);
@@ -682,7 +370,6 @@ static int aml_plat_agc_load(struct aml_plat *aml_plat)
     aml_plat_stop_agcfsm(aml_plat, agc, &agcctl, &memclk, agc_ver, clkctrladdr);
 
     ret = aml_plat_agc_download(aml_plat, AML_ADDR(aml_plat, AML_ADDR_SYSTEM, PHY_AGC_UCODE_ADDR));
-
     if (!ret && (agc_ver == 1)) {
         /* Run BIST to ensure that the AGC RAM was correctly loaded */
         AML_REG_WRITE(BIT(28), aml_plat, AML_ADDR_SYSTEM,
@@ -701,51 +388,8 @@ static int aml_plat_agc_load(struct aml_plat *aml_plat)
     }
     aml_plat_start_agcfsm(aml_plat, agc, agcctl, memclk, agc_ver, clkctrladdr);
 
-#endif
     return ret;
 }
-
-/**
- * aml_ldpc_load() - Load LDPC RAM
- *
- * @aml_hw: Main driver data
- * c.f Modem UM (LDPC initialization)
- */
- #if 0
-static int aml_ldpc_load(struct aml_hw *aml_hw)
-{
-#ifndef CONFIG_AML_SDM
-    struct aml_plat *aml_plat = aml_hw->plat;
-    u32 rf = aml_plat_get_rf(aml_plat);
-    u32 phy_feat = AML_REG_READ(aml_plat, AML_ADDR_SYSTEM, MDM_HDMCONFIG_ADDR);
-    u32 phy_vers = AML_REG_READ(aml_plat, AML_ADDR_SYSTEM, MDM_HDMVERSION_ADDR);
-
-    if (((rf !=  MDM_PHY_CONFIG_KARST) && (rf !=  MDM_PHY_CONFIG_CATAXIA)) ||
-        (phy_feat & (MDM_LDPCDEC_BIT | MDM_LDPCENC_BIT)) !=
-        (MDM_LDPCDEC_BIT | MDM_LDPCENC_BIT)) {
-        goto disable_ldpc;
-    }
-
-    // No need to load the LDPC RAM anymore on modems starting from version v31
-    if (__MDM_VERSION(phy_vers) > 30) {
-        return 0;
-    }
-
-    if (aml_plat_bin_fw_upload(aml_plat,
-                            AML_ADDR(aml_plat, AML_ADDR_SYSTEM, PHY_LDPC_RAM_ADDR),
-                            AML_LDPC_RAM_NAME)) {
-        goto disable_ldpc;
-    }
-
-    return 0;
-
-  disable_ldpc:
-    aml_hw->mod_params->ldpc_on = false;
-
-#endif /* CONFIG_AML_SDM */
-    return 0;
-}
-#endif
 
 /**
  * aml_plat_lmac_load() - Load FW code
@@ -756,107 +400,12 @@ int aml_plat_lmac_load(struct aml_plat *aml_plat)
 {
     int ret;
 
-    #ifdef CONFIG_AML_TL4
-    ret = aml_plat_tl4_fw_upload(aml_plat,
-                                  AML_ADDR(aml_plat, AML_ADDR_CPU, RAM_LMAC_FW_ADDR),
-                                  AML_MAC_FW_NAME);
-    #else
     ret = aml_plat_fw_upload(aml_plat,
             (u8 *)AML_ADDR(aml_plat, AML_ADDR_CPU, RAM_LMAC_FW_ADDR),
-            AML_MAC_FW_PCIE);
-    #endif
+            aml_get_fw_version(PCIE_MODE));
 
     return ret;
 }
-
-/**
- * aml_rf_fw_load() - Load RF FW if any
- *
- * @aml_hw: Main driver data
- */
- #if 0
-static int aml_plat_rf_fw_load(struct aml_hw *aml_hw)
-{
-#ifndef CONFIG_AML_SDM
-    struct aml_plat *aml_plat = aml_hw->plat;
-    u32 rf = aml_plat_get_rf(aml_plat);
-    struct device *dev = aml_platform_get_dev(aml_plat);
-    const struct firmware *fw;
-    int err = 0;
-    u8 const *file_data;
-    int remain;
-    u32 clkforce;
-    u32 clkctrladdr;
-
-    // Today only Cataxia has a FW to load
-    if (rf !=  MDM_PHY_CONFIG_CATAXIA)
-        return 0;
-
-    err = request_firmware(&fw, AML_CATAXIA_FW_NAME, dev);
-    if (err)
-    {
-        dev_err(dev, "Make sure your board has up-to-date packages.");
-        dev_err(dev, "Run \"sudo smart update\" \"sudo smart upgrade\" commands.\n");
-        return err;
-    }
-
-    file_data = fw->data;
-    remain = fw->size;
-
-    // Get address of clock control register
-    clkctrladdr = aml_plat_get_clkctrl_addr(aml_plat);
-
-    // Force RC clock
-    clkforce = AML_REG_READ(aml_plat, AML_ADDR_SYSTEM, clkctrladdr);
-    AML_REG_WRITE(clkforce | BIT(27), aml_plat, AML_ADDR_SYSTEM, clkctrladdr);
-    mdelay(1);
-
-    // Reset RC
-    AML_REG_WRITE(0x00003100, aml_plat, AML_ADDR_SYSTEM, RC_SYSTEM_CONFIGURATION_ADDR);
-    mdelay(20);
-
-    // Reset RF
-    AML_REG_WRITE(0x00123100, aml_plat, AML_ADDR_SYSTEM, RC_SYSTEM_CONFIGURATION_ADDR);
-    mdelay(20);
-
-    // Select trx 2 HB
-    AML_REG_WRITE(0x00113100, aml_plat, AML_ADDR_SYSTEM, RC_SYSTEM_CONFIGURATION_ADDR);
-    mdelay(50);
-
-    // Set ASP freeze
-    AML_REG_WRITE(0xC1010001, aml_plat, AML_ADDR_SYSTEM, RC_ACCES_TO_CATAXIA_REG_ADDR);
-    mdelay(1);
-
-    /* Walk through all the lines of the FW file */
-    while (remain >= 10) {
-        u32 data;
-
-        if (sscanf(file_data, "0x%08X", &data) != 1)
-        {
-            // Corrupted FW file
-            err = -1;
-            break;
-        }
-        file_data += 11;
-        remain -= 11;
-
-        AML_REG_WRITE(data, aml_plat, AML_ADDR_SYSTEM, RC_ACCES_TO_CATAXIA_REG_ADDR);
-        udelay(50);
-    }
-
-    // Clear ASP freeze
-    AML_REG_WRITE(0xE0010011, aml_plat, AML_ADDR_SYSTEM, RC_ACCES_TO_CATAXIA_REG_ADDR);
-    mdelay(1);
-
-    // Unforce RC clock
-    AML_REG_WRITE(clkforce, aml_plat, AML_ADDR_SYSTEM, clkctrladdr);
-
-    release_firmware(fw);
-
-#endif /* CONFIG_AML_SDM */
-    return err;
-}
-#endif
 
 /**
  * aml_plat_mpif_sel() - Select the MPIF according to the FPGA signature
@@ -865,7 +414,6 @@ static int aml_plat_rf_fw_load(struct aml_hw *aml_hw)
  */
 void aml_plat_mpif_sel(struct aml_plat *aml_plat)
 {
-#ifndef CONFIG_AML_SDM
     u32 regval;
     u32 type;
 
@@ -879,9 +427,7 @@ void aml_plat_mpif_sel(struct aml_plat *aml_plat)
         /* A old FPGA A is used, so configure the FPGA B to use the old MPIF */
         AML_REG_WRITE(0x3, aml_plat, AML_ADDR_SYSTEM, FPGAB_MPIF_SEL_ADDR);
     }
-#endif
 }
-
 
 /**
  * aml_platform_reset() - Reset the platform
@@ -918,9 +464,16 @@ int aml_platform_reset(struct aml_plat *aml_plat)
     regval_status = AML_REG_READ(aml_plat, AML_ADDR_AON, RG_PMU_A16);
     AML_INFO(" regval_aml:%x, regval_cpu:%x, regval_status:%x\n", regval_aml, regval_cpu, regval_status);
 
-    if ((regval_aml & SOFT_RESET) || (!(regval_cpu & CPU_RESET))) {
-        AML_INFO("reset: failed\n");
+    if (regval_aml & SOFT_RESET) {
+        AML_INFO("soft reset: failed\n");
         return -EIO;
+    }
+
+    if (aml_bus_type != USB_MODE) {
+        if (!(regval_cpu & CPU_RESET)) {
+            AML_INFO("cpu reset: failed\n");
+            return -EIO;
+        }
     }
 
     AML_REG_WRITE(regval_aml & ~FPGA_B_RESET, aml_plat,
@@ -954,6 +507,7 @@ static void* aml_term_save_config(struct aml_plat *aml_plat)
         return NULL;
 
     reg_value = res;
+    /* coverity[INFINITE_LOOP] - i is increased */
     for (i = 0; i < size; i++) {
         *reg_value++ = AML_REG_READ(aml_plat, AML_ADDR_SYSTEM,
                                      *reg_list++);
@@ -982,6 +536,7 @@ static void aml_term_restore_config(struct aml_plat *aml_plat,
 
     size = aml_plat->get_config_reg(aml_plat, &reg_list);
 
+    /* coverity[INFINITE_LOOP] - i is increased */
     for (i = 0; i < size; i++) {
         AML_REG_WRITE(*reg_value++, aml_plat, AML_ADDR_SYSTEM,
                        *reg_list++);
@@ -989,444 +544,164 @@ static void aml_term_restore_config(struct aml_plat *aml_plat,
 }
 
 #ifndef CONFIG_AML_FHOST
-int aml_usb_check_fw_compatibility(struct aml_hw *aml_hw)
+static int __aml_check_fw_compatibility(struct aml_hw *aml_hw, struct compatibility_tag *comp_info)
 {
-    struct ipc_shared_env_tag *shared = NULL;
-
     #ifdef CONFIG_AML_SOFTMAC
     struct wiphy *wiphy = aml_hw->hw->wiphy;
     #else //CONFIG_AML_SOFTMAC
     struct wiphy *wiphy = aml_hw->wiphy;
     #endif //CONFIG_AML_SOFTMAC
-    #ifdef CONFIG_AML_OLD_IPC
-    int ipc_shared_version = 10;
-    #else //CONFIG_AML_OLD_IPC
     int ipc_shared_version = 11;
-    #endif //CONFIG_AML_OLD_IPC
     int res = 0;
 
-    shared = (struct ipc_shared_env_tag *)kzalloc(sizeof(struct ipc_shared_env_tag), GFP_KERNEL);
-    if (!shared) {
-        AML_ERR(" alloc shared failed!\n");
-        return -ENOMEM;
-    }
-
-    aml_hw->plat->hif_ops->hi_read_sram((unsigned char *)&(shared->comp_info),
-        (unsigned char *)&(aml_hw->ipc_env->shared->comp_info),
-        sizeof(struct compatibility_tag), USB_EP4);
-
-    if (shared->comp_info.ipc_shared_version != ipc_shared_version)
+    if (comp_info->ipc_shared_version != ipc_shared_version)
     {
         wiphy_err(wiphy, "Different versions of IPC shared version between driver and FW (%d != %d)\n ",
-                  ipc_shared_version, shared->comp_info.ipc_shared_version);
+                  ipc_shared_version, comp_info->ipc_shared_version);
         res = -1;
     }
 
-    if (shared->comp_info.radarbuf_cnt != IPC_RADARBUF_CNT)
+    if (comp_info->radarbuf_cnt != IPC_RADARBUF_CNT)
     {
         wiphy_err(wiphy, "Different number of host buffers available for Radar events handling "\
                   "between driver and FW (%d != %d)\n", IPC_RADARBUF_CNT,
-                  shared->comp_info.radarbuf_cnt);
+                  comp_info->radarbuf_cnt);
         res = -1;
     }
 
-    if (shared->comp_info.unsuprxvecbuf_cnt != IPC_UNSUPRXVECBUF_CNT)
+    if (comp_info->unsuprxvecbuf_cnt != IPC_UNSUPRXVECBUF_CNT)
     {
         wiphy_err(wiphy, "Different number of host buffers available for unsupported Rx vectors "\
                   "handling between driver and FW (%d != %d)\n", IPC_UNSUPRXVECBUF_CNT,
-                  shared->comp_info.unsuprxvecbuf_cnt);
+                  comp_info->unsuprxvecbuf_cnt);
         res = -1;
     }
 
     #ifdef CONFIG_AML_FULLMAC
-    if (shared->comp_info.rxdesc_cnt != IPC_RXDESC_CNT)
+    if (comp_info->rxdesc_cnt != IPC_RXDESC_CNT)
     {
         wiphy_err(wiphy, "Different number of shared descriptors available for Data RX handling "\
                   "between driver and FW (%d != %d)\n", IPC_RXDESC_CNT,
-                  shared->comp_info.rxdesc_cnt);
+                  comp_info->rxdesc_cnt);
         res = -1;
     }
     #endif /* CONFIG_AML_FULLMAC */
 
-    if (shared->comp_info.rxbuf_cnt != IPC_RXBUF_CNT)
+    if (comp_info->rxbuf_cnt != IPC_RXBUF_CNT)
     {
         wiphy_err(wiphy, "Different number of host buffers available for Data Rx handling "\
                   "between driver and FW (%d != %d)\n", IPC_RXBUF_CNT,
-                  shared->comp_info.rxbuf_cnt);
+                  comp_info->rxbuf_cnt);
         res = -1;
     }
 
-    if (shared->comp_info.msge2a_buf_cnt != IPC_MSGE2A_BUF_CNT)
+    if (comp_info->msge2a_buf_cnt != IPC_MSGE2A_BUF_CNT)
     {
         wiphy_err(wiphy, "Different number of host buffers available for Emb->App MSGs "\
                   "sending between driver and FW (%d != %d)\n", IPC_MSGE2A_BUF_CNT,
-                  shared->comp_info.msge2a_buf_cnt);
+                  comp_info->msge2a_buf_cnt);
         res = -1;
     }
 
-    if (shared->comp_info.dbgbuf_cnt != IPC_DBGBUF_CNT)
+    if (comp_info->dbgbuf_cnt != IPC_DBGBUF_CNT)
     {
         wiphy_err(wiphy, "Different number of host buffers available for debug messages "\
                   "sending between driver and FW (%d != %d)\n", IPC_DBGBUF_CNT,
-                  shared->comp_info.dbgbuf_cnt);
+                  comp_info->dbgbuf_cnt);
         res = -1;
     }
 
-    if (shared->comp_info.bk_txq != NX_TXDESC_CNT0)
+    if (comp_info->bk_txq != NX_TXDESC_CNT0)
     {
         wiphy_err(wiphy, "Driver and FW have different sizes of BK TX queue (%d != %d)\n",
-                  NX_TXDESC_CNT0, shared->comp_info.bk_txq);
+                  NX_TXDESC_CNT0, comp_info->bk_txq);
         res = -1;
     }
 
-    if (shared->comp_info.be_txq != NX_TXDESC_CNT1)
+    if (comp_info->be_txq != NX_TXDESC_CNT1)
     {
         wiphy_err(wiphy, "Driver and FW have different sizes of BE TX queue (%d != %d)\n",
-                  NX_TXDESC_CNT1, shared->comp_info.be_txq);
+                  NX_TXDESC_CNT1, comp_info->be_txq);
         res = -1;
     }
 
-    if (shared->comp_info.vi_txq != NX_TXDESC_CNT2)
+    if (comp_info->vi_txq != NX_TXDESC_CNT2)
     {
         wiphy_err(wiphy, "Driver and FW have different sizes of VI TX queue (%d != %d)\n",
-                  NX_TXDESC_CNT2, shared->comp_info.vi_txq);
+                  NX_TXDESC_CNT2, comp_info->vi_txq);
         res = -1;
     }
 
-    if (shared->comp_info.vo_txq != NX_TXDESC_CNT3)
+    if (comp_info->vo_txq != NX_TXDESC_CNT3)
     {
         wiphy_err(wiphy, "Driver and FW have different sizes of VO TX queue (%d != %d)\n",
-                  NX_TXDESC_CNT3, shared->comp_info.vo_txq);
+                  NX_TXDESC_CNT3, comp_info->vo_txq);
         res = -1;
     }
 
     #if NX_TXQ_CNT == 5
-    if (shared->comp_info.bcn_txq != NX_TXDESC_CNT4)
+    if (comp_info->bcn_txq != NX_TXDESC_CNT4)
     {
         wiphy_err(wiphy, "Driver and FW have different sizes of BCN TX queue (%d != %d)\n",
-                NX_TXDESC_CNT4, shared->comp_info.bcn_txq);
+                NX_TXDESC_CNT4, comp_info->bcn_txq);
         res = -1;
     }
     #else
-    if (shared->comp_info.bcn_txq > 0)
+    if (comp_info->bcn_txq > 0)
     {
         wiphy_err(wiphy, "BCMC enabled in firmware but disabled in driver\n");
         res = -1;
     }
     #endif /* NX_TXQ_CNT == 5 */
 
-    if (shared->comp_info.ipc_shared_size != sizeof(ipc_shared_env))
+    if (comp_info->ipc_shared_size != sizeof(ipc_shared_env))
     {
         wiphy_err(wiphy, "Different sizes of IPC shared between driver and FW (%zd != %d)\n",
-                  sizeof(ipc_shared_env), shared->comp_info.ipc_shared_size);
+                  sizeof(ipc_shared_env), comp_info->ipc_shared_size);
         res = -1;
     }
 
-    if (shared->comp_info.msg_api != MSG_API_VER)
+    if (comp_info->msg_api != MSG_API_VER)
     {
         wiphy_err(wiphy, "Different supported message API versions between "\
-                  "driver and FW (%d != %d)\n", MSG_API_VER, shared->comp_info.msg_api);
-        res = -1;
-    }
-
-    kfree(shared);
-
-    return res;
-}
-
-int aml_sdio_check_fw_compatibility(struct aml_hw *aml_hw)
-{
-    struct ipc_shared_env_tag *shared = NULL;
-    #ifdef CONFIG_AML_SOFTMAC
-    struct wiphy *wiphy = aml_hw->hw->wiphy;
-    #else //CONFIG_AML_SOFTMAC
-    struct wiphy *wiphy = aml_hw->wiphy;
-    #endif //CONFIG_AML_SOFTMAC
-    #ifdef CONFIG_AML_OLD_IPC
-    int ipc_shared_version = 10;
-    #else //CONFIG_AML_OLD_IPC
-    int ipc_shared_version = 11;
-    #endif //CONFIG_AML_OLD_IPC
-    int res = 0;
-
-    shared = (struct ipc_shared_env_tag *)kzalloc(sizeof(struct ipc_shared_env_tag), GFP_KERNEL);
-    if (!shared) {
-        AML_ERR(" alloc shared failed!\n");
-        return -ENOMEM;
-    }
-
-    aml_hw->plat->hif_sdio_ops->hi_random_ram_read((unsigned char *)&(shared->comp_info), (unsigned char *)&(aml_hw->ipc_env->shared->comp_info),
-        sizeof(struct compatibility_tag));
-
-    if (shared->comp_info.ipc_shared_version != ipc_shared_version)
-    {
-        wiphy_err(wiphy, "Different versions of IPC shared version between driver and FW (%d != %d)\n ",
-                  ipc_shared_version, shared->comp_info.ipc_shared_version);
-        res = -1;
-    }
-
-    if (shared->comp_info.radarbuf_cnt != IPC_RADARBUF_CNT)
-    {
-        wiphy_err(wiphy, "Different number of host buffers available for Radar events handling "\
-                  "between driver and FW (%d != %d)\n", IPC_RADARBUF_CNT,
-                  shared->comp_info.radarbuf_cnt);
-        res = -1;
-    }
-
-    if (shared->comp_info.unsuprxvecbuf_cnt != IPC_UNSUPRXVECBUF_CNT)
-    {
-        wiphy_err(wiphy, "Different number of host buffers available for unsupported Rx vectors "\
-                  "handling between driver and FW (%d != %d)\n", IPC_UNSUPRXVECBUF_CNT,
-                  shared->comp_info.unsuprxvecbuf_cnt);
-        res = -1;
-    }
-
-    #ifdef CONFIG_AML_FULLMAC
-    if (shared->comp_info.rxdesc_cnt != IPC_RXDESC_CNT)
-    {
-        wiphy_err(wiphy, "Different number of shared descriptors available for Data RX handling "\
-                  "between driver and FW (%d != %d)\n", IPC_RXDESC_CNT,
-                  shared->comp_info.rxdesc_cnt);
-        res = -1;
-    }
-    #endif /* CONFIG_AML_FULLMAC */
-
-    if (shared->comp_info.rxbuf_cnt != IPC_RXBUF_CNT)
-    {
-        wiphy_err(wiphy, "Different number of host buffers available for Data Rx handling "\
-                  "between driver and FW (%d != %d)\n", IPC_RXBUF_CNT,
-                  shared->comp_info.rxbuf_cnt);
-        res = -1;
-    }
-
-    if (shared->comp_info.msge2a_buf_cnt != IPC_MSGE2A_BUF_CNT)
-    {
-        wiphy_err(wiphy, "Different number of host buffers available for Emb->App MSGs "\
-                  "sending between driver and FW (%d != %d)\n", IPC_MSGE2A_BUF_CNT,
-                  shared->comp_info.msge2a_buf_cnt);
-        res = -1;
-    }
-
-    if (shared->comp_info.dbgbuf_cnt != IPC_DBGBUF_CNT)
-    {
-        wiphy_err(wiphy, "Different number of host buffers available for debug messages "\
-                  "sending between driver and FW (%d != %d)\n", IPC_DBGBUF_CNT,
-                  shared->comp_info.dbgbuf_cnt);
-        res = -1;
-    }
-
-    if (shared->comp_info.bk_txq != NX_TXDESC_CNT0)
-    {
-        wiphy_err(wiphy, "Driver and FW have different sizes of BK TX queue (%d != %d)\n",
-                  NX_TXDESC_CNT0, shared->comp_info.bk_txq);
-        res = -1;
-    }
-
-    if (shared->comp_info.be_txq != NX_TXDESC_CNT1)
-    {
-        wiphy_err(wiphy, "Driver and FW have different sizes of BE TX queue (%d != %d)\n",
-                  NX_TXDESC_CNT1, shared->comp_info.be_txq);
-        res = -1;
-    }
-
-    if (shared->comp_info.vi_txq != NX_TXDESC_CNT2)
-    {
-        wiphy_err(wiphy, "Driver and FW have different sizes of VI TX queue (%d != %d)\n",
-                  NX_TXDESC_CNT2, shared->comp_info.vi_txq);
-        res = -1;
-    }
-
-    if (shared->comp_info.vo_txq != NX_TXDESC_CNT3)
-    {
-        wiphy_err(wiphy, "Driver and FW have different sizes of VO TX queue (%d != %d)\n",
-                  NX_TXDESC_CNT3, shared->comp_info.vo_txq);
-        res = -1;
-    }
-
-    #if NX_TXQ_CNT == 5
-    if (shared->comp_info.bcn_txq != NX_TXDESC_CNT4)
-    {
-        wiphy_err(wiphy, "Driver and FW have different sizes of BCN TX queue (%d != %d)\n",
-                NX_TXDESC_CNT4, shared->comp_info.bcn_txq);
-        res = -1;
-    }
-    #else
-    if (shared->comp_info.bcn_txq > 0)
-    {
-        wiphy_err(wiphy, "BCMC enabled in firmware but disabled in driver\n");
-        res = -1;
-    }
-    #endif /* NX_TXQ_CNT == 5 */
-
-    if (shared->comp_info.ipc_shared_size != sizeof(ipc_shared_env))
-    {
-        wiphy_err(wiphy, "Different sizes of IPC shared between driver and FW (%zd != %d)\n",
-                  sizeof(ipc_shared_env), shared->comp_info.ipc_shared_size);
-        res = -1;
-    }
-
-    if (shared->comp_info.msg_api != MSG_API_VER)
-    {
-        wiphy_err(wiphy, "Different supported message API versions between "\
-                  "driver and FW (%d != %d)\n", MSG_API_VER, shared->comp_info.msg_api);
-        res = -1;
-    }
-
-    kfree(shared);
-    return res;
-}
-
-static int aml_pci_check_fw_compatibility(struct aml_hw *aml_hw)
-{
-    struct ipc_shared_env_tag *shared = aml_hw->ipc_env->shared;
-    #ifdef CONFIG_AML_SOFTMAC
-    struct wiphy *wiphy = aml_hw->hw->wiphy;
-    #else //CONFIG_AML_SOFTMAC
-    struct wiphy *wiphy = aml_hw->wiphy;
-    #endif //CONFIG_AML_SOFTMAC
-    #ifdef CONFIG_AML_OLD_IPC
-    int ipc_shared_version = 10;
-    #else //CONFIG_AML_OLD_IPC
-    int ipc_shared_version = 11;
-    #endif //CONFIG_AML_OLD_IPC
-    int res = 0;
-
-    if (shared->comp_info.ipc_shared_version != ipc_shared_version)
-    {
-        wiphy_err(wiphy, "Different versions of IPC shared version between driver and FW (%d != %d)\n ",
-                  ipc_shared_version, shared->comp_info.ipc_shared_version);
-        res = -1;
-    }
-
-    if (shared->comp_info.radarbuf_cnt != IPC_RADARBUF_CNT)
-    {
-        wiphy_err(wiphy, "Different number of host buffers available for Radar events handling "\
-                  "between driver and FW (%d != %d)\n", IPC_RADARBUF_CNT,
-                  shared->comp_info.radarbuf_cnt);
-        res = -1;
-    }
-
-    if (shared->comp_info.unsuprxvecbuf_cnt != IPC_UNSUPRXVECBUF_CNT)
-    {
-        wiphy_err(wiphy, "Different number of host buffers available for unsupported Rx vectors "\
-                  "handling between driver and FW (%d != %d)\n", IPC_UNSUPRXVECBUF_CNT,
-                  shared->comp_info.unsuprxvecbuf_cnt);
-        res = -1;
-    }
-
-    #ifdef CONFIG_AML_FULLMAC
-    if (shared->comp_info.rxdesc_cnt != IPC_RXDESC_CNT)
-    {
-        wiphy_err(wiphy, "Different number of shared descriptors available for Data RX handling "\
-                  "between driver and FW (%d != %d)\n", IPC_RXDESC_CNT,
-                  shared->comp_info.rxdesc_cnt);
-        res = -1;
-    }
-    #endif /* CONFIG_AML_FULLMAC */
-
-    if (shared->comp_info.rxbuf_cnt != IPC_RXBUF_CNT)
-    {
-        wiphy_err(wiphy, "Different number of host buffers available for Data Rx handling "\
-                  "between driver and FW (%d != %d)\n", IPC_RXBUF_CNT,
-                  shared->comp_info.rxbuf_cnt);
-        res = -1;
-    }
-
-    if (shared->comp_info.msge2a_buf_cnt != IPC_MSGE2A_BUF_CNT)
-    {
-        wiphy_err(wiphy, "Different number of host buffers available for Emb->App MSGs "\
-                  "sending between driver and FW (%d != %d)\n", IPC_MSGE2A_BUF_CNT,
-                  shared->comp_info.msge2a_buf_cnt);
-        res = -1;
-    }
-
-    if (shared->comp_info.dbgbuf_cnt != IPC_DBGBUF_CNT)
-    {
-        wiphy_err(wiphy, "Different number of host buffers available for debug messages "\
-                  "sending between driver and FW (%d != %d)\n", IPC_DBGBUF_CNT,
-                  shared->comp_info.dbgbuf_cnt);
-        res = -1;
-    }
-
-    if (shared->comp_info.bk_txq != NX_TXDESC_CNT0)
-    {
-        wiphy_err(wiphy, "Driver and FW have different sizes of BK TX queue (%d != %d)\n",
-                  NX_TXDESC_CNT0, shared->comp_info.bk_txq);
-        res = -1;
-    }
-
-    if (shared->comp_info.be_txq != NX_TXDESC_CNT1)
-    {
-        wiphy_err(wiphy, "Driver and FW have different sizes of BE TX queue (%d != %d)\n",
-                  NX_TXDESC_CNT1, shared->comp_info.be_txq);
-        res = -1;
-    }
-
-    if (shared->comp_info.vi_txq != NX_TXDESC_CNT2)
-    {
-        wiphy_err(wiphy, "Driver and FW have different sizes of VI TX queue (%d != %d)\n",
-                  NX_TXDESC_CNT2, shared->comp_info.vi_txq);
-        res = -1;
-    }
-
-    if (shared->comp_info.vo_txq != NX_TXDESC_CNT3)
-    {
-        wiphy_err(wiphy, "Driver and FW have different sizes of VO TX queue (%d != %d)\n",
-                  NX_TXDESC_CNT3, shared->comp_info.vo_txq);
-        res = -1;
-    }
-
-    #if NX_TXQ_CNT == 5
-    if (shared->comp_info.bcn_txq != NX_TXDESC_CNT4)
-    {
-        wiphy_err(wiphy, "Driver and FW have different sizes of BCN TX queue (%d != %d)\n",
-                NX_TXDESC_CNT4, shared->comp_info.bcn_txq);
-        res = -1;
-    }
-    #else
-    if (shared->comp_info.bcn_txq > 0)
-    {
-        wiphy_err(wiphy, "BCMC enabled in firmware but disabled in driver\n");
-        res = -1;
-    }
-    #endif /* NX_TXQ_CNT == 5 */
-
-    if (shared->comp_info.ipc_shared_size != sizeof(ipc_shared_env))
-    {
-        wiphy_err(wiphy, "Different sizes of IPC shared between driver and FW (%zd != %d)\n",
-                  sizeof(ipc_shared_env), shared->comp_info.ipc_shared_size);
-        res = -1;
-    }
-
-    if (shared->comp_info.msg_api != MSG_API_VER)
-    {
-        wiphy_err(wiphy, "Different supported message API versions between "\
-                  "driver and FW (%d != %d)\n", MSG_API_VER, shared->comp_info.msg_api);
+                  "driver and FW (%d != %d)\n", MSG_API_VER, comp_info->msg_api);
         res = -1;
     }
 
     return res;
 }
 
-int aml_check_fw_compatibility(struct aml_hw *aml_hw)
+static int aml_check_fw_compatibility(struct aml_hw *aml_hw)
 {
-    if (aml_bus_type == USB_MODE) {
-        return aml_usb_check_fw_compatibility(aml_hw);
-    } else if (aml_bus_type == SDIO_MODE) {
-        return aml_sdio_check_fw_compatibility(aml_hw);
-    } else {
-        if (g_pci_shutdown) {
-            AML_INFO("pci shutdown");
+    struct compatibility_tag *comp_info = (struct compatibility_tag *)&aml_hw->ipc_env->shared->comp_info;
+
+    if (aml_bus_type == PCIE_MODE) {
+        if (atomic_read(&g_wifi_pm.bus_suspend_cnt) || g_pci_shutdown) {
+            AML_ERR("aml_check_fw_compatibility,bus_suspend_cnt = %x, g_pci_shutdown = %x\n",
+                    atomic_read(&g_wifi_pm.bus_suspend_cnt), g_pci_shutdown);
             return -1;
         }
-        else
-            return aml_pci_check_fw_compatibility(aml_hw);
+        return __aml_check_fw_compatibility(aml_hw, comp_info);
+    } else {
+        struct compatibility_tag *buf = kzalloc(sizeof(*buf), GFP_KERNEL);
+        int res;
+
+        if (!buf) {
+            AML_ERR("alloc compatibility_tag failed!\n");
+            return -ENOMEM;
+        }
+
+        hi_random_read(aml_hw, buf, (uintptr_t)comp_info, sizeof(*buf));
+        res = __aml_check_fw_compatibility(aml_hw, buf);
+        kfree(buf);
+
+        return res;
     }
 }
 
 #endif /* !CONFIG_AML_FHOST */
 
-unsigned int bbpll_init(struct aml_plat *aml_plat)
+static unsigned int bbpll_init(struct aml_plat *aml_plat)
 {
     RG_DPLL_A0_FIELD_T rg_dpll_a0;
     RG_DPLL_A1_FIELD_T rg_dpll_a1;
@@ -1460,7 +735,7 @@ unsigned int bbpll_init(struct aml_plat *aml_plat)
     return 0;
 }
 
-unsigned int bbpll_start(struct aml_plat *aml_plat)
+static unsigned int bbpll_start(struct aml_plat *aml_plat)
 {
     //RG_DPLL_A0_FIELD_T rg_dpll_a0;
     RG_DPLL_A1_FIELD_T rg_dpll_a1;
@@ -1485,26 +760,24 @@ unsigned int bbpll_start(struct aml_plat *aml_plat)
     //delay 20 us for lock detector
     udelay(20);
 
-    //3.enable PLL lock-detecor
+    //3.enable PLL lock-detector
     rg_dpll_a3.data = AML_REG_READ(aml_plat, AML_ADDR_AON, RG_DPLL_A3);
     rg_dpll_a3.b.rg_bbpll_lk_rst = 0;
     AML_REG_WRITE(rg_dpll_a3.data, aml_plat, AML_ADDR_AON, RG_DPLL_A3);
 
     //4.check PLL status
     rg_dpll_a6.data = AML_REG_READ(aml_plat, AML_ADDR_AON, RG_DPLL_A6);
-    if (rg_dpll_a6.b.ro_bbpll_done == 1)
-    {
+    if (rg_dpll_a6.b.ro_bbpll_done == 1) {
         AML_INFO("bbpll done !\n");
         return 1;
     }
-    else
-    {
+    else {
         AML_ERR("bbpll start failed !\n");
         return 0;
     }
 }
 
-unsigned int bbpll_stop(struct aml_plat *aml_plat)
+static __always_unused unsigned int bbpll_stop(struct aml_plat *aml_plat)
 {
     RG_DPLL_A1_FIELD_T rg_dpll_a1;
     RG_DPLL_A3_FIELD_T rg_dpll_a3;
@@ -1531,27 +804,28 @@ void aml_tx_rx_buf_init(struct aml_hw *aml_hw)
     int i;
     struct aml_plat *aml_plat = aml_hw->plat;
 
-    if (aml_bus_type != PCIE_MODE) {
-        aml_hw->fw_buf_pos = RXBUF_START_ADDR;
-        aml_hw->rx_buf_end =
-                (aml_bus_type == SDIO_MODE) ?
-                        RXBUF_END_ADDR_LARGE : USB_RXBUF_END_ADDR_LARGE;
-        aml_hw->rx_buf_state = FW_BUFFER_EXPAND;
-    } else {
-        for (i = 0; i < 1024; i += 4) {
-            AML_REG_WRITE(0, aml_plat, AML_ADDR_MAC_PHY, MAC_SRAM_BASE + i);
-        }
-    #ifdef CONFIG_LINUXPC_VERSION
-        AML_REG_WRITE(UBUNTU_PC_VERSION, aml_plat, AML_ADDR_MAC_PHY, UBUNTU_SYNC_ADDR);
-    #endif
+    BUG_ON(aml_bus_type != PCIE_MODE);
+    for (i = 0; i < 1024; i += 4) {
+        AML_REG_WRITE(0, aml_plat, AML_ADDR_MAC_PHY, MAC_SRAM_BASE + i);
     }
+#ifndef CONFIG_AML_PLATFORM_ANDROID
+    AML_REG_WRITE(UBUNTU_PC_VERSION, aml_plat, AML_ADDR_MAC_PHY, UBUNTU_SYNC_ADDR);
+#endif
 }
 
 /* FIXME: move aml_usb_irq_urb_init() into w2_usb.c */
 void aml_usb_irq_urb_init(struct aml_hw *aml_hw, struct usb_device *udev)
 {
-    struct urb *urb = &aml_hw->usb->urb;
-    struct usb_ctrlrequest *req = &aml_hw->usb->req;
+    struct urb *urb;
+    struct usb_ctrlrequest *req;
+
+    if (!aml_hw->usb) {
+        AML_ERR("aml_hw->usb is NULL\n");
+        return;
+    }
+
+    urb = &aml_hw->usb->urb;
+    req = &aml_hw->usb->req;
 
     /* fill in the devrequest structure */
     req->bRequestType = USB_CTRL_IN_REQTYPE;
@@ -1570,83 +844,100 @@ void aml_usb_irq_urb_init(struct aml_hw *aml_hw, struct usb_device *udev)
         aml_hw);
 }
 
-int aml_sdio_create_thread(struct aml_hw *aml_hw)
+void aml_usb_irq_urb_incr(struct aml_hw *aml_hw)
 {
-    sema_init(&aml_hw->aml_irq_sem, 0);
-    aml_hw->aml_irq_task_quit = 0;
-    aml_hw->aml_irq_task = kthread_run(aml_irq_task, aml_hw, "aml_irq_task");
-    if (IS_ERR(aml_hw->aml_irq_task)) {
-        aml_hw->aml_irq_task = NULL;
-        ERROR_DEBUG_OUT("create aml_irq_task error!!!!\n");
-        return -1;
+    struct urb *urb;
+    struct usb_ctrlrequest *req;
+
+    if (!aml_hw->usb) {
+        AML_ERR("aml_hw->usb is NULL\n");
+        return;
     }
+
+    urb = &aml_hw->usb->urb;
+    req = &aml_hw->usb->req;
+
+    /* fill in the devrequest structure */
+    req->wIndex++;
+
+    usb_fill_control_urb(urb,
+        aml_hw->plat->usb_dev,
+        usb_rcvctrlpipe(aml_hw->plat->usb_dev, USB_EP0),
+        (unsigned char *)req,
+        aml_hw->usb->fw_ptrs,
+        sizeof(aml_hw->usb->fw_ptrs),
+        aml_irq_usb_hdlr,
+        aml_hw);
+}
+
+static inline struct task_struct *aml_kthread_run(int (*threadfn)(void *data), void *data,
+                                                  const char *name, int cpu)
+{
+    struct task_struct *task;
+
+    if (cpu >= 0)
+        task = kthread_create(threadfn, data, "%s@%u", name, cpu);
+    else
+        task = kthread_create(threadfn, data, "%s", name);
+    if (IS_ERR_OR_NULL(task)) {
+        AML_ERR("create %s on cpu %d error %ld!!!\n", name, cpu, PTR_ERR(task));
+        return NULL;
+    }
+
+    if (cpu >= 0)
+        kthread_bind(task, cpu);
+
+    wake_up_process(task);
+    return task;
+}
+
+static int aml_sdio_usb_create_thread(struct aml_hw *aml_hw)
+{
+    int rx_cpu = -1;
 
     sema_init(&aml_hw->aml_rx_sem, 0);
     aml_hw->aml_rx_task_quit = 0;
-
-#if ((LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)) && (LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0)))
-        aml_hw->aml_rx_task = kthread_run(aml_rx_task, aml_hw, "aml_rx_task");
-        if (IS_ERR(aml_hw->aml_rx_task)) {
-            kthread_stop(aml_hw->aml_irq_task);
-            aml_hw->aml_rx_task = NULL;
-            ERROR_DEBUG_OUT("create aml_rx_task error!!!!\n");
-            return -1;
-        }
-#else // template solution for S905L3A
-        {
-            aml_hw->aml_rx_task = kthread_create(aml_rx_task, aml_hw, "aml_rx_task", num_online_cpus() - 1);
-            if (IS_ERR(aml_hw->aml_rx_task)) {
-                kthread_stop(aml_hw->aml_irq_task);
-                aml_hw->aml_rx_task = NULL;
-                ERROR_DEBUG_OUT("create aml_rx_task error!!!!\n");
-                return -1;
-            }
-            kthread_bind(aml_hw->aml_rx_task, num_online_cpus() - 1);
-            wake_up_process(aml_hw->aml_rx_task);
-        }
+    aml_hw->aml_rx_task = NULL;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0) || LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
+    /* FIXME: remove this WAR ASAP, core4 is reserved for audio/DS12 */
+    if (aml_bus_type == USB_MODE)
+        rx_cpu = num_online_cpus() - 1;
 #endif
+    aml_hw->aml_rx_task = aml_kthread_run(aml_rx_task, aml_hw, "aml_rx_task", rx_cpu);
+    if (!aml_hw->aml_rx_task)
+        return -1;
 
     sema_init(&aml_hw->aml_tx_sem, 0);
     aml_hw->aml_tx_task_quit = 0;
-    aml_hw->aml_tx_task = kthread_run(aml_tx_task, aml_hw, "aml_tx_task");
-    if (IS_ERR(aml_hw->aml_tx_task)) {
-        kthread_stop(aml_hw->aml_irq_task);
-        kthread_stop(aml_hw->aml_rx_task);
-        aml_hw->aml_tx_task = NULL;
-        ERROR_DEBUG_OUT("create aml_tx_task error!!!!\n");
+    aml_hw->aml_tx_task = aml_kthread_run(aml_tx_task, aml_hw, "aml_tx_task", -1);
+    if (!aml_hw->aml_tx_task)
         return -1;
-    }
 
     sema_init(&aml_hw->aml_msg_sem, 0);
     aml_hw->aml_msg_task_quit = 0;
-    aml_hw->aml_msg_task = kthread_run(aml_msg_task, aml_hw, "aml_msg_task");
-    if (IS_ERR(aml_hw->aml_msg_task)) {
-        kthread_stop(aml_hw->aml_irq_task);
-        kthread_stop(aml_hw->aml_rx_task);
-        kthread_stop(aml_hw->aml_tx_task);
-        aml_hw->aml_msg_task = NULL;
-        ERROR_DEBUG_OUT("create aml_msg_task error!!!!\n");
+    aml_hw->aml_msg_task = aml_kthread_run(aml_msg_task, aml_hw, "aml_msg_task", -1);
+    if (!aml_hw->aml_msg_task)
         return -1;
-    }
-
 
     sema_init(&aml_hw->aml_txcfm_sem, 0);
     aml_hw->aml_txcfm_task_quit = 0;
-    aml_hw->aml_txcfm_task = kthread_run(aml_tx_cfm_task, aml_hw, "aml_txcfm_task");
-    if (IS_ERR(aml_hw->aml_txcfm_task)) {
-        kthread_stop(aml_hw->aml_irq_task);
-        kthread_stop(aml_hw->aml_rx_task);
-        kthread_stop(aml_hw->aml_tx_task);
-        kthread_stop(aml_hw->aml_msg_task);
-        aml_hw->aml_txcfm_task = NULL;
-        ERROR_DEBUG_OUT("create aml_txcfm_task error!!!!\n");
+    aml_hw->aml_txcfm_task = aml_kthread_run(aml_tx_cfm_task, aml_hw, "aml_txcfm_task", -1);
+    if (!aml_hw->aml_txcfm_task)
         return -1;
-    }
 
+    if (aml_bus_type == SDIO_MODE)
+        return 0;
+
+    sema_init(&aml_hw->aml_irq_sem, 0);
+    aml_hw->aml_irq_task_quit = 0;
+    aml_hw->aml_irq_task = aml_kthread_run(aml_irq_task, aml_hw, "aml_irq_usb", -1 /* 2 */);
+    if (!aml_hw->aml_irq_task)
+        return -1;
 
     return 0;
 }
-void aml_sdio_destroy_thread(struct aml_hw *aml_hw)
+
+static void aml_sdio_usb_destroy_thread(struct aml_hw *aml_hw)
 {
     if (aml_hw->aml_irq_task) {
         init_completion(&aml_hw->aml_irq_completion);
@@ -1699,51 +990,82 @@ void aml_sdio_destroy_thread(struct aml_hw *aml_hw)
     }
 }
 
-int aml_cpufreq_boost_update(struct aml_hw *aml_hw)
+static int __aml_cpufreq_boost_update(struct aml_hw *aml_hw)
 {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
-    struct freq_qos_request *req = &aml_hw->qos_req;
-    int ret = 0;
+    int cpu;
+    unsigned int bitmap = 0;
 
-    if (!freq_qos_request_active(req)) {
-        struct cpufreq_policy *policy = cpufreq_cpu_get(0);
+    for (cpu = 0; cpu < num_online_cpus(); cpu ++) {
+        struct freq_qos_request *req = &aml_hw->qos_reqs[cpu];
+        int ret = -EPERM;
 
-        if (IS_ERR_OR_NULL(policy)) {
-            AML_ERR("cpu0 policy not ready\n");
-            return -EINVAL;
+        if (cpu >= ARRAY_SIZE(aml_hw->qos_reqs)) {
+            AML_WARN("CPU%d: skip adding min-freq constraint!\n", cpu);
+        } else if (!freq_qos_request_active(req)) {
+            struct cpufreq_policy *policy = cpufreq_cpu_get(cpu);
+
+            if (IS_ERR_OR_NULL(policy))
+                AML_ERR("CPU%d: policy not ready\n", cpu);
+            else
+                ret = freq_qos_add_request(&policy->constraints, req,
+                                           FREQ_QOS_MIN, cpufreq_quick_get_max(cpu));
+            if (ret < 0)
+                AML_ERR("CPU%d: failed to add min-freq constraint (%d)\n", cpu, ret);
+
+            cpufreq_cpu_put(policy);
+        } else {
+            ret = freq_qos_update_request(req, cpufreq_quick_get_max(cpu));
+            if (ret < 0)
+                AML_ERR("CPU%d: failed to update min-freq constraint(%d)\n", cpu, ret);
         }
-
-        ret = freq_qos_add_request(&policy->constraints, req, FREQ_QOS_MIN,
-                       FREQ_QOS_MIN_DEFAULT_VALUE);
-        if (ret)
-            AML_ERR("Failed to add max-freq constraint (%d)\n", ret);
-
-        cpufreq_cpu_put(policy);
+        if (ret >= 0)
+            bitmap |= BIT(cpu);
     }
-
-    if (freq_qos_request_active(req)) {
-        ret = freq_qos_update_request(req, cpufreq_quick_get_max(0));
-        if (ret < 0)
-            AML_ERR("freq_qos_update_request fail(%d)\n", ret);
-    }
-    return ret;
+    AML_INFO("add/update min-freq constraint to CPUs(0x%x)\n", bitmap);
 #endif
     return 0;
+}
+
+static int __aml_cpufreq_boost_remove(struct aml_hw *aml_hw)
+{
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
+    int cpu;
+    unsigned int bitmap = 0;
+
+    for (cpu = 0; cpu < num_online_cpus() && cpu < ARRAY_SIZE(aml_hw->qos_reqs); cpu ++) {
+        struct freq_qos_request *req = &aml_hw->qos_reqs[cpu];
+
+        if (freq_qos_request_active(req)) {
+            if (freq_qos_remove_request(req) >= 0)
+                bitmap |= BIT(cpu);
+            else
+                AML_ERR("CPU%d: failed to remove min-freq constraint\n", cpu);
+        }
+    }
+    AML_INFO("remove min-freq constraint from CPUs(0x%x)\n", bitmap);
+#endif
+    return 0;
+}
+
+int aml_cpufreq_boost_update(struct aml_hw *aml_hw)
+{
+    if (in_atomic())
+        return aml_wq_do(__aml_cpufreq_boost_update, aml_hw);
+    else
+        return __aml_cpufreq_boost_update(aml_hw);
 }
 
 int aml_cpufreq_boost_remove(struct aml_hw *aml_hw)
 {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
-    struct freq_qos_request *req = &aml_hw->qos_req;
-
-    if (freq_qos_request_active(req))
-        freq_qos_remove_request(req);
-#endif
-    return 0;
+    if (in_atomic())
+        return aml_wq_do(__aml_cpufreq_boost_remove, aml_hw);
+    else
+        return __aml_cpufreq_boost_remove(aml_hw);
 }
 
 extern int coex_flag;
-int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
+static int aml_sdio_usb_platform_on(struct aml_hw *aml_hw, void *config)
 {
     u8 *shared_ram;
     u8 *shared_host_rxbuf = NULL;
@@ -1757,7 +1079,7 @@ int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
         return 0;
 
     if (aml_bus_type == SDIO_MODE) {
-        aml_sdio_calibration();
+        aml_sdio_hw_init();
     }
 
     rg_dpll_a6.data = AML_REG_READ(aml_plat, AML_ADDR_AON, RG_DPLL_A6);
@@ -1785,7 +1107,6 @@ int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
     mac_clk_reg = AML_REG_READ(aml_plat, AML_ADDR_MAC_PHY, RG_INTF_MACCORE_CLK);
     mac_clk_reg |= 0x30000;
     AML_REG_WRITE(mac_clk_reg, aml_plat, AML_ADDR_MAC_PHY, RG_INTF_MACCORE_CLK);
-    aml_tx_rx_buf_init(aml_hw);
     aml_hw->dynabuf_stop_tx = 0;
     aml_hw->send_tx_stop_to_fw = 0;
     if (aml_platform_reset(aml_plat))
@@ -1802,17 +1123,17 @@ int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
         return ret;
 
     if (aml_bus_type == USB_MODE) {
-        if ((ret = wifi_fw_download(AML_MAC_FW_USB)))
+        if ((ret = wifi_fw_download(aml_get_fw_version(USB_MODE))))
             return ret;
 
-        if (ret = start_wifi())
+        if ((ret = start_wifi()))
             return ret;
     } else {
-        aml_download_wifi_fw_img(AML_MAC_FW_SDIO);
+        aml_download_wifi_fw_img(aml_get_fw_version(SDIO_MODE));
     }
 
     shared_ram = (u8 *)SHARED_RAM_SDIO_START_ADDR;
-    if (ret = aml_ipc_init(aml_hw, shared_ram, shared_host_rxbuf, shared_host_rxdesc))
+    if ((ret = aml_ipc_init(aml_hw, shared_ram, shared_host_rxbuf, shared_host_rxdesc)))
         return ret;
 
     AML_REG_WRITE(BOOTROM_ENABLE, aml_plat, AML_ADDR_SYSTEM, SYSCTRL_MISC_CNTL_ADDR);
@@ -1851,7 +1172,7 @@ int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
 #endif
 
 #ifndef CONFIG_AML_FHOST
-    if (ret = aml_check_fw_compatibility(aml_hw)) {
+    if ((ret = aml_check_fw_compatibility(aml_hw))) {
         if (aml_hw->plat->disable)
             aml_hw->plat->disable(aml_hw);
         aml_ipc_deinit(aml_hw);
@@ -1879,12 +1200,12 @@ int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
         usb_init_urb(&aml_hw->usb->urb);
     }
 
-    if (aml_sdio_create_thread(aml_hw)) {
+    if (aml_sdio_usb_create_thread(aml_hw)) {
         if (aml_hw->usb) {
             usb_free_urb(&aml_hw->usb->urb);
             aml_hw->usb = NULL;
         }
-        aml_sdio_destroy_thread(aml_hw);
+        aml_sdio_usb_destroy_thread(aml_hw);
         if (aml_hw->plat->disable)
             aml_hw->plat->disable(aml_hw);
         aml_ipc_deinit(aml_hw);
@@ -1912,27 +1233,19 @@ int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
     aml_hw->g_tx_param.txcfm_trigger_tx_thr = TXCFM_TRIGGER_TX_THR;
 
     aml_amsdu_buf_list_init(aml_hw);
+    aml_sdio_usb_rx_restart(&aml_hw->rx);
     if (aml_bus_type == SDIO_MODE) {
-#ifdef CONFIG_AML_LA
-         aml_hw->g_tx_param.tx_page_free_num = SDIO_TX_PAGE_NUM_LARGE; /* for tx large */
-         aml_hw->g_tx_param.tx_page_tot_num = SDIO_TX_PAGE_NUM_LARGE;
-#else
-         aml_hw->g_tx_param.tx_page_free_num = SDIO_TX_PAGE_NUM_SMALL;
-         aml_hw->g_tx_param.tx_page_tot_num = SDIO_TX_PAGE_NUM_SMALL;
-#endif
-        aml_sdio_scatter_reg_init(aml_hw);
-        if (ret = aml_plat->enable(aml_hw)) {
+        if ((ret = aml_plat->enable(aml_hw))) {
             aml_plat->enabled = true;
             aml_platform_off(aml_hw, NULL);
             return ret;
         }
+        aml_enable_sdio_irq(aml_hw);
     }
     if (aml_bus_type == USB_MODE) {
         aml_hw->plat->usb_dev = g_udev;
         aml_usb_irq_urb_init(aml_hw, g_udev);
         aml_usb_irq_urb_submit(aml_hw);
-        aml_hw->g_tx_param.tx_page_free_num = USB_TX_PAGE_NUM_SMALL;
-        aml_hw->g_tx_param.tx_page_tot_num = USB_TX_PAGE_NUM_SMALL;
         aml_hw->trb_wait_time = USB_SEND_URB_DEFAULT_WAIT_TIME;
         USB_BEGIN_LOCK();
         coex_flag = 1;
@@ -2039,7 +1352,7 @@ void aml_pci_destroy_thread(struct aml_hw *aml_hw)
  *
  * Called by 802.11 part
  */
-int aml_pci_platform_on(struct aml_hw *aml_hw, void *config)
+static int aml_pci_platform_on(struct aml_hw *aml_hw, void *config)
 {
     u8 *shared_ram;
     struct aml_plat *aml_plat = aml_hw->plat;
@@ -2053,7 +1366,7 @@ int aml_pci_platform_on(struct aml_hw *aml_hw, void *config)
     if (aml_plat->enabled)
         return 0;
 
-     rg_dpll_a6.data = AML_REG_READ(aml_plat, AML_ADDR_AON, RG_DPLL_A6);
+    rg_dpll_a6.data = AML_REG_READ(aml_plat, AML_ADDR_AON, RG_DPLL_A6);
     /*bpll not init*/
     if (rg_dpll_a6.b.ro_bbpll_done != 1) {
         bbpll_init(aml_plat);
@@ -2105,11 +1418,21 @@ int aml_pci_platform_on(struct aml_hw *aml_hw, void *config)
         return ret;
 
 #ifdef CONFIG_AML_USE_TASK
-    aml_task_init(aml_hw);
+    /* coverity[side_effect_free] - standard kernel interface */
+    spin_lock_init(&aml_hw->pcie.rxdesc_lock);
+    AML_TASK_INIT(&aml_hw->pcie.task_irqhdlr, aml_task_fn_irqhdlr, irqhdlr, -1);
+    AML_TASK_INIT(&aml_hw->pcie.task_rxdesc, aml_task_fn_rxdesc, rxdesc, -1);
+#else
+    tasklet_init(&aml_hw->task, aml_pcie_task, (unsigned long)aml_hw);
 #endif
 
-    if ((ret = aml_plat->enable(aml_hw)))
+    if ((ret = aml_plat->enable(aml_hw))) {
+    #ifndef CONFIG_AML_USE_TASK
+        tasklet_kill(&aml_hw->task);
+    #endif
+        aml_ipc_deinit(aml_hw);
         return ret;
+    }
     AML_REG_WRITE(BOOTROM_ENABLE, aml_plat,
                    AML_ADDR_SYSTEM, SYSCTRL_MISC_CNTL_ADDR);
 
@@ -2131,11 +1454,7 @@ int aml_pci_platform_on(struct aml_hw *aml_hw, void *config)
         if (aml_hw->plat->disable)
             aml_hw->plat->disable(aml_hw);
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0) // template solution for S905L3A
 #ifndef CONFIG_AML_USE_TASK
-        tasklet_kill(&aml_hw->task);
-#endif
-#else
         tasklet_kill(&aml_hw->task);
 #endif
 
@@ -2152,6 +1471,14 @@ int aml_pci_platform_on(struct aml_hw *aml_hw, void *config)
 #ifdef CONFIG_AML_PREALLOC_BUF_SKB
     if (aml_pci_create_thread(aml_hw)) {
         AML_INFO("create thread failed");
+        if (aml_hw->plat->disable)
+            aml_hw->plat->disable(aml_hw);
+
+#ifndef CONFIG_AML_USE_TASK
+        tasklet_kill(&aml_hw->task);
+#endif
+
+        aml_ipc_deinit(aml_hw);
         return -1;
     }
 #endif
@@ -2170,7 +1497,7 @@ int aml_platform_on(struct aml_hw *aml_hw, void *config)
 {
     int ret;
     if (aml_bus_type != PCIE_MODE) {
-        ret = aml_sdio_platform_on(aml_hw, config);
+        ret = aml_sdio_usb_platform_on(aml_hw, config);
     } else {
         ret = aml_pci_platform_on(aml_hw, config);
     }
@@ -2196,25 +1523,16 @@ void aml_platform_off(struct aml_hw *aml_hw, void **config)
     }
 
     aml_ipc_stop(aml_hw);
-    if (aml_bus_type != PCIE_MODE) {
-         aml_sdio_destroy_thread(aml_hw);
-    }
+    if (aml_bus_type != PCIE_MODE)
+        aml_sdio_usb_destroy_thread(aml_hw);
 
     if (config)
         *config = aml_term_save_config(aml_hw->plat);
 
-    if (aml_hw->plat->disable)
-        aml_hw->plat->disable(aml_hw);
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0) // template solution for S905L3A
 #ifndef CONFIG_AML_USE_TASK
     tasklet_kill(&aml_hw->task);
 #endif
-#else
-    tasklet_kill(&aml_hw->task);
-#endif
 
-    aml_ipc_deinit(aml_hw);
 #ifdef CONFIG_AML_PREALLOC_BUF_SKB
     if (aml_bus_type == PCIE_MODE) {
         aml_pci_destroy_thread(aml_hw);
@@ -2222,8 +1540,16 @@ void aml_platform_off(struct aml_hw *aml_hw, void **config)
 #endif
 
 #ifdef CONFIG_AML_USE_TASK
-    aml_task_deinit(aml_hw);
+    if (aml_bus_type == PCIE_MODE) {
+        AML_TASK_DEINIT(&aml_hw->pcie.task_irqhdlr);
+        AML_TASK_DEINIT(&aml_hw->pcie.task_rxdesc);
+    }
 #endif
+
+    if (aml_hw->plat->disable)
+        aml_hw->plat->disable(aml_hw);
+
+    aml_ipc_deinit(aml_hw);
 
     aml_platform_reset(aml_hw->plat);
     if (aml_bus_type != PCIE_MODE) {
@@ -2239,6 +1565,9 @@ void aml_platform_off(struct aml_hw *aml_hw, void **config)
         aml_hw->usb = NULL;
     }
     aml_hw->plat->enabled = false;
+
+    kfree(aml_hw->g_tx_param.scat_req);
+    aml_hw->g_tx_param.scat_req = NULL;
 }
 
 /**
@@ -2286,7 +1615,6 @@ void aml_platform_deinit(struct aml_hw *aml_hw)
 #endif
 }
 
-#define AML_BASE_ADDR  0x60000000
 static unsigned char *aml_get_address(struct aml_plat *aml_plat, int addr_name,
                                unsigned int offset)
 {
@@ -2301,62 +1629,39 @@ static unsigned char *aml_get_address(struct aml_plat *aml_plat, int addr_name,
     return addr;
 }
 
-static inline int aml_hw_fw_rx_pos_update(struct aml_hw *aml_hw, u32 fw_rx_pos)
-{
-    unsigned int buf_state = fw_rx_pos & FW_BUFFER_STATUS;
-    u32 fw_pos = SHARED_MEM_BASE_ADDR + (fw_rx_pos & ~(FW_BUFFER_STATUS | RX_WRAP_TEMP_FLAG));
-
-    if (fw_rx_pos == 0)
-        return 0;
-
-    if (fw_pos < RXBUF_START_ADDR || fw_pos >= 0x60080000) {
-        AML_ERR("fw_rx_pos %x fw_pos %x\n", fw_rx_pos, fw_pos);
-        /* WARN_ON(1); */
-        return -1;
-    }
-
-    aml_hw->fw_new_pos = fw_pos;
-    if (fw_rx_pos & RX_WRAP_TEMP_FLAG)
-        aml_hw->fw_new_pos |= RX_WRAP_FLAG;
-
-    if (buf_state) {
-        aml_hw->rx_buf_state &= ~FW_BUFFER_STATUS;
-        if (buf_state & FW_BUFFER_NARROW) {
-            aml_hw->rx_buf_state |= buf_state | BUFFER_NARROW;
-        } else {
-            aml_hw->rx_buf_state |= buf_state | BUFFER_EXPAND;
-        }
-    }
-    return 0;
-}
-
 static u32 aml_usb_ack_irq(struct aml_hw *aml_hw)
 {
-    u32 fw_rx_pos = 0;
+    u32 fw_rx_head = 0;
     u32 istatus = 0;
 
     if (bus_state_detect.bus_err)
         return 0;
 
-    fw_rx_pos = __le32_to_cpu(aml_hw->usb->fw_ptrs[0]);
+    if (!aml_hw->usb) {
+        AML_ERR("aml_hw->usb is NULL\n");
+        return 0;
+    }
+
+    fw_rx_head = __le32_to_cpu(aml_hw->usb->fw_ptrs[0]);
     istatus = __le32_to_cpu(aml_hw->usb->fw_ptrs[1]);
 
     /* reset the cache of interrupt status to prevent the caller dead-loop */
     aml_hw->usb->fw_ptrs[1] = 0;
 
-    if (aml_hw_fw_rx_pos_update(aml_hw, fw_rx_pos))
+    if (aml_sdio_usb_fw_rx_head_ind(&aml_hw->rx, fw_rx_head))
         return 0;
 
-    return istatus;
+    return istatus | aml_hw->rx.irq_pending;
 }
 
-int aml_sdio_intr_read(struct aml_hw *aml_hw, u32 *fw_rx_pos, u32 *istatus)
+static inline int aml_sdio_intr_read(struct aml_hw *aml_hw, u32 *fw_rx_pos, u32 *istatus)
 {
+    int ret;
     u32 regs[2] = { 0 };
 
-    /* FIXME: return -1 if read failed */
-    aml_hw->plat->hif_sdio_ops->hi_desc_read(regs,
-            (unsigned char *)RG_WIFI_IF_FW2HST_IRQ_CFG, sizeof(regs));
+    ret = aml_hw->plat->hif_sdio_ops->hi_desc_read(regs, RG_WIFI_IF_FW2HST_IRQ_CFG, sizeof(regs));
+    if (ret)
+        return ret;
 
     if (fw_rx_pos)
         *fw_rx_pos = regs[0];
@@ -2366,20 +1671,22 @@ int aml_sdio_intr_read(struct aml_hw *aml_hw, u32 *fw_rx_pos, u32 *istatus)
     return 0;
 }
 
-static u32 aml_sdio_ack_irq(struct aml_hw *aml_hw)
+u32 aml_sdio_ack_irq(struct aml_hw *aml_hw)
 {
-    u32 fw_rx_pos = 0;
+    u32 fw_rx_head = 0;
     u32 istatus = 0;
     int ret;
 
     if (bus_state_detect.bus_err)
         return 0;
 
-    ret = aml_sdio_intr_read(aml_hw, &fw_rx_pos, &istatus);
-    if (ret || aml_hw_fw_rx_pos_update(aml_hw, fw_rx_pos))
+    AML_PROF_HI(intr_read);
+    ret = aml_sdio_intr_read(aml_hw, &fw_rx_head, &istatus);
+    AML_PROF_LO(intr_read);
+    if (ret || aml_sdio_usb_fw_rx_head_ind(&aml_hw->rx, fw_rx_head))
         return 0;
 
-    return istatus;
+    return istatus | aml_hw->rx.irq_pending;
 }
 
 static u32 aml_pci_ack_irq(struct aml_hw *aml_hw)
@@ -2394,15 +1701,12 @@ static u32 aml_pci_ack_irq(struct aml_hw *aml_hw)
 
 int aml_platform_register_usb_drv(void)
 {
-    int ret = 0;
+    int ret;
     struct aml_plat *aml_plat;
     void *drv_data = NULL;
 
-    if (!auc_driver_insmoded) {
-        ret = aml_usb_insmod();
-    }
     if ((!g_usb_after_probe) || wifi_drv_rmmod_ongoing) {
-         AML_INFO("***** please confirm wether the usb is probe or w2_comm.ko rmmod success last time\n");
+         AML_INFO("***** please confirm whether the usb is probe or w2_comm.ko rmmod success last time\n");
          return -ENODEV;
     }
 
@@ -2419,7 +1723,12 @@ int aml_platform_register_usb_drv(void)
     aml_plat->get_address = aml_get_address;
     aml_plat->ack_irq = aml_usb_ack_irq;
 
-    aml_platform_init(aml_plat, &drv_data);
+    ret = aml_platform_init(aml_plat, &drv_data);
+    if (ret) {
+        AML_ERR("aml_platform_init fail, ret:%d\n", ret);
+        kfree(aml_plat);
+        return ret;
+    }
     dev_set_drvdata(&aml_plat->usb_dev->dev, drv_data);
     // if usb disconnect, system can't get @drv_data from dev, so we save it
     g_aml_hw = drv_data;
@@ -2431,7 +1740,7 @@ int aml_platform_register_usb_drv(void)
 void aml_platform_unregister_usb_drv(void)
 {
     struct aml_hw *aml_hw;
-    struct aml_plat *aml_plat;
+    struct aml_plat *aml_plat = NULL;
 
     AML_DBG(AML_FN_ENTRY_STR);
     aml_log_nl_destroy();
@@ -2442,7 +1751,7 @@ void aml_platform_unregister_usb_drv(void)
             aml_hw = g_aml_hw;
             g_aml_hw = NULL;
         } else {
-            AML_INFO("can't get aml_hw, need to check\n");
+            AML_ERR("can't get aml_hw, need to check\n");
             goto err_drvdata;
         }
     }
@@ -2453,38 +1762,17 @@ void aml_platform_unregister_usb_drv(void)
     bus_state_detect.is_drv_load_finished = 0;
 
 err_drvdata:
-    kfree(aml_plat);
+    if (aml_plat)
+        kfree(aml_plat);
     dev_set_drvdata(&g_udev->dev, NULL);
 }
 
-#ifndef CONFIG_LINUXPC_VERSION
-extern int wifi_irq_num(void);
-#endif
 static int aml_pci_platform_enable(struct aml_hw *aml_hw)
 {
-    int ret;
-#ifdef CONFIG_PT_MODE
-    struct sdio_func *func = aml_priv_to_func(SDIO_FUNC1);
-#else
-    unsigned int irq_flag = 0;
-#endif
+    int ret = 0;
 
     if (aml_bus_type == SDIO_MODE) {
-#ifdef CONFIG_PT_MODE
-        dev_set_drvdata(&func->dev, aml_hw);
-        sdio_claim_host(func);
-        sdio_claim_irq(func, aml_irq_sdio_hdlr_for_pt);
-        sdio_release_host(func);
-        AML_INFO(" claim_irq ret=%d\n", ret);
-#else
-#ifndef CONFIG_LINUXPC_VERSION
-        aml_hw->irq = wifi_irq_num();
-        irq_flag = IORESOURCE_IRQ | IORESOURCE_IRQ_LOWLEVEL | IORESOURCE_IRQ_SHAREABLE;
-        AML_INFO(" irq_flag=0x%x  irq=%d\n", irq_flag,  aml_hw->irq);
-        ret = request_irq(aml_hw->irq, aml_irq_sdio_hdlr, irq_flag, "aml", aml_hw);
-        AML_INFO(" request_irq ret=%d\n", ret);
-#endif
-#endif
+        aml_sdio_irq_claim(aml_hw);
     } else if (aml_bus_type == PCIE_MODE) {
         /* sched_setscheduler on ONESHOT threaded irq handler for BCNs ? */
         ret = request_irq(aml_hw->plat->pci_dev->irq, aml_irq_pcie_hdlr, 0,
@@ -2498,19 +1786,16 @@ static int aml_pci_platform_enable(struct aml_hw *aml_hw)
 
 static int aml_pci_platform_disable(struct aml_hw *aml_hw)
 {
-#ifdef CONFIG_PT_MODE
-    struct sdio_func *func = aml_priv_to_func(SDIO_FUNC1);
+    if ((!aml_hw->plat->enabled) && (!bus_state_detect.is_recy_ongoing)) {
+        AML_ERR("no need platform disable.\n");
+        return 0;
+    }
 
-    sdio_claim_host(func);
-    sdio_release_irq(func);
-    sdio_release_host(func);
-#else
     if (aml_bus_type == SDIO_MODE) {
-        free_irq(aml_hw->irq, aml_hw);
+        aml_sdio_irq_release(aml_hw);
     } else if (aml_bus_type == PCIE_MODE) {
         free_irq(aml_hw->plat->pci_dev->irq, aml_hw);
     }
-#endif
 
     return 0;
 }
@@ -2522,11 +1807,8 @@ int aml_platform_register_sdio_drv(void)
     void *drv_data = NULL;
     struct sdio_func *func = aml_priv_to_func(SDIO_FUNC7);
 
-    if (!g_sdio_driver_insmoded) {
-        ret = aml_sdio_init();
-    }
     if ((!g_sdio_after_porbe) || wifi_drv_rmmod_ongoing) {
-         AML_INFO("***** please confirm wether the sdio is probe or w2_comm.ko rmmod success last time\n");
+         AML_INFO("***** please confirm whether the sdio is probe or w2_comm.ko rmmod success last time\n");
          return -ENODEV;
     }
 
@@ -2560,9 +1842,6 @@ int aml_platform_register_sdio_drv(void)
     dev_set_drvdata(&func->dev, drv_data);
     g_aml_hw = drv_data;
 
-#ifdef CONFIG_AML_RX_SG
-    g_mmc_misc = kmalloc(sizeof(struct mmc_misc) * RXDESC_CNT_READ_ONCE, GFP_ATOMIC);
-#endif
     bus_state_detect.is_drv_load_finished = 1;
     aml_log_nl_init();
 
@@ -2572,7 +1851,7 @@ int aml_platform_register_sdio_drv(void)
 void aml_platform_unregister_sdio_drv(void)
 {
     struct aml_hw *aml_hw;
-    struct aml_plat *aml_plat;
+    struct aml_plat *aml_plat = NULL;
     struct sdio_func *func = aml_priv_to_func(SDIO_FUNC7);
 
     AML_DBG(AML_FN_ENTRY_STR);
@@ -2583,7 +1862,7 @@ void aml_platform_unregister_sdio_drv(void)
             aml_hw = g_aml_hw;
             g_aml_hw = NULL;
         } else {
-            AML_INFO("can't get aml_hw, need to check\n");
+            AML_ERR("can't get aml_hw, need to check\n");
             goto err_drvdata;
         }
     }
@@ -2593,7 +1872,8 @@ void aml_platform_unregister_sdio_drv(void)
     wifi_drv_rmmod_ongoing = 1;
     bus_state_detect.is_drv_load_finished = 0;
 err_drvdata:
-    kfree(aml_plat);
+    if (aml_plat)
+        kfree(aml_plat);
     dev_set_drvdata(&func->dev, NULL);
 }
 
@@ -2835,7 +2115,7 @@ static int aml_pci_get_config_reg(struct aml_plat *aml_plat, const u32 **list)
 static int wifi_reboot_fn(struct notifier_block *nb, unsigned long action, void *data)
 {
     g_pci_msg_suspend = 1;
-    AML_INFO(" action: %d =====>\n", action);
+    AML_INFO("action: %ld =====>\n", action);
     return NOTIFY_OK;
 }
 
@@ -2876,8 +2156,11 @@ int aml_platform_register_pcie_drv(void)
 
     g_pci_dev = aml_plat->pci_dev;
     ret = aml_platform_init(aml_plat, &drv_data);
-    if (ret != 0)
+    if (ret != 0) {
+        AML_ERR("aml_platform_init fail:%d\n", ret);
+        kfree(aml_plat);
         return ret;
+    }
     pci_set_drvdata(g_pci_dev, drv_data);
     g_aml_hw = drv_data;
     register_reboot_notifier(&wifinotifier);
@@ -2900,13 +2183,12 @@ void aml_platform_unregister_pcie_drv(void)
             aml_hw = g_aml_hw;
             g_aml_hw = NULL;
         } else {
-            AML_INFO("can't get aml_hw, need to check\n");
+            AML_ERR("can't get aml_hw, need to check\n");
             return;
         }
     }
 
     aml_plat = aml_hw->plat;
-
     aml_platform_deinit(aml_hw);
     kfree(aml_plat);
     AML_FN_EXIT();
@@ -2924,16 +2206,6 @@ void aml_get_vid(struct aml_plat *aml_plat)
     AML_INFO("vendor_id : %x", readl(aml_plat->get_address(aml_plat, AML_ADDR_MAC_PHY, REG_OF_VENDOR_ID)));
 }
 
-
-#ifndef CONFIG_AML_SDM
-MODULE_FIRMWARE(AML_AGC_FW_NAME);
-MODULE_FIRMWARE(AML_FCU_FW_NAME);
-MODULE_FIRMWARE(AML_LDPC_RAM_NAME);
-#endif
-MODULE_FIRMWARE(AML_MAC_FW_NAME);
-#ifndef CONFIG_AML_TL4
-MODULE_FIRMWARE(AML_MAC_FW_NAME2);
-#endif
 MODULE_FIRMWARE(AML_MAC_FW_SDIO);
 MODULE_FIRMWARE(AML_MAC_FW_USB);
 MODULE_FIRMWARE(AML_MAC_FW_PCIE);

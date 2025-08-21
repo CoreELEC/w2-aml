@@ -280,7 +280,7 @@ union aml_thd_mac_ctrl_info_1 {
  * information about the transmission
  *
  * @status: transmission status
- * @hostid: Host id to retrieve TX buffer associated to this confimration
+ * @hostid: Host id to retrieve TX buffer associated to this confirmation
  */
 struct tx_cfm_tag
 {
@@ -308,7 +308,7 @@ struct aml_hw_txhdr {
  * struct aml_hw_txstatus - Bitfield of confirmation status
  *
  * @tx_done: packet has been processed by the firmware.
- * @retry_required: packet has been transmitted but not acknoledged.
+ * @retry_required: packet has been transmitted but not acknowledged.
  * Driver must repush it.
  * @sw_retry_required: packet has not been transmitted (FW wasn't able to push
  * it when it received it: not active channel ...). Driver must repush it.
@@ -326,17 +326,6 @@ union aml_hw_txstatus {
     u32 value;
 };
 
-union aml_sdio_usb_hw_txstatus {
-    struct {
-        u16 tx_done            : 1;
-        u16 retry_required     : 1;
-        u16 sw_retry_required  : 1;
-        u16 acknowledged       : 1;
-        u16 sn                 :12;
-    };
-    u16 value;
-};
-
 /**
  * struct tx_cfm_tag - Structure indicating the status and other
  * information about the transmission
@@ -349,7 +338,7 @@ union aml_sdio_usb_hw_txstatus {
  * 1 means that the frame has been transmitted as a singleton.
  * @amsdu_size: Size, in bytes, allowed to create a-msdu.
  * @status: transmission status
- * @hostid: Host id to retrieve TX buffer associated to this confimration
+ * @hostid: Host id to retrieve TX buffer associated to this confirmation
  */
 struct tx_cfm_tag
 {
@@ -360,19 +349,6 @@ struct tx_cfm_tag
 #endif
     union aml_hw_txstatus status;
     u32_l hostid;
-};
-
-struct tx_sdio_usb_cfm_tag
-{
-    s8_l credits;
-    u8_l ampdu_size;
-#ifdef CONFIG_AML_SPLIT_TX_BUF
-    u16_l amsdu_size;
-#endif
-    u16_l dyna_page;
-    union aml_sdio_usb_hw_txstatus status;
-    u32_l hostid;
-    u32_l reserve;
 };
 
 struct chan_switch_ind_info
@@ -617,7 +593,7 @@ struct mpdu_status {
     u32    subtype            : 4;
 };
 
-/* Used for both Hardware type (but for NX Hardware rx_vectx and status fileds
+/* Used for both Hardware type (but for NX Hardware rx_vectx and status fields
    must be converted first using aml_xxxx_convert function).
    It is ok to use same structure for both HW type because both version
    of 'RX vectors' and 'MPDU Status' have the same size */

@@ -66,11 +66,8 @@ struct log_file_info trace_log_file_info;
 extern struct auc_hif_ops g_auc_hif_ops;
 extern struct pci_dev *g_pci_dev;
 extern struct aml_hw *g_aml_hw;
-extern unsigned int trace_flag;
 
 struct aml_trace_nl_info g_trace_nl_info;
-
-int aml_send_log_to_user(char *pbuf, uint16_t len, int msg_type);
 
 /**
  * aml_fw_trace_work() - Work function to check for new traces
@@ -169,7 +166,7 @@ int aml_fw_trace_buf_init(struct aml_fw_trace_buf *shared_buf,
     shared_buf->end = &ipc->end;
     shared_buf->reset_idx = ++trace_last_reset;
 
-    /* backward compatibilty with firmware without trace activation */
+    /* backward compatibility with firmware without trace activation */
     if ((ipc->nb_compo >> 16) == AML_FW_TRACE_READY) {
         shared_buf->nb_compo = (ipc->nb_compo & 0xffff) + 6;
         shared_buf->compo_table = (uint32_t *)((uint8_t *)(&ipc->offset_compo)
@@ -287,7 +284,7 @@ static inline int aml_fw_trace_strlen(uint16_t *entry)
 /**
  * aml_fw_trace_to_str() - Convert one trace entry to a string
  *
- * @trace: Poitner to the trace entry
+ * @trace: pointer to the trace entry
  * @buf: Buffer for the string
  * @size: Size of the string buffer, updated with the actual string size
  *
@@ -471,16 +468,25 @@ static size_t aml_fw_trace_read_local(struct aml_fw_trace_local_buf *local_buf,
                                        char __user *user_buf, size_t size)
 {
     uint16_t *ptr;
-    char str[1824] = {0}; // worst case 255 params
+    uint8_t *str; // worst case 255 params
     size_t str_size;
     int entry_size;
     size_t res = 0 , remain = size, not_cpy = 0;
+    uint32_t len = MAX_PARAM_LEN;
 
-    if (!local_buf->nb_entries)
+    if (!local_buf->nb_entries) {
+        AML_ERR("local_buf->nb_entries null\n");
         return res;
+    }
+
+    str = kzalloc(len, GFP_KERNEL);
+    if (!str) {
+        AML_ERR("kzalloc str fail\n");
+        return res;
+    }
 
     ptr = local_buf->read;
-    while(local_buf->nb_entries && !not_cpy) {
+    while (local_buf->nb_entries && !not_cpy) {
 
         if (local_buf->show_reset == ptr) {
             if (remain < AML_FW_TRACE_RESET_SIZE)
@@ -497,7 +503,7 @@ static size_t aml_fw_trace_read_local(struct aml_fw_trace_local_buf *local_buf,
             break;
 
         entry_size = AML_FW_TRACE_ENTRY_SIZE(ptr);
-        str_size = sizeof(str);
+        str_size = MAX_PARAM_LEN;
         ptr = aml_fw_trace_to_str(ptr, str, &str_size);
         not_cpy = copy_to_user(user_buf + res, str, str_size);
         str_size -= not_cpy;
@@ -522,6 +528,7 @@ static size_t aml_fw_trace_read_local(struct aml_fw_trace_local_buf *local_buf,
         local_buf->free_space = local_buf->size;
     }
 
+    kfree(str);
     return res;
 }
 
@@ -551,7 +558,7 @@ size_t aml_fw_trace_read(struct aml_fw_trace *trace,
 
     aml_fw_trace_copy(trace, local_buf);
 
-    while(!local_buf->nb_entries) {
+    while (!local_buf->nb_entries) {
         int last_index;
 
         if (dont_wait)
@@ -600,12 +607,15 @@ size_t aml_fw_trace_read(struct aml_fw_trace *trace,
  * Called when error is detected, output trace on dmesg directly read from
  * shared memory
  */
-void _aml_fw_trace_dump(struct aml_hw *aml_hw, struct aml_fw_trace_buf *trace_buf)
+void _aml_fw_trace_dump(struct aml_fw_trace_buf *trace_buf)
 {
+#define TRACE_BUF_LEN_MAX (28 * 1024)
+    struct aml_hw *aml_hw = container_of(trace_buf, struct aml_hw, debugfs.fw_trace.buf);
     uint16_t *ptr = NULL, *ptr_end = NULL, *ptr_limit = NULL, *next_ptr, *ptr_flag;
     char *buf = NULL;
     int buf_size = 1824;
     size_t size;
+    int limit;
 
     if ((buf = vmalloc(buf_size)) == NULL)
         return;
@@ -621,19 +631,27 @@ void _aml_fw_trace_dump(struct aml_hw *aml_hw, struct aml_fw_trace_buf *trace_bu
         ptr_flag = trace_buf->data;
         ptr = trace_buf->data + *trace_buf->start;
     } else {
-        ptr = kmalloc(28*1024, GFP_DMA | GFP_ATOMIC);
+        ptr = kzalloc(TRACE_BUF_LEN_MAX, GFP_DMA | GFP_ATOMIC);
+        if (!ptr) {
+            AML_ERR("ptr kzalloc fail\n");
+            vfree(buf);
+            return;
+        }
         ptr_flag = ptr;
         aml_trace_buf_init();
         if (aml_bus_type == USB_MODE) {
-            aml_hw->plat->hif_ops->hi_read_sram((unsigned char *)ptr, (unsigned char *)(SYS_TYPE)TRACE_START_ADDR, TRACE_TOTAL_SIZE, USB_EP4);
+            aml_hw->plat->hif_ops->hi_read_sram((unsigned char *)ptr, (unsigned char *)(SYS_TYPE)trace_log_file_info.trace_buf, TRACE_TOTAL_SIZE, USB_EP4);
         } else if (aml_bus_type == SDIO_MODE) {
-            aml_hw->plat->hif_sdio_ops->hi_random_ram_read((unsigned char *)ptr, (unsigned char *)(SYS_TYPE)TRACE_START_ADDR, TRACE_TOTAL_SIZE);
+            aml_hw->plat->hif_sdio_ops->hi_random_ram_read((unsigned char *)ptr, (unsigned char *)(SYS_TYPE)trace_log_file_info.trace_buf, TRACE_TOTAL_SIZE);
         }
         ptr += *trace_buf->start;
     }
 
+    // TRACE_BUF_LEN_MAX divided by 2, because the type of ptr_limit is uint16_t, the length is 2.
+    limit = trace_buf->size > (TRACE_BUF_LEN_MAX / 2) ? (TRACE_BUF_LEN_MAX / 2) : trace_buf->size;
+
     ptr_end = ptr_flag + *trace_buf->end;
-    ptr_limit = ptr_flag + trace_buf->size;
+    ptr_limit = ptr_flag + limit;
 
     if (aml_bus_type == PCIE_MODE) {
         while (1) {
@@ -653,9 +671,9 @@ void _aml_fw_trace_dump(struct aml_hw *aml_hw, struct aml_fw_trace_buf *trace_bu
                 ptr = next_ptr;
             }
         }
-    }else {
+    } else {
         aml_trace_log_to_file(ptr, ptr_limit);
-        kfree(ptr);
+        kfree(ptr_flag);
     }
 
     aml_fw_trace_buf_unlock(trace_buf);
@@ -667,7 +685,7 @@ void _aml_fw_trace_dump(struct aml_hw *aml_hw, struct aml_fw_trace_buf *trace_bu
  * _aml_fw_trace_reset() - Reset trace buffer at firmware level
  *
  * @trace: Pointer to shared trace buffer;
- * @bool: Indicate if mutex must be aquired before
+ * @bool: Indicate if mutex must be acquired before
  */
 int _aml_fw_trace_reset(struct aml_fw_trace *trace, bool lock)
 {
@@ -693,7 +711,7 @@ int _aml_fw_trace_reset(struct aml_fw_trace *trace, bool lock)
  * aml_fw_trace_get_trace_level() - Get trace level for a given component
  *
  * @trace: Pointer to shared trace buffer;
- * @compo_id: Index of the componetn in the table
+ * @compo_id: Index of the component in the table
  *
  * Return: The trace level set for the given component, 0 if component index
  * is invalid.
@@ -771,7 +789,7 @@ static uint32_t aml_fw_trace_get_trace_level(struct aml_fw_trace_buf *trace_buf,
  * aml_fw_trace_set_trace_level() - Set trace level for a given component
  *
  * @trace_buf: Pointer to shared trace buffer;
- * @compo_id: Index of the componetn in the table
+ * @compo_id: Index of the component in the table
  * @level: Trace level to set
  *
  * Set all components if compo_id is equals to the number of component and
@@ -917,7 +935,7 @@ int aml_fw_trace_config_filters(struct aml_fw_trace_buf *trace_buf,
 
     next = ftl;
     token = strsep(&next, " ");
-    while(token)
+    while (token)
     {
         unsigned int compo, ret, id, level = 0;
         char action;
@@ -925,14 +943,14 @@ int aml_fw_trace_config_filters(struct aml_fw_trace_buf *trace_buf,
         if ((sscanf(token, "%d%c0x%x", &compo, &action, &id) == 3)||
             (sscanf(token, "%d%c%d", &compo, &action, &id) == 3))
         {
-            if(action == '=')
+            if (action == '=')
             {
                 level = id;
             }
             else
             {
                 ret = aml_fw_trace_get_trace_level(trace_buf, compo);
-                if(action == '+')
+                if (action == '+')
                     level = (ret | id);
                 else if (action == '-')
                     level = (ret & ~id);
@@ -973,7 +991,7 @@ int aml_fw_trace_save_filters(struct aml_fw_trace *trace)
 }
 
 /**
- * aml_fw_trace_restore_filters() - Restore filters previoulsy saved
+ * aml_fw_trace_restore_filters() - Restore filters previously saved
  * by aml_fw_trace_save_filters()
  *
  * @trace: Fw trace control structure
@@ -1008,11 +1026,10 @@ int aml_trace_buf_init(void)
 {
     int ret = 0;
     static int isInit = 0;
-#ifdef CONFIG_AML_PREALLOC_BUF_STATIC
-    size_t out_size = 0;
-#endif
 
     if (aml_bus_type != PCIE_MODE) {
+        trace_log_file_info.trace_type = LOG_TO_UART;
+        trace_log_file_info.net_switch = 0;
         if (!isInit) {
             AML_INFO("trace mutex init");
             mutex_init(&trace_log_file_info.mutex);
@@ -1021,27 +1038,50 @@ int aml_trace_buf_init(void)
 
         mutex_lock(&trace_log_file_info.mutex);
 #ifdef CONFIG_AML_PREALLOC_BUF_STATIC
-        trace_log_file_info.ptr = aml_prealloc_get(PREALLOC_TRACE_PTR_EXPEND, AML_PREALLOC_TRACE_PTR_EXPEND_BUF_SIZE, &out_size);
+        trace_log_file_info.ptr = aml_prealloc_get(PREALLOC_TRACE_PTR_EXPEND,
+                                                   PREALLOC_TRACE_PTR_EXPEND_SIZE);
         if (!trace_log_file_info.ptr) {
             AML_INFO("prealloc trace ptr buf failed");
             ret = -1;
         }
 
-        trace_log_file_info.log_buf = aml_prealloc_get(PREALLOC_TRACE_STR_EXPEND, AML_PREALLOC_TRACE_STR_EXPEND_BUF_SIZE, &out_size);
+        trace_log_file_info.log_buf = aml_prealloc_get(PREALLOC_TRACE_STR_EXPEND,
+                                                       PREALLOC_TRACE_STR_EXPEND_SIZE);
         if (!trace_log_file_info.log_buf) {
             AML_INFO("prealloc trace log_buf failed");
             ret = -1;
         }
-#endif
+#else
+        trace_log_file_info.ptr = kzalloc(PREALLOC_TRACE_PTR_EXPEND_SIZE, GFP_KERNEL);
+        if (!trace_log_file_info.ptr) {
+            AML_INFO("prealloc trace ptr buf failed");
+            ret = -1;
+        }
 
+        trace_log_file_info.log_buf = kzalloc(PREALLOC_TRACE_STR_EXPEND_SIZE, GFP_KERNEL);
+        if (!trace_log_file_info.log_buf) {
+            if (trace_log_file_info.ptr) {
+                kfree(trace_log_file_info.ptr);
+                trace_log_file_info.ptr = NULL;
+            }
+            AML_INFO("prealloc trace log_buf failed");
+            ret = -1;
+        }
+#endif
         mutex_unlock(&trace_log_file_info.mutex);
     }
+
 
     return ret;
 }
 
 void aml_trace_buf_deinit(void)
 {
+    mutex_lock(&trace_log_file_info.mutex);
+#ifdef CONFIG_AML_PREALLOC_BUF_STATIC
+    trace_log_file_info.log_buf = NULL;
+    trace_log_file_info.ptr = NULL;
+#else
     if (trace_log_file_info.log_buf) {
         kfree(trace_log_file_info.log_buf);
         trace_log_file_info.log_buf = NULL;
@@ -1051,6 +1091,8 @@ void aml_trace_buf_deinit(void)
         kfree(trace_log_file_info.ptr);
         trace_log_file_info.ptr = NULL;
     }
+#endif
+    mutex_unlock(&trace_log_file_info.mutex);
 
     return;
 }
@@ -1094,41 +1136,52 @@ err:
 }
 #endif
 
-#define TRACE_TRAN_ONCE_SIZE (64 * 1024)
 int aml_trace_log_to_file(uint16_t *trace, uint16_t *trace_limit)
 {
-    char str[1824] = {0};
+    char *str = {0};
     unsigned int offset = 0;
-    unsigned int tran_len = 0;
+    int tran_len = 0;
     size_t str_size;
     int sock_wr_len = 0;
-    int ret = 0;
-    int save_len = 0;
+    uint32_t len = MAX_PARAM_LEN;
 
-    memset(trace_log_file_info.log_buf, 0, AML_PREALLOC_TRACE_STR_EXPEND_BUF_SIZE);
+    str = kzalloc(len, GFP_KERNEL);
+    if (!str) {
+        AML_ERR("kzalloc str fail\n");
+        return -ENOMEM;
+    }
 
     if (!trace_log_file_info.log_buf) {
         AML_INFO("trace log file buf not ready \n");
+        kfree(str);
         return -1;
     }
+    memset(trace_log_file_info.log_buf, 0, PREALLOC_TRACE_STR_EXPEND_SIZE);
 
     while (1) {
         if ((trace >= trace_limit) || (*trace == AML_FW_TRACE_LAST_ENTRY)) {
             break;
         }
-        str_size = sizeof(str);
+        str_size = MAX_PARAM_LEN;
         memset(str, 0, str_size);
         trace = aml_fw_trace_to_str(trace, str, &str_size);
-        if ((offset > AML_PREALLOC_TRACE_STR_EXPEND_BUF_SIZE) || ((offset + str_size) > AML_PREALLOC_TRACE_STR_EXPEND_BUF_SIZE)) {
+        if ((offset > PREALLOC_TRACE_STR_EXPEND_SIZE) || ((offset + str_size) > PREALLOC_TRACE_STR_EXPEND_SIZE)) {
             AML_INFO("offset exceed malloc buf in trace_to_str");
             break;
         }
+
+        /* coverity[OVERRUN] - already check (offset + str_size) > PREALLOC_TRACE_STR_EXPEND_SIZE */
         memcpy(trace_log_file_info.log_buf + offset, str, str_size);
         offset += str_size;
     }
 
+    /*str not use after, kfree str here*/
+    kfree(str);
+
     if (g_trace_nl_info.enable) {
         do {
+            int ret = 0;
+
             tran_len = (offset >= TRACE_TRAN_ONCE_SIZE) ? TRACE_TRAN_ONCE_SIZE : offset;
             ret = aml_send_log_to_user(trace_log_file_info.log_buf + sock_wr_len, tran_len, AML_TRACE_FW_LOG_UPLOAD);
             if (ret < 0) {
@@ -1147,30 +1200,45 @@ static void aml_recv_netlink(struct sk_buff *skb)
 {
     struct aml_hw *aml_hw = g_aml_hw;
     struct nlmsghdr *nlh;
+    struct fwlog_mode_cfm cfm;
     struct log_nl_msg_info * nl_log_info = NULL;
+    int ret;
     nlh = nlmsg_hdr(skb); // get msg body
 
     AML_INFO("kernel rcv msg type: %d, pid: %d, len: %d, flag: %d, seq: %d\n",
         nlh->nlmsg_type, nlh->nlmsg_pid, nlh->nlmsg_len, nlh->nlmsg_flags, nlh->nlmsg_seq);
     AML_INFO("receive data from user process: %s\n", (char *)NLMSG_DATA(nlh));
 
-    nl_log_info = (struct nl_log_info*)NLMSG_DATA(nlh);
+    nl_log_info = (struct log_nl_msg_info *)NLMSG_DATA(nlh);
+    AML_INFO("msg type:%d\n", nl_log_info->msg_type);
     switch (nl_log_info->msg_type) {
-        AML_INFO("msg type:%d\n", nl_log_info->msg_type);
         case AML_TRACE_FW_LOG_START:
             g_trace_nl_info.user_pid = nlh->nlmsg_pid;
             g_trace_nl_info.enable = 1;
-            if (!trace_flag) {
-                aml_send_fwlog_cmd(aml_hw, 1);
-                trace_flag = 1;
+            if (!trace_log_file_info.net_switch) {
+                ret = aml_send_fwlog_cmd(aml_hw, TRACE_TO_HOST, &cfm);
+                AML_INFO("ret:%d\n", ret);
+                if (ret == 0) {
+                    /* 0x500000:convert dccm addr from fw to host */
+                    trace_log_file_info.trace_buf = cfm.trace_buf | 0x500000;
+                    trace_log_file_info.end = cfm.end | 0x500000;
+                    AML_INFO("cfm.trace_buf:%x, cfm.end:%x, trace_buf:%x, end:%x", cfm.trace_buf, cfm.end,
+                        trace_log_file_info.trace_buf, trace_log_file_info.end);
+                    trace_log_file_info.trace_type = TRACE_TO_HOST;
+                    trace_log_file_info.net_switch = 1;
+                } else {
+                    AML_INFO("bus_type err or trace_log_file_info init failed!");
+                }
             }
+
             AML_INFO("user space process (pid: %d) start recv fw log !!!!\n", g_trace_nl_info.user_pid);
             break;
         case AML_TRACE_FW_LOG_STOP:
             g_trace_nl_info.enable = 0;
-            if (trace_flag) {
-                aml_send_fwlog_cmd(aml_hw, 0);
-                trace_flag = 0;
+            if (trace_log_file_info.net_switch) {
+                aml_send_fwlog_cmd(aml_hw, LOG_TO_UART, &cfm);
+                trace_log_file_info.trace_type = LOG_TO_UART;
+                trace_log_file_info.net_switch = 0;
             }
             AML_INFO("user space process (pid: %d) stop recv fw log !!!!\n", g_trace_nl_info.user_pid);
             break;
@@ -1185,11 +1253,11 @@ static void aml_recv_netlink(struct sk_buff *skb)
 
 int aml_log_nl_init(void)
 {
-
-    memset(&g_trace_nl_info, 0, sizeof(struct log_nl_msg_info));
     struct netlink_kernel_cfg cfg = {
         .input = aml_recv_netlink,
     };
+
+    memset(&g_trace_nl_info, 0, sizeof(struct aml_trace_nl_info));
     g_trace_nl_info.fw_log_sock = netlink_kernel_create(&init_net, AML_TRACE_NL_PROTOCOL, &cfg);
     if (!g_trace_nl_info.fw_log_sock) {
         AML_INFO("aml trace netlink init failed");
@@ -1208,7 +1276,7 @@ void aml_log_nl_destroy(void)
 
     return;
 }
-int aml_send_log_to_user(char *pbuf, uint16_t len, int msg_type)
+int aml_send_log_to_user(char *pbuf, int len, int msg_type)
 {
     struct sk_buff *nl_skb;
     struct nlmsghdr *nlh = NULL;   //msg head
@@ -1223,7 +1291,7 @@ int aml_send_log_to_user(char *pbuf, uint16_t len, int msg_type)
         return -1;
     }
     //create sk_buff
-    nl_skb = nlmsg_new(buf_len, GFP_ATOMIC);
+    nl_skb = nlmsg_new(buf_len, GFP_KERNEL);
     if (!nl_skb)
     {
         AML_INFO("netlink alloc failure\n");
@@ -1241,7 +1309,7 @@ int aml_send_log_to_user(char *pbuf, uint16_t len, int msg_type)
     }
     NETLINK_CB(nl_skb).portid = 0;
     NETLINK_CB(nl_skb).dst_group = 0;
-    nl_log_info = (struct nl_log_info*)nlmsg_data(nlh);
+    nl_log_info = (struct log_nl_msg_info *)nlmsg_data(nlh);
     nl_log_info->msg_len = len;
     nl_log_info->msg_type = msg_type;
     nlh->nlmsg_seq = seq_num++;
@@ -1262,10 +1330,6 @@ int aml_send_log_to_user(char *pbuf, uint16_t len, int msg_type)
 
 void aml_send_err_info_to_diag(char *pbuf, int len)
 {
-    struct file *fp = NULL;
-    loff_t file_size = 0;
-    unsigned int file_mode;
-
     if (!trace_log_file_info.log_buf || !trace_log_file_info.ptr) {
         return;
     }

@@ -16,8 +16,8 @@
 
 #define AML_TCP_SESS_NUM  128
 #define MAX_TCP_ACK_LEN 200
-#define MAX_DROP_TCP_ACK_CNT  24
-#define MAX_DROP_TCP_ACK_CNT_USB  10
+#define MAX_DROP_TCP_ACK_CNT  8
+#define MAX_DROP_TCP_ACK_CNT_USB  5
 #define TCK_SESS_TIMEOUT_TIME 1000
 #define MAX_TCP_ACK_TIMEOUT 30 //ms
 #define MAX_TCP_SESS_LEVEL1 5
@@ -87,7 +87,9 @@ struct aml_tcp_sess_mgr {
     unsigned short win_scale;
     s32 rssi_l_thr;
     s32 rssi_h_thr;
-    unsigned short window_scaling;  //window scaling factor force value; 0 means no forcing
+#ifdef CONFIG_TCP_WIN_SCALE
+    unsigned short window_scaling;//window scaling factor force value; 0 means no forcing
+#endif
 };
 
 void aml_tcp_delay_ack_deinit(struct aml_hw *aml_hw);

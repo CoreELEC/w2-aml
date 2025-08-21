@@ -1,3 +1,10 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+* Copyright (C) 202X Original Author (retain original author information)
+* Copyright (C) 202X Amlogic, Inc. All rights reserved.
+*
+* Description:
+*/
 #ifndef _SHARE_MEM_MAP_H_
 #define _SHARE_MEM_MAP_H_
 
@@ -14,7 +21,7 @@
 #define TX_AGG_DESC_ARRAY3 (0x600056d0)
 #define RADAR_EVENT_DESC_ARRAY (0x6000f1b4)
 #define TXL_BUFFER_CONTROL_24G (0x60002a68)
-#define TXL_SPEC_FRAME_BUFFER_CONTROL (0x60064020)
+#define TXL_SPEC_FRAME_BUFFER_CONTROL (0x60064000)
 #define SDIO_MSG (0x60010f40)
 #define _SMACHW_MIB (0x60015fe4)
 #define TXL_BUFFER_CONTROL_NDPA_BRP (0x600029e8)

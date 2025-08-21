@@ -22,7 +22,7 @@
 #include "aml_tx.h"
 #include "aml_compat.h"
 
-unsigned short tcp_checksum(void *data, int len, unsigned int sip, unsigned int dip)
+static unsigned short tcp_checksum(void *data, int len, unsigned int sip, unsigned int dip)
 {
     int sum, oddbyte, phlen;
     unsigned short *ptr;
@@ -65,6 +65,8 @@ unsigned short tcp_checksum(void *data, int len, unsigned int sip, unsigned int 
 
     return sum;
 }
+
+#ifdef CONFIG_TCP_WIN_SCALE
 static int aml_get_tcp_window_scaling(struct net_device *dev)
 {
     struct aml_vif *aml_vif = netdev_priv(dev);
@@ -78,6 +80,7 @@ static int aml_get_tcp_window_scaling(struct net_device *dev)
 
     return ack_mgr->window_scaling;  //real window scaling factor
 }
+#endif
 
 static void aml_send_tcp_ack(struct aml_tcp_ack_tx *tx_info)
 {
@@ -146,7 +149,7 @@ static void aml_send_tcp_ack(struct aml_tcp_ack_tx *tx_info)
     }
 
     if ((aml_vif->wdev.iftype == NL80211_IFTYPE_MESH_POINT) &&
-       (aml_vif->is_resending)) {
+       (aml_vif->is_re_sending)) {
         desc->host.flags |= TXU_CNTRL_MESH_FWD;
     }
 
@@ -154,25 +157,19 @@ static void aml_send_tcp_ack(struct aml_tcp_ack_tx *tx_info)
         /* store Tx info in skb headroom */
         txhdr = (struct aml_txhdr *)skb_push(skb, AML_TX_HEADROOM);
         txhdr->sw_hdr = sw_txhdr;
+    } else if (aml_bus_type == USB_MODE) {
+        /* store Tx info in skb headroom */
+        skb_pull(skb, sizeof(struct ethhdr));
+        usb_txhdr = (struct aml_usb_txhdr *)skb_push(skb, AML_USB_TX_HEADROOM);
+        usb_txhdr->sw_hdr = sw_txhdr;
     } else {
-        if (aml_bus_type == USB_MODE) {
-            /* store Tx info in skb headroom */
-            skb_pull(skb, sizeof(struct ethhdr));
-            usb_txhdr = (struct aml_usb_txhdr *)skb_push(skb, AML_USB_TX_HEADROOM);
-            usb_txhdr->sw_hdr = sw_txhdr;
-        } else {
-
-            skb_pull(skb, sizeof(struct ethhdr));
-            sdio_txhdr = (struct aml_sdio_txhdr *)skb_push(skb, AML_SDIO_TX_HEADROOM);
-            sdio_txhdr->sw_hdr = sw_txhdr;
-            sdio_txhdr->mpdu_buf_flag = 0;
-            sdio_txhdr->mpdu_buf_flag = HW_FIRST_MPDUBUF_FLAG | HW_LAST_MPDUBUF_FLAG | HW_LAST_AGG_FLAG;
-            sdio_txhdr->mpdu_buf_flag |= HW_MPDU_LEN_SET(sw_txhdr->frame_len + SDIO_FRAME_TAIL_LEN);
-            /* coverity[overrun-buffer-arg] */
-            memset(&sdio_txhdr->tx_vector, 0, sizeof(struct hw_tx_vector_bits) + sizeof(struct txdesc_host)/*8 byte alignment*/);
-        }
-
+        skb_pull(skb, sizeof(struct ethhdr));
+        sdio_txhdr = (struct aml_sdio_txhdr *)skb_push(skb, AML_SDIO_TX_HEADROOM);
+        sdio_txhdr->sw_hdr = sw_txhdr;
+        sdio_txhdr->mpdu_buf_flag = HW_FIRST_MPDUBUF_FLAG | HW_LAST_MPDUBUF_FLAG | HW_LAST_AGG_FLAG |
+                                    HW_MPDU_LEN_SET(sw_txhdr->frame_len);
     }
+
     if (aml_bus_type != PCIE_MODE) {
         /* coverity[dereference] */
         AML_RLMT_DBG("ethertype:0x%04x, credits:%d, tid:%d, vif_idx:%d\n",
@@ -189,11 +186,7 @@ static void aml_send_tcp_ack(struct aml_tcp_ack_tx *tx_info)
         goto free;
     }
 
-    if (aml_txq_queue_skb(skb, txq, aml_hw, false, NULL)) {
-        if (skb_queue_empty(&txq->sk_list))
-            AML_INFO("txq queue skb list empty");
-        aml_hwq_process(aml_hw, txq->hwq);
-    }
+    aml_txq_queue_skb(aml_hw, txq, skb, false, NULL);
     spin_unlock_bh(&aml_hw->tx_lock);
 
     /* coverity[leaked_storage] - sw_txhdr will be freed later */
@@ -293,7 +286,6 @@ static int aml_get_tcp_ack_info(struct net_device *ndev, struct tcphdr *tcphdr, 
     int type = 1;
     int len = tcphdr->doff * 4;
     unsigned char *ptr;
-    int ws = 0;
 
     if (tcp_tot_len > len) {
         type = 0;
@@ -324,7 +316,8 @@ static int aml_get_tcp_ack_info(struct net_device *ndev, struct tcphdr *tcphdr, 
                 case TCPOPT_WINDOW:
                     if (*ptr < 15)
                     {
-                        ws = aml_get_tcp_window_scaling(ndev);
+#ifdef CONFIG_TCP_WIN_SCALE
+                        int ws = aml_get_tcp_window_scaling(ndev);
                         if (ws == 0xf) {
                             *ptr = *ptr - 1;
                         }
@@ -332,6 +325,7 @@ static int aml_get_tcp_ack_info(struct net_device *ndev, struct tcphdr *tcphdr, 
                             /* coverity[overflow_const]*/
                            *ptr = ws - 1;
                         }
+#endif
                         /* coverity[overflow_const]*/
                         *win_scale = (1 << (*ptr));
                     }
@@ -359,8 +353,8 @@ static int aml_check_tcp_ack_type(struct aml_vif *aml_vif, unsigned char *data,
     struct ethhdr *ethhdr;
     struct iphdr *iphdr;
     struct tcphdr *tcphdr;
-    unsigned int *ipv4_addr = aml_vif->ipv4_addr;
-    unsigned int *subnet_mask = aml_vif->subnet_mask;
+    unsigned int *ipv4_addr = (unsigned int *)aml_vif->ipv4_addr;
+    unsigned int *subnet_mask = (unsigned int *)aml_vif->subnet_mask;
 
     ethhdr = (struct ethhdr *)data;
     if (ethhdr->h_proto != htons(ETH_P_IP))
@@ -475,7 +469,7 @@ void aml_tcp_delay_ack_init(struct aml_hw *aml_hw)
 
     memset(ack_mgr, 0, sizeof(struct aml_tcp_sess_mgr));
     ack_mgr->aml_hw = aml_hw;
-    /* coverity[side_effect_free] */
+    /* coverity[side_effect_free] standard kernel interface */
     spin_lock_init(&ack_mgr->lock);
     atomic_set(&ack_mgr->max_timeout, MAX_TCP_ACK_TIMEOUT);
     if (aml_bus_type == USB_MODE) {
@@ -504,7 +498,9 @@ void aml_tcp_delay_ack_init(struct aml_hw *aml_hw)
 
     ack_mgr->ack_winsize = MIN_WIN;
     ack_mgr->win_scale = 1;
+#ifdef CONFIG_TCP_WIN_SCALE
     ack_mgr->window_scaling = 4;
+#endif
     ack_mgr->rssi_l_thr = -66;
     ack_mgr->rssi_h_thr = -63;
 
@@ -550,11 +546,11 @@ void aml_check_tcpack_skb(struct aml_hw *aml_hw, struct sk_buff *skb, u32 len)
     }
 }
 
-int aml_replace_tcp_ack(struct sk_buff *skb,
-                        struct aml_tcp_sess_mgr *ack_mgr,
-                        struct aml_tcp_sess_info *tcp_info,
-                        struct aml_pkt_info *pkt_info,
-                        int type)
+static int aml_replace_tcp_ack(struct sk_buff *skb,
+                               struct aml_tcp_sess_mgr *ack_mgr,
+                               struct aml_tcp_sess_info *tcp_info,
+                               struct aml_pkt_info *pkt_info,
+                               int type)
 {
     struct aml_pkt_info *old_pkt;
     int ret = 0;
@@ -635,7 +631,7 @@ void aml_set_tcp_ack_auto(struct aml_hw *aml_hw)
         return;
 
     atomic_set(&ack_mgr->enable, enable);
-    /* printk("%s, set enable %d\n", __func__, enable); */
+    /* AML_INFO("set enable %d\n", enable); */
 
     return;
 }

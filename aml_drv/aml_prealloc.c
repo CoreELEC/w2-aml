@@ -21,79 +21,8 @@
 #include <linux/skbuff.h>
 #include <linux/version.h>
 
-#ifdef CONFIG_AML_PREALLOC_BUF_STATIC
-#ifndef CONFIG_LINUXPC_VERSION
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0))
-#include <linux/wlan_plat.h>
-#else
-#include <linux/amlogic/wlan_plat.h>
-#endif
-#endif
-#endif
-
 #include "aml_defs.h"
 #include "aml_prealloc.h"
-
-#ifdef CONFIG_AML_PREALLOC_BUF_STATIC
-void *aml_prealloc_get(int type, size_t size, size_t *out_size)
-{
-    void *prealloc_buf = NULL;
-    switch (type) {
-        case PREALLOC_BUF_TYPE_DUMP:
-            if (size > PREALLOC_BUF_DUMP_SIZE) {
-                AML_ERR("not enough pre-alloc buffer size(%ld) for dump\n", size);
-                return NULL;
-            }
-            prealloc_buf = aml_mem_prealloc(AML_PREALLOC_BUF_TYPE_DUMP, size);
-            *out_size = PREALLOC_BUF_DUMP_SIZE;
-            break;
-        case PREALLOC_BUF_TYPE_RX:
-            if (size > WLAN_AML_HW_RX_SIZE) {
-                AML_ERR("not enough pre-alloc buffer size(%ld) for rx\n", size);
-                return NULL;
-            }
-            prealloc_buf = aml_mem_prealloc(AML_PREALLOC_HW_RX, size);
-            *out_size = WLAN_AML_HW_RX_SIZE;
-            break;
-        case PREALLOC_BUF_TYPE_TXQ:
-            if (size > PREALLOC_BUF_INFO_SIZE) {
-                AML_ERR("not enough pre-alloc buffer size(%ld) for txq\n", size);
-                return NULL;
-            }
-            prealloc_buf = aml_mem_prealloc(AML_PREALLOC_BUF_TYPE_TXQ, size);
-            *out_size = PREALLOC_BUF_INFO_SIZE;
-            break;
-        case PREALLOC_BUF_TYPE_AMSDU:
-            if (size > WLAN_AML_AMSDU_SIZE) {
-                AML_ERR("not enough pre-alloc buffer size(%ld) for amsdu\n", size);
-                return NULL;
-            }
-            prealloc_buf = aml_mem_prealloc(AML_PREALLOC_AMSDU, size);
-            *out_size = WLAN_AML_AMSDU_SIZE;
-            break;
-        case PREALLOC_TRACE_PTR_EXPEND:
-            if (size > AML_PREALLOC_TRACE_PTR_EXPEND_BUF_SIZE) {
-                AML_ERR("not enough pre-alloc buffer size(%ld) for trace ptr expend buf\n", size);
-                return NULL;
-            }
-            prealloc_buf = aml_mem_prealloc(AML_PREALLOC_TRACE_PTR_EXPEND_BUF, size);
-            *out_size = AML_PREALLOC_TRACE_PTR_EXPEND_BUF_SIZE;
-            break;
-        case PREALLOC_TRACE_STR_EXPEND:
-            if (size > AML_PREALLOC_TRACE_STR_EXPEND_BUF_SIZE) {
-                AML_ERR("not enough pre-alloc buffer size(%ld) for trace str expend buf\n", size);
-                return NULL;
-            }
-            prealloc_buf = aml_mem_prealloc(AML_PREALLOC_TRACE_STR_EXPEND_BUF, size);
-            *out_size = AML_PREALLOC_TRACE_STR_EXPEND_BUF_SIZE;
-            break;
-        default:
-            AML_ERR("not support pre-alloc buffer type(%d)\n", type);
-            break;
-    }
-    return prealloc_buf;
-}
-#endif
 
 #ifdef CONFIG_AML_PREALLOC_BUF_SKB
 void aml_prealloc_rxbuf_init(struct aml_hw *aml_hw, uint32_t rxbuf_sz)
@@ -102,6 +31,7 @@ void aml_prealloc_rxbuf_init(struct aml_hw *aml_hw, uint32_t rxbuf_sz)
     int i = 0;
 
     aml_hw->prealloc_rxbuf_count = 0;
+    /* coverity[USELESS_CALL] - standard kernel interface */
     spin_lock_init(&aml_hw->prealloc_rxbuf_lock);
     INIT_LIST_HEAD(&aml_hw->prealloc_rxbuf_free);
     INIT_LIST_HEAD(&aml_hw->prealloc_rxbuf_used);

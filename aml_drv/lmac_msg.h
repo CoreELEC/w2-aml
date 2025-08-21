@@ -83,6 +83,8 @@ enum
 #define MDNS_LIST_CRITERIA_MAX      8
 #define MDNS_DATA_MAX 3
 #define MDNS_QNAME_LENGTH_MAX       256
+/// The len of a label in mdns name
+#define MDNS_NAME_LABEL_LEN_MAX      63
 
 /// For MAC HW States copied from "hal_machw.h"
 enum
@@ -350,7 +352,7 @@ enum mm_msg_tag
     MM_RSSI_STATUS_IND,
     /// Indication that CSA is done
     MM_CSA_FINISH_IND,
-    /// Indication that CSA is in prorgess (resp. done) and traffic must be stopped (resp. restarted)
+    /// Indication that CSA is in progress(resp. done) and traffic must be stopped (resp. restarted)
     MM_CSA_TRAFFIC_IND,
     /// Request to update the group information of a station
     MM_MU_GROUP_UPDATE_REQ,
@@ -403,7 +405,7 @@ enum priv_e2a_tag {
     PRIV_APM_DIS_STA_IND,
     PRIV_EFUSE_GET_RESULT,
     PRIV_DHCP_OFFLOAD_IND,
-    PRIV_SDIO_USB_REORD_INFO_IND,
+    PRIV_SDIO_USB_RECORD_INFO_IND,
     PRIV_TRAFFIC_BUSY_IND,
     PRIV_SCC_CONFLICT_CFM,
     PRIV_FT_AUTH_RSP_TIMEOUT_IND,
@@ -412,15 +414,17 @@ enum priv_e2a_tag {
     PRIV_SCANU_RESULT_IND,
     PRIV_COEX_STOP_RESTORE_TXQ_IND,
     PRIV_COEX_GET_STATUS,
-    PRIV_RESUME_RXBUF_PTR_IND,
     PRIV_MDNS_ADDDATA_CFM,
     PRIV_MDNS_ADDPASSTHROUGH_CFM,
     PRIV_MDNS_GET_HIT_CFM,
     PRIV_MDNS_GET_MISS_CFM,
     PRIV_EX_MM_VERSION_IND,
+    PRIV_SEND_FWLOG_CFM,
     PRIV_APF_GET_CAPABILITIES_CFM,
     PRIV_APF_GET_STATUS,
     PRIV_APF_DELETE_PGM,
+    PRIV_GET_PS_INFO_CFM,
+    PRIV_SET_RESUME_CFM,
     PRIV_SUB_E2A_MAX,
 };
 
@@ -496,6 +500,10 @@ enum mm_sub_a2e_tag {
     MM_SUB_SET_APF_MODE = 66,
     MM_SUB_GET_APF_STATUS = 67,
     MM_SUB_SET_EARLY_SUSPEND_REQ = 68,
+    MM_SUB_GET_PS_INFO = 69,
+    MM_SUB_SET_PROT_TYPE = 70,
+    MM_SUB_REGDOM_EN = 71,
+    MM_SUB_PHY_CFG_MASKFILTER_REQ = 72,
     /// the MAX
     MM_SUB_A2E_MAX,
     /// New members cannot be added below
@@ -1658,7 +1666,7 @@ struct scanu_sched_scan_start_req
     //to the specified band while deciding whether a better BSS is reported
     //using @relative_rssi. If delta is a negative number, the BSSs that
     //belong to the specified band will be penalized by delta dB in relative
-    //comparisions.
+    //comparisons.
     struct scanu_bss_select_adjust rssi_adjust;
 };
 
@@ -1903,7 +1911,7 @@ struct me_sta_add_req
     u8_l opmode;
     /// Index of the VIF the station is attached to
     u8_l vif_idx;
-    /// Whether the the station is TDLS station
+    /// Whether the station is TDLS station
     bool_l tdls_sta;
     /// Indicate if the station is TDLS link initiator station
     bool_l tdls_sta_initiator;
@@ -1927,7 +1935,7 @@ struct me_sta_del_req
 {
     /// Index of the station to be deleted
     u8_l sta_idx;
-    /// Whether the the station is TDLS station
+    /// Whether the station is TDLS station
     bool_l tdls_sta;
 };
 
@@ -3029,7 +3037,7 @@ struct ftm_done_ind
 
 struct mm_other_cmd {
     u32_l     mm_sub_index;
-    char      param[];        // lenght is dynamic
+    char      param[];        // length is dynamic
 };
 
 struct rf_write_req
@@ -3119,10 +3127,14 @@ struct coex_get_status
     u8_l tx_agg_num; //the tx agg num coex setting;
     u8_l rx_agg_num; //the rx agg num coex setting;
     u32_l bt_work_status; // bt connect info;
-    u32_l wifi_intact_sum;
+    u32_l wifi_inactive_sum;
     u32_l wifi_act_sum;
     u8_l poc_cali_status;
     u8_l link_cali_status;
+    u16_l null_data_send_cnt;
+    u8_l null_data_send_succ_cnt;
+    u8_l null_data_send_succ_cnt_before_bt_s;
+    bool null_data_enable;
 };
 
 struct scan_hang_req
@@ -3213,6 +3225,11 @@ struct tko_conn_dead_ind {
     u16_l src_port;
     u32_l dst_ip;
     u16_l dst_port;
+};
+
+struct resume_to_host_cfm
+{
+    u16_l wake_host_reason;
 };
 
 struct apm_disconnect_sta_ind
@@ -3330,8 +3347,6 @@ struct pcie_ul_req
 struct coex_cmd_req
 {
     u32_l coex_cmd;
-    u32_l cmd_txt_1;
-    u32_l cmd_txt_2;
 };
 
 struct set_pt_calibration
@@ -3366,6 +3381,7 @@ struct mm_scc_cfm
 typedef struct
 {
     unsigned int token;
+    unsigned long long time;
 } sync_trace_t;
 
 struct dhcp_to_host_ind
@@ -3402,6 +3418,69 @@ struct set_la_capture_req
     u32_l bus1;
     u32_l bus2;
 };
+
+struct ps_info_s
+{
+    //tbtt cnt
+    uint64_t suspend_tbtt_cnt;
+    //bcn received cnt
+    uint64_t suspend_bcn_cnt;
+    //bcn_recv_rate
+    uint32_t bcn_recv_rate;
+    //sleep time when suspend
+    uint64_t total_sleep_time;
+    //active time when suspend
+    uint64_t total_active_time;
+    //ps_sleep_rate
+    uint32_t ps_sleep_rate;
+    //start ps when ps_delay_timer timeout
+    uint32_t ps_start_time;
+    //cal active_time timestamp
+    uint32_t active_time_start;
+    //ps sleep timestamp
+    uint32_t ps_sleep_time;
+    //resume cmd set ps end_time
+    uint32_t ps_end_time;
+    //ps sleep_cnt
+    uint32_t sleep_cnt;
+    //debug cnt
+    uint32_t saved_cnt;
+    //debug timestamp
+    uint32_t debug_timer_timestamp;
+    //vif_prevent_sleep
+    uint8_t vif_prevent_sleep;
+    //ps_env_prevent_sleep
+    uint8_t ps_env_prevent_sleep;
+    //if ps enable
+    uint8_t ps_env_ps_on;
+    //txl_env_pack_cnt
+    uint8_t txl_env_pack_cnt;
+    uint8_t usb_suspend;
+    uint8_t sdio_suspend;
+    uint8_t pcie_ltssm;
+    uint8_t pcie_pm_status;
+    uint8_t sta_only;
+    uint8_t re_calibration;
+    uint8_t mac_fsm_state;
+    uint8_t ke_event_state;
+    //curr_bcn_loss
+    uint8_t curr_bcn_loss;
+    //if bcn received
+    uint8_t beacon_received;
+    //connect state
+    uint8_t connect_state;
+    //wake host reason
+    uint8_t wake_reason;
+    //bt_is_working
+    uint8_t bt_is_working;
+    //bt_is_sleep
+    uint8_t bt_is_sleep;
+    //active_ps state
+    uint8_t active_ps_status;
+    //rf state
+    uint8_t rf_status;
+};
+
 
 /// Structure containing the parameters of the @ref MDNS_SET_STATE message.
 struct mm_mdns_offload_state {
@@ -3563,6 +3642,11 @@ struct apf_set_mode_req
     u8_l resvd[3];
 };
 
+struct ps_info_get_req
+{
+    uint32_t debug_type;
+};
+
 struct apf_get_status_req
 {
     /// Boolean flag to enable (true) or disable (false) the APF feature
@@ -3578,4 +3662,9 @@ struct early_suspend_mode_req
     u8_l resvd[3];
 };
 
+/// Structure containing the parameters of the @ref MM_SUB_REGDOM_EN message.
+struct regdom_en_req
+{
+    uint32_t reg_en;
+};
 #endif // LMAC_MSG_H_

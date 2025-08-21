@@ -1,32 +1,32 @@
+
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+* Copyright (C) 202X Original Author (retain original author information)
+* Copyright (C) 202X Amlogic, Inc. All rights reserved.
+*
+* Description:
+*/
 #ifndef _FI_W2_SDIO_H
 #define _FI_W2_SDIO_H
 
- /* txcfm start address in sram  */
-#define   SRAM_TXCFM_START_ADDR  (0xa17000)
+ /* start address of sram_cfm in SRAM  */
+#define SRAM_TXCFM_START_ADDR   (0xa17000)
+#define SRAM_TXCFM_SIZE         (2 << 10)
 
  /* flag start base address for store some flag info in sram */
-#define   SRAM_FLAG_MEM_BASE (0xa17fc0)
+#define SRAM_FLAG_MEM_BASE (0xa17fc0)
 
  /* rxdesc index address */
-#define   APP2EMB_RXDESC_IDX (SRAM_FLAG_MEM_BASE) // len = 4 bytes
+#define APP2EMB_RXDESC_IDX (SRAM_FLAG_MEM_BASE) // len = 4 bytes
 
 #define howmanypage(x,y) (((x - 12) + ((y - 12) -1) )/ (y - 12))
 
-#ifdef CONFIG_SDIO_TX_ENH
 #define SDIO_PAGE_MAX    65
-#else
-#define SDIO_PAGE_MAX    60
-#endif
-
-#define SDIO_FRAME_TAIL_LEN    12
 #define SDIO_PAGE_LEN    1024
 
-#define SDIO_DATA_OFFSET   112 //12 + 28 + 72
-#define SDIO_TXHEADER_LEN   104 //4 + 28 + 72
-#define SDIO_TXDESC_OFFSET  40  //12 + 28
-#define SECOND_PAGE_DATA_OFFSET 12
-#define TXHEADER_RESERVE_LEN 240
-#define TXDESC_OFFSET        32 // 4 + 28
+#define SDIO_TXDESC_OFFSET      (12)
+#define SDIO_DATA_OFFSET        (12 + 72)
+#define SECOND_PAGE_DATA_OFFSET (SDIO_TXDESC_OFFSET)
 #define USB_DATA_OFFSET 72 //payload
 
 #define SDIO_TX_PAGE_SMALL_SKIP_NUM 166

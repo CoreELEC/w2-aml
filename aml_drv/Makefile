@@ -1,5 +1,5 @@
-AML_VERS_NUM=v2.0.1_2025-03.17-w2u driver:47086a67+529191
-#KERNELDIR=/usr/lib/modules/5.8.0-63-generic/build
+AML_VERS_NUM=v2.1.2_2025-08.04-w2 driver:d5fe0b45
+# KERNELDIR ?= /usr/lib/modules/$(shell uname -r)/build
 PWD=$(shell pwd)
 ifeq ($(ARCH),)
 ARCH ?= arm64
@@ -66,22 +66,23 @@ CONFIG_AML_FHOST ?= n
 # DEBUG OPTIONS
 CONFIG_AML_UM_HELPER_DFLT ?= "/usr/bin/aml_umh.sh"
 
-#
-# FW ARCH:
-CONFIG_AML_SDM ?= n
-CONFIG_AML_TL4 ?= n
-
-# IPC version
-CONFIG_AML_OLD_IPC ?= n
-
 # Support of P2P DebugFS for enabling/disabling NoA and OppPS
 CONFIG_AML_P2P_DEBUGFS ?= y
 
 # Need open it when use FPGA pcie version
 CONFIG_AML_FPGA_PCIE ?= n
 
+# Product test mode
+CONFIG_PT_MODE ?= n
+
 # Amlogic specified android(/w Kernel) platform depends
 CONFIG_AML_PLATFORM_ANDROID ?= y
+
+ifeq ($(CONFIG_AML_KERNEL_4_9)$(CONFIG_AML_PLATFORM_ANDROID),yy)
+CONFIG_AML_SDIO_IRQ_VIA_GPIO ?= n
+else
+CONFIG_AML_SDIO_IRQ_VIA_GPIO := n
+endif
 
 # Use platform random mac
 CONFIG_AML_PLATFORM_RANDOM_MAC ?= n
@@ -104,9 +105,6 @@ CONFIG_AML_WOW_GOOGLE_CAST_EN ?= n
 # Config to enable MAGIC_PKT wake host
 CONFIG_AML_WOW_MAGIC_PACKET_EN ?= n
 
-# Support to use tasks to process IRQ Handlers
-CONFIG_AML_USE_TASK ?= y
-
 # Support recovery function
 CONFIG_AML_RECOVERY ?= y
 # } // WAITING FOR KCONFIG
@@ -114,6 +112,8 @@ CONFIG_AML_RECOVERY ?= y
 
 # Support rx minisize function
 CONFIG_AML_RX_MINISIZE ?= n
+
+CONFIG_ND_RANDOM_MAC_ADDR ?= n
 
 #support NAPI
 CONFIG_AML_NAPI ?= y
@@ -131,7 +131,10 @@ endif
 #support customer 11d forbidden
 CONFIG_CUSTOMER_11D_FORBIDDEN ?= y
 
-CONFIG_SDIO_TX_ENH ?= y
+CONFIG_LIGHT_WEIGHT_MEM ?=y
+
+#support window size scale set
+CONFIG_TCP_WIN_SCALE ?= n
 
 ifeq ($(CONFIG_GOOGLE_CAST_EN),y)
 CONFIG_AML_WOW_GOOGLE_CAST_EN = y
@@ -141,24 +144,26 @@ ifeq ($(CONFIG_MAGIC_PACKET_EN),y)
 CONFIG_AML_WOW_MAGIC_PACKET_EN = y
 endif
 
+subdir-ccflags-$(CONFIG_PT_MODE) += -DCONFIG_PT_MODE
+subdir-ccflags-$(CONFIG_AML_PLATFORM_ANDROID) += -DCONFIG_AML_PLATFORM_ANDROID
 subdir-ccflags-$(CONFIG_DEBUG_FS) += -DCONFIG_AML_DEBUGFS
 subdir-ccflags-$(CONFIG_DEBUG_FS) += -DCONFIG_AML_UM_HELPER_DFLT=\"$(CONFIG_AML_UM_HELPER_DFLT)\"
 subdir-ccflags-$(CONFIG_AML_P2P_DEBUGFS) += -DCONFIG_AML_P2P_DEBUGFS
 subdir-ccflags-$(CONFIG_AML_FPGA_PCIE) += -DCONFIG_AML_FPGA_PCIE
-subdir-ccflags-$(CONFIG_AML_PLATFORM_ANDROID) += -DCONFIG_AML_PLATFORM_ANDROID
 subdir-ccflags-$(CONFIG_AML_PREALLOC_BUF_STATIC) += -DCONFIG_AML_PREALLOC_BUF_STATIC
 subdir-ccflags-$(CONFIG_AML_PREALLOC_BUF_SKB) += -DCONFIG_AML_PREALLOC_BUF_SKB
 subdir-ccflags-$(CONFIG_AML_WFA_CERT_MODE) += -DCONFIG_AML_WFA_CERT_MODE
 subdir-ccflags-$(CONFIG_AML_POWER_SAVE_MODE) += -DCONFIG_AML_POWER_SAVE_MODE
-subdir-ccflags-$(CONFIG_AML_USE_TASK) += -DCONFIG_AML_USE_TASK
 subdir-ccflags-$(CONFIG_AML_RECOVERY) += -DCONFIG_AML_RECOVERY
 subdir-ccflags-$(CONFIG_AML_RX_MINISIZE) += -DCONFIG_AML_W2_RX_MINISIZE
 subdir-ccflags-$(CONFIG_AML_NAPI) += -DCONFIG_AML_NAPI
 subdir-ccflags-$(CONFIG_KERNEL_AX_PATCH) += -DCONFIG_KERNEL_AX_PATCH
-subdir-ccflags-$(CONFIG_SDIO_TX_ENH) += -DCONFIG_SDIO_TX_ENH
 subdir-ccflags-$(CONFIG_MDNS_OFFLOAD_FEATURE) += -DMDNS_OFFLOAD_FEATURE
 subdir-ccflags-$(CONFIG_AML_WOW_GOOGLE_CAST_EN) += -DAML_WOW_GOOGLE_CAST_EN
 subdir-ccflags-$(CONFIG_AML_WOW_MAGIC_PACKET_EN) += -DAML_WOW_MAGIC_PACKET_EN
+subdir-ccflags-$(CONFIG_LIGHT_WEIGHT_MEM) += -DLIGHT_WEIGHT_MEM
+subdir-ccflags-$(CONFIG_TCP_WIN_SCALE) += -DCONFIG_TCP_WIN_SCALE
+subdir-ccflags-$(CONFIG_ND_RANDOM_MAC_ADDR) += -DCONFIG_ND_RANDOM_MAC_ADDR
 
 # FW VARS
 subdir-ccflags-y += -DNX_VIRT_DEV_MAX=4
@@ -167,17 +172,13 @@ subdir-ccflags-y += -DNX_MU_GROUP_MAX=62
 subdir-ccflags-y += -DNX_TX_MAX_RATES=4
 subdir-ccflags-y += -DNX_CHAN_CTXT_CNT=3
 
-# FW ARCH:
-subdir-ccflags-$(CONFIG_AML_SDM) += -DCONFIG_AML_SDM
-subdir-ccflags-$(CONFIG_AML_TL4) += -DCONFIG_AML_TL4
-subdir-ccflags-$(CONFIG_AML_OLD_IPC) += -DCONFIG_AML_OLD_IPC
-
-ifeq ($(CONFIG_ANDROID_GKI),y)
-subdir-ccflags-y += -DCONFIG_ANDROID_GKI
-endif
+ifeq ($(CONFIG_AML_PLATFORM_ANDROID),y)
+subdir-ccflags-$(CONFIG_AML_SDIO_IRQ_VIA_GPIO) += -DCONFIG_AML_SDIO_IRQ_VIA_GPIO
+subdir-ccflags-$(CONFIG_ANDROID_GKI) += -DCONFIG_ANDROID_GKI
 
 ifneq ($(CONFIG_AML_ANDROID),)
 subdir-ccflags-y += -DCONFIG_AML_ANDROID=$(CONFIG_AML_ANDROID)
+endif
 endif
 
 ifeq ($(CONFIG_CUSTOMER_11D_FORBIDDEN),y)
@@ -190,7 +191,7 @@ all: modules
 
 modules clean:
 	@$(PWD)/mklink.sh
-	$(MAKE)  CUR_DIR=$(CUR_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) -C $(KERNEL_SRC) M=$(M) $@
+	$(MAKE) CUR_DIR=$(CUR_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) -C $(KERNEL_SRC) M=$(M) $@
 	@$(PWD)/mklink.sh clean
 #ifneq (${OUT_DIR},)
 #	$(CROSS_COMPILE)strip --strip-unneeded ${OUT_DIR}/$(M)/$(TARGET).ko

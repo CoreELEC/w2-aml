@@ -25,17 +25,27 @@
 #include <net/cfg80211.h>
 #include <net/rtnetlink.h>
 
-
 #define GOOGLE_VENDOR_OUI 0x1A11
-#ifdef CONFIG_AML_APF
-extern struct mutex apf_mutex;
 
 enum andr_vendor_subcmd {
+    WIFI_MDNS_OFFLOAD_SET_STATE = 0x1664,
+    WIFI_MDNS_OFFLOAD_RESET_ALL,
+    WIFI_MDNS_OFFLOAD_ADD_PROTOCOL_RESPONSES,
+    WIFI_MDNS_OFFLOAD_REMOVE_PROTOCOL_RESPONSES,
+    WIFI_MDNS_OFFLOAD_GET_AND_RESET_HIT_COUNTER,
+    WIFI_MDNS_OFFLOAD_GET_AND_RESET_MISS_COUNTER,
+    WIFI_MDNS_OFFLOAD_ADD_TO_PASSTHROUGH_LIST,
+    WIFI_MDNS_OFFLOAD_REMOVE_FROM_PASSTHROUGH_LIST,
+    WIFI_MDNS_OFFLOAD_SET_PASSTHROUGH_BEHAVIOR,
+
     APF_SUBCMD_GET_CAPABILITIES = 0x1800,
     APF_SUBCMD_SET_FILTER,
     APF_SUBCMD_READ_FILTER_DATA,
     VENDOR_SUBCMD_MAX,
 };
+
+#ifdef CONFIG_AML_APF
+extern struct mutex apf_mutex;
 
 enum apf_attributes {
     APF_ATTRIBUTE_VERSION,
@@ -53,16 +63,9 @@ enum apf_attributes {
 #define VENDOR_REPLY_OVERHEAD       (VENDOR_ID_OVERHEAD + \
                                      VENDOR_SUBCMD_OVERHEAD + \
                                      VENDOR_DATA_OVERHEAD)
-
-extern int aml_cfgvendor_apf_get_capabilities(struct wiphy *wiphy,
-    struct wireless_dev *wdev, const void *data, int len);
-
-extern int aml_cfgvendor_apf_set_filter(struct wiphy *wiphy,
-    struct wireless_dev *wdev, const void  *data, int len);
-
-extern int aml_cfgvendor_apf_read_filter_data(struct wiphy *wiphy,
-    struct wireless_dev *wdev, const void *data, int len);
 #endif /* CONFIG_AML_APF */
+
+extern void aml_wiphy_vendor_init(struct wiphy *wiphy);
 
 #endif /* __AML_CFGVENDOR_H__ */
 

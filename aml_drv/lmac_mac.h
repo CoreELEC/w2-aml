@@ -443,7 +443,7 @@ enum mac_sta_flags
     STA_OPMOD_NOTIF = BIT(4),
     /// Bit indicating that a STA has HE capability
     STA_HE_CAPA = BIT(5),
-    /// Bit Inidcating supprot for short Preamble in ERP
+    /// Bit indicating support for short Preamble in ERP
     STA_SHORT_PREAMBLE_CAPA = BIT(6),
 };
 
@@ -483,6 +483,11 @@ struct mac_ftm_results
         /// Round Trip Time (in ps)
         u32_l rtt;
     } meas[FTM_RSP_MAX];
+};
+
+struct fwlog_mode_cfm {
+    unsigned int trace_buf;
+    unsigned int end;
 };
 
 #endif // LMAC_MAC_H_

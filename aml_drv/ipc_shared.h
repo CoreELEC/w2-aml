@@ -94,11 +94,7 @@
 #define IPC_E2A_MSG_SIZE_BASE   256 // size in 4-byte words
 #endif
 
-#ifdef CONFIG_AML_TL4
-#define IPC_E2A_MSG_PARAM_SIZE  (IPC_E2A_MSG_SIZE_BASE + (IPC_E2A_MSG_SIZE_BASE / 2))
-#else
 #define IPC_E2A_MSG_PARAM_SIZE  IPC_E2A_MSG_SIZE_BASE
-#endif
 
 /*
  * Debug messages buffers size (in bytes)
@@ -513,7 +509,7 @@ struct rxdesc_tag
  * c<=d  [label="ipc_host_rxdesc_pop()"];
  * d=>d  [label="Rx packet is handed \nover to the OS "];
  * ...   [label="(several Rx desc can be poped)"];
- * ---   [label="Rx buffer request exemple"];
+ * ---   [label="Rx buffer request example"];
  * b:>c  [label="Low Rx buffer count IRQ"];
  * a<<b  [label="struct ipc_rxbuf"];
  * c=>>d [label="Driver Rx buffer callback"];
@@ -700,9 +696,6 @@ extern struct ipc_shared_env_tag ipc_shared_env;
 #define IPC_IRQ_E2A_TXCFM_POS   7
 
 #ifdef CONFIG_AML_MUMIMO_TX
-#ifdef CONFIG_AML_OLD_IPC
-#error "MU-MIMO cannot be compiled for old IPC"
-#endif
 /// Interrupts bits used
 #if CONFIG_USER_MAX > 3
 #define IPC_IRQ_E2A_USER_MSK       0xF

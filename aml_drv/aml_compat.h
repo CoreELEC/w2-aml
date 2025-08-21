@@ -22,12 +22,13 @@
 #ifndef _AML_COMPAT_H_
 #define _AML_COMPAT_H_
 #include <linux/version.h>
+#include <linux/compiler.h>
+#include <linux/ieee80211.h>
 #include <net/cfg80211.h>
 #include <linux/fs.h>
 #include <linux/sched.h>
-#include <linux/sched/clock.h>
-
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
+#include <linux/sched/clock.h>
 #include <uapi/linux/sched/types.h>     /* for struct sched_attr */
 #endif
 
@@ -44,6 +45,27 @@
  *****************************************************************************/
 #define UNUSED(x) ((void)x)
 
+#ifndef __has_attribute
+#define __has_attribute(x)      0
+#endif
+
+/* earlier version of linux/compiler_attributes.h may not define the following */
+#ifndef fallthrough
+#if __has_attribute(__fallthrough__)
+# define fallthrough            __attribute__((__fallthrough__))
+#else
+# define fallthrough            do {} while (0)  /* fallthrough */
+#endif
+#endif
+
+#ifndef __maybe_unused
+#define __maybe_unused          __attribute__((__unused__))
+#endif
+
+#ifndef __packed
+#define __packed                __attribute__((__packed__))
+#endif
+
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 9, 0)
 #define __bf_shf(x) (__builtin_ffsll(x) - 1)
 #define FIELD_PREP(_mask, _val) \
@@ -52,41 +74,69 @@
 #include <linux/bitfield.h>
 #endif // 4.9
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 251) || \
+    (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 5, 0) && LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0))
+static inline void eth_hw_addr_set(struct net_device *dev, const u8 *addr)
+{
+    ether_addr_copy(dev->dev_addr, addr);
+}
+#endif
+
+/* NAPI */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 19, 0)
+#define netif_napi_add_weight netif_napi_add
+#endif
+
 /******************************************************************************
  * CFG80211
  *****************************************************************************/
+#if !defined(CONFIG_AML_PLATFORM_ANDROID) || defined(CONFIG_LINUX_UPSTREAM)
+/* CFG80211_VANILLA indicates to apply Linux vanilla cfg802.11 APIs w/o Amlogic patch */
+#define CFG80211_VANILLA
+#endif
+
 #if defined(IEEE80211_MLD_MAX_NUM_LINKS)
   #define CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT 1
+#endif
+
+#if (defined(CFG80211_VANILLA) && LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 0)) || \
+    (!defined(CFG80211_VANILLA) && LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
+#define AML_CFG80211_PARAM_LINK_ID          , link_id
+#else
+#define AML_CFG80211_PARAM_LINK_ID
+#endif
+
+#if (defined(CFG80211_VANILLA) && LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)) || \
+    (!defined(CFG80211_VANILLA) && LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
+#define AML_CFG80211_PARAM_QUIET            , quiet
+#else
+#define AML_CFG80211_PARAM_QUIET
+#endif
+
+#if (defined(CFG80211_VANILLA) && LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)) || \
+    (!defined(CFG80211_VANILLA) && LINUX_VERSION_CODE > KERNEL_VERSION(5, 15, 137) \
+                                && LINUX_VERSION_CODE < KERNEL_VERSION(6, 12, 0))
+#define AML_CFG80211_PARAM_PUNCT_BITMAP     , 0         /* punct_bitmap */
+#else
+#define AML_CFG80211_PARAM_PUNCT_BITMAP
 #endif
 
 static inline void aml_cfg80211_ch_switch_notify(struct net_device *dev,
 	struct cfg80211_chan_def *chandef, unsigned int link_id)
 {
-#if ((defined (CONFIG_AMLOGIC_KERNEL_VERSION) && defined (AML_KERNEL_VERSION)) && (\
-	(CONFIG_AMLOGIC_KERNEL_VERSION == 13515 && AML_KERNEL_VERSION >= 15)\
-	|| (CONFIG_AMLOGIC_KERNEL_VERSION == 14515 && AML_KERNEL_VERSION >= 12) ) )\
-	|| (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0) && LINUX_VERSION_CODE < KERNEL_VERSION(6, 9, 0))
-	return cfg80211_ch_switch_notify(dev, chandef, link_id, 0);
-#elif defined (CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT)
-	return cfg80211_ch_switch_notify(dev, chandef, link_id);
-#else
-	return cfg80211_ch_switch_notify(dev, chandef);
-#endif
+    return cfg80211_ch_switch_notify(dev, chandef
+                                     AML_CFG80211_PARAM_LINK_ID
+                                     AML_CFG80211_PARAM_PUNCT_BITMAP);
 }
 
 static inline void aml_cfg80211_ch_switch_started_notify(struct net_device *dev,
 	struct cfg80211_chan_def *chandef, unsigned int link_id, u8 count, bool quiet)
 {
-#if ((defined (CONFIG_AMLOGIC_KERNEL_VERSION) && defined (AML_KERNEL_VERSION)) && (\
-	(CONFIG_AMLOGIC_KERNEL_VERSION == 13515 && AML_KERNEL_VERSION >= 15)\
-	|| (CONFIG_AMLOGIC_KERNEL_VERSION == 14515 && AML_KERNEL_VERSION >= 12) ) )\
-	|| (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0) && LINUX_VERSION_CODE < KERNEL_VERSION(6, 9, 0))
-	return cfg80211_ch_switch_started_notify(dev, chandef, link_id, count, quiet, 0);
-#elif defined (CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT)
-	return cfg80211_ch_switch_started_notify(dev, chandef, link_id, count, quiet);
-#else
-	return cfg80211_ch_switch_started_notify(dev, chandef, count);
-#endif
+    return cfg80211_ch_switch_started_notify(dev, chandef
+                                             AML_CFG80211_PARAM_LINK_ID,
+                                             count
+                                             AML_CFG80211_PARAM_QUIET
+                                             AML_CFG80211_PARAM_PUNCT_BITMAP);
 }
 
 #ifdef CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT
@@ -151,6 +201,11 @@ static inline void aml_cfg80211_ch_switch_started_notify(struct net_device *dev,
 	IEEE80211_MAX_AMPDU_BUF_HE
 #endif
 
+/* NB: this flag is removed from Linux-6.1.x, 6.3.x and later */
+#ifndef REGULATORY_IGNORE_STALE_KICKOFF
+#define REGULATORY_IGNORE_STALE_KICKOFF     BIT(6)
+#endif
+
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 12, 0)
 #define regulatory_set_wiphy_regd_sync regulatory_set_wiphy_regd_sync_rtnl
 
@@ -158,8 +213,12 @@ static inline void aml_cfg80211_ch_switch_started_notify(struct net_device *dev,
 #define wiphy_unlock(w)
 #endif // 5.12
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 1, 0)
-#define WLAN_EXT_CAPA3_MULTI_BSSID_SUPPORT	0
+#ifndef WLAN_EXT_CAPA3_MULTI_BSSID_SUPPORT
+#define WLAN_EXT_CAPA3_MULTI_BSSID_SUPPORT  0   // it should be BIT(6)
+#endif
+
+#if (defined(CONFIG_AML_PLATFORM_ANDROID) && LINUX_VERSION_CODE < KERNEL_VERSION(5, 1, 0)) \
+    || !defined(CONFIG_AML_PLATFORM_ANDROID) && LINUX_VERSION_CODE < KERNEL_VERSION(4, 9, 0)
 
 #define IEEE80211_HE_PHY_CAP8_DCM_MAX_RU_242                    0x00
 #define IEEE80211_HE_PHY_CAP8_DCM_MAX_RU_484                    0x40
@@ -187,6 +246,9 @@ struct element {
 		(int)sizeof(*_elem) + _elem->datalen;			\
 	     _elem = (const struct element *)(_elem->data + _elem->datalen))
 
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 1, 0)
 static inline const struct element *
 cfg80211_find_elem(u8 eid, const u8 *ies, int len)
 {
@@ -197,8 +259,7 @@ cfg80211_find_elem(u8 eid, const u8 *ies, int len)
     }
     return NULL;
 }
-
-#endif // 5.1
+#endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)
 #define cfg80211_notify_new_peer_candidate(dev, addr, ie, ie_len, sig_dbm, gfp) \
@@ -210,7 +271,9 @@ cfg80211_find_elem(u8 eid, const u8 *ies, int len)
 #endif // 5.0
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 20, 0)
+#ifndef IEEE80211_HE_MAC_CAP3_MAX_AMPDU_LEN_EXP_MASK
 #define IEEE80211_HE_MAC_CAP3_MAX_AMPDU_LEN_EXP_MASK IEEE80211_HE_MAC_CAP3_MAX_A_AMPDU_LEN_EXP_MASK
+#endif
 #endif // 4.20
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 19, 0)
@@ -352,17 +415,6 @@ enum {
 #endif // 4.17
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 12, 0)
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 10, 0)
-#define aml_cfg80211_add_iface(wiphy, name, name_assign_type, type, params) \
-    aml_cfg80211_add_iface(wiphy, name, name_assign_type, type, u32 *flags, params)
-
-#define aml_cfg80211_change_iface(wiphy, dev, type, params) \
-    aml_cfg80211_change_iface(wiphy, dev, type, u32 *flags, params)
-
-#define nla_parse(tb, maxtype, head, len, policy )       \
-    nla_parse(tb, maxtype, head, len, policy)
-
-#endif
 #define CCFS0(vht) vht->center_freq_seg1_idx
 #define CCFS1(vht) vht->center_freq_seg2_idx
 
@@ -396,10 +448,20 @@ struct cfg80211_roam_info {
     cfg80211_cqm_rssi_notify(dev, event, gfp)
 #endif // 4.11
 
+static inline void aml_amsdu_to_8023s(struct sk_buff *skb,
+                                      struct sk_buff_head *list,
+                                      const u8 *addr,
+                                      enum nl80211_iftype iftype,
+                                      const unsigned int extra_headroom)
+{
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 9, 0)
-#define ieee80211_amsdu_to_8023s(skb, list, addr, iftype, extra_headroom, check_da, check_sa) \
-    ieee80211_amsdu_to_8023s(skb, list, addr, iftype, extra_headroom, false)
-#endif // 4.9
+    ieee80211_amsdu_to_8023s(skb, list, addr, iftype, extra_headroom, false);
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 107)
+    ieee80211_amsdu_to_8023s(skb, list, addr, iftype, extra_headroom, NULL, NULL);
+#else
+    ieee80211_amsdu_to_8023s(skb, list, addr, iftype, extra_headroom, NULL, NULL, false);
+#endif
+}
 
 #if LINUX_VERSION_CODE  < KERNEL_VERSION(4, 7, 0)
 #define NUM_NL80211_BANDS IEEE80211_NUM_BANDS

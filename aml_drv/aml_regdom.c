@@ -11,6 +11,19 @@
  */
 #include "aml_regdom.h"
 #include "aml_utils.h"
+#include "aml_msg_tx.h"
+
+unsigned char regdom_en = 0;
+REGDOM_USED_T regdom_used = {"00"};
+
+REGDOM_PWR_TABLE_T regdom_power_table[REGDOM_PWR_MODE_MAX] = {
+    {{"00"}}, //global
+    {{"US"}}, //fcc
+    {{"EU"}}, //ce
+    {{"JP"}}, //arib
+    {{"CN"}}, //srrc
+    {{"BR"}}  //anatel
+};
 
 
 static const struct ieee80211_regdomain regdom_global = {
@@ -114,7 +127,7 @@ const struct aml_regdom *aml_regdom_tbl[] = {
     NULL
 };
 
-const struct ieee80211_regdomain *aml_get_regdom(char *alpha2)
+static const struct ieee80211_regdomain *aml_get_regdom(char *alpha2)
 {
     const struct aml_regdom *regdom;
     int i = 0;
@@ -161,14 +174,149 @@ void aml_apply_regdom(struct aml_hw *aml_hw, struct wiphy *wiphy, char *alpha2)
 #else
         wiphy->regulatory_flags |= WIPHY_FLAG_CUSTOM_REGULATORY;
 #endif
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0))
-#if LINUX_VERSION_CODE <= KERNEL_VERSION(6, 3, 12)
         wiphy->regulatory_flags |= REGULATORY_IGNORE_STALE_KICKOFF;
-#else
-        wiphy->regulatory_flags |= (REGULATORY_WIPHY_SELF_MANAGED >> 1);
-#endif
-#endif
 
         wiphy_apply_custom_regulatory(wiphy, regdom);
     }
+}
+
+void aml_regdom_table_pwr_get(unsigned char channel, unsigned char band, unsigned char *power_ofdm, unsigned char *power_dsss)
+{
+    unsigned char index = 0;
+    unsigned char channel_map_idx = 0;
+    unsigned char limit_pwr;
+    unsigned char limit_pwr_dsss_power = 0;
+
+    index = aml_regdom_pwr_table_index_get();
+    if (index == 0)
+    {
+        *power_ofdm = 19;
+        *power_dsss = 21;
+        return;
+    }
+
+    if (band == 1)
+    {
+        //5g band0 check
+        if (channel <= 64)
+        {
+            //5g band0 80M
+            if ((channel == 42) || (channel == 58))
+            {
+                channel_map_idx = (channel - 42) / 16;
+                limit_pwr = country_pwr_limit_cfg.wf5g_bw80_band0[channel_map_idx][index - 1];
+            }
+            //5g band0 40M
+            else if ((channel == 38) || (channel == 46) || (channel == 54) || (channel == 62))
+            {
+                channel_map_idx = (channel - 38) / 8;
+                limit_pwr = country_pwr_limit_cfg.wf5g_bw40_band0[channel_map_idx][index - 1];
+            }
+            //5g band0 20M
+            else
+            {
+                channel_map_idx = (channel - 36) / 4;
+                limit_pwr = country_pwr_limit_cfg.wf5g_bw20_band0[channel_map_idx][index - 1];
+            }
+        }
+
+
+        else if (channel <= 144)
+        {
+            //5g band1 80M
+            if ((channel == 106) || (channel == 122) || (channel == 138))
+            {
+                channel_map_idx = (channel - 106) / 16;
+                limit_pwr = country_pwr_limit_cfg.wf5g_bw80_band1[channel_map_idx][index - 1];
+            }
+            //5g band1 40M
+            else if ((channel == 102) || (channel == 110) || (channel == 118) || (channel == 126) || (channel == 134) || (channel == 142))
+            {
+                channel_map_idx = (channel - 102) / 8;
+                limit_pwr = country_pwr_limit_cfg.wf5g_bw40_band1[channel_map_idx][index - 1];
+            }
+            //5g band1 20M
+            else
+            {
+                channel_map_idx = (channel - 100) / 4;
+                limit_pwr = country_pwr_limit_cfg.wf5g_bw20_band1[channel_map_idx][index - 1];
+            }
+        }
+        else
+        {
+            //5g band2 80M
+            if (channel == 155)
+            {
+                channel_map_idx = (channel - 155) / 16;
+                limit_pwr = country_pwr_limit_cfg.wf5g_bw80_band2[channel_map_idx][index - 1];
+            }
+            //5g band2 40M
+            else if ((channel == 151) || (channel == 159) || (channel == 167) || (channel == 175))
+            {
+                channel_map_idx = (channel - 151) / 8;
+                limit_pwr = country_pwr_limit_cfg.wf5g_bw40_band2[channel_map_idx][index - 1];
+            }
+            //5g band2 20M
+            else
+            {
+                channel_map_idx = (channel - 149) / 4;
+                if (channel_map_idx >= 7)
+                {
+                    channel_map_idx = 6;
+                }
+                limit_pwr = country_pwr_limit_cfg.wf5g_bw20_band2[channel_map_idx][index - 1];
+            }
+        }
+        *power_ofdm = limit_pwr;
+    }
+    else
+    {
+        limit_pwr_dsss_power = country_pwr_limit_cfg.wf2g_dsss_limit[channel-1][index-1];
+        limit_pwr = country_pwr_limit_cfg.wf2g_ofdm_limit[channel-1][index -1];
+        *power_ofdm = limit_pwr;
+        *power_dsss = limit_pwr_dsss_power;
+    }
+}
+
+unsigned char aml_regdom_pwr_table_index_get(void)
+{
+    unsigned char index = 0;
+
+    while (index < REGDOM_PWR_MODE_MAX)
+    {
+        if ((regdom_used.regdom_used_code[0] == regdom_power_table[index].regdom_code[0]) &&
+                (regdom_used.regdom_used_code[1] == regdom_power_table[index].regdom_code[1])) {
+            break;
+        }
+        index++;
+    }
+
+    if (index == REGDOM_PWR_MODE_MAX)
+        index = 0;
+
+    return index;
+}
+
+unsigned char aml_regdom_set_pwr(unsigned char power, unsigned char power1)
+{
+    unsigned char tx_pwr = 0;
+
+    tx_pwr = power > power1 ? power1 : power;
+
+    return tx_pwr;
+}
+
+int aml_regdom_doit(struct aml_hw *aml_hw, void *regdom_wq, int len)
+{
+    struct regdom_set_power_req *req = regdom_wq;
+    int ret = 0;
+    unsigned char ofdm_power = 0;
+    unsigned char dsss_power = 0;
+
+    aml_regdom_table_pwr_get(req->channel, req->band, &ofdm_power, &dsss_power);
+    ofdm_power = ofdm_power & 0x7f;
+
+    ret = aml_send_set_power(aml_hw, req->vif_index, ofdm_power, NULL);
+
+    return ret;
 }

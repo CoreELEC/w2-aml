@@ -1,8 +1,17 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+* Copyright (C) 202X Original Author (retain original author information)
+* Copyright (C) 202X Amlogic, Inc. All rights reserved.
+*
+* Description:
+*/
 #ifndef _AML_LOG_H_
 #define _AML_LOG_H_
 
-#include <linux/bitops.h>
+#include <linux/types.h>
 #include <linux/kernel.h>
+
+#include "aml_prof.h"
 
 #ifndef CONFIG_AML_LOG_PREFIX
 #define CONFIG_AML_LOG_PREFIX       /* "[W2]" or "[W2L]", set by Makefile */
@@ -13,7 +22,7 @@
  *  - the log will be excluded while building if its level is lower than CONFIG_AML_LOG_BUILD_LEVEL
  *  - default module level should be
  *      - interrupt: LOGLEVEL_ERR
- *      - data path: LOGLEVEL_ERR
+ *      - data path: LOGLEVEL_WARNING
  *      - module under debugging: LOGLEVEL_INFO or LOGLEVEL_DEBUG.
  *      - others: LOGLEVEL_WARNING or LOGLEVEL_NOTICE.
  */
@@ -27,10 +36,12 @@
 
 #define AML_LOG_MODULES \
         AML_LOG_MODULE(GENERIC,     DEBUG) /* unknown */ \
+        AML_LOG_MODULE(RECOVERY,    DEBUG) \
         AML_LOG_MODULE(BA,          NOTICE) \
         AML_LOG_MODULE(REO,         ERR) \
         AML_LOG_MODULE(TX,          INFO) \
         AML_LOG_MODULE(RX,          INFO) \
+        AML_LOG_MODULE(RX_IRQ,      WARNING) \
         AML_LOG_MODULE(CMD,         DEBUG) \
         AML_LOG_MODULE(TRACE,       INFO) \
         AML_LOG_MODULE(INTERFACE,   INFO) \
@@ -45,12 +56,13 @@
         AML_LOG_MODULE(COMMON,      INFO) \
         AML_LOG_MODULE(SDIO,        INFO) \
         AML_LOG_MODULE(USB,         INFO) \
-        AML_LOG_MODULE(UTILS,       DEBUG) \
+        AML_LOG_MODULE(UTILS,       INFO) \
         AML_LOG_MODULE(CSI,         INFO) \
         AML_LOG_MODULE(IRQ,         ERR) \
         AML_LOG_MODULE(P2P,         INFO) \
         AML_LOG_MODULE(TCP,         INFO) \
         AML_LOG_MODULE(RATE,        ERR) \
+        AML_LOG_MODULE(SCAN,        WARNING) \
 
 enum aml_log_module {
 #define AML_LOG_MODULE(_m, _level)  AML_LOG_MODULE_##_m,
@@ -97,11 +109,14 @@ int aml_name_index(const char *names[], const char *name);
 #define AML_M_INFO(_m, fmt, ...)    _AML_INFO   (_m, true, fmt, ##__VA_ARGS__)
 #define AML_M_DBG(_m, fmt, ...)     _AML_DBG    (_m, true, fmt, ##__VA_ARGS__)
 
-#ifndef AML_FMT
-#define AML_FMT(_level, _m, fmt)    CONFIG_AML_LOG_PREFIX "[%8s] " fmt, #_m
-#endif
+#define AML_FMT_M(_level, _m, fmt)  CONFIG_AML_LOG_PREFIX "[%8s] " fmt, #_m
 
-#define AML_FNLN_FMT(_level, _m, fmt)    CONFIG_AML_LOG_PREFIX "[%8s] [%s %d]" fmt, #_m, __func__, __LINE__
+#define AML_FMT_M_FN_LN(_level, _m, fmt) \
+        CONFIG_AML_LOG_PREFIX "[%8s] [%s %d]" fmt, #_m, __func__, __LINE__
+
+#ifndef AML_FMT
+#define AML_FMT                     AML_FMT_M_FN_LN
+#endif
 
 #define AML_FN_ENTRY_STR            ">>> %s(%d)\n", __func__, __LINE__
 #define AML_FN_EXIT_STR             "<<< %s(%d)\n", __func__, __LINE__
@@ -113,47 +128,39 @@ int aml_name_index(const char *names[], const char *name);
  */
 #define _AML_LOG(_level, _m, _rlmt, fmt, ...)  do { \
             if (LOGLEVEL_##_level <= aml_log_m_levels[AML_LOG_MODULE_##_m] && _rlmt) { \
-                printk(AML_FNLN_FMT(_level, _m, fmt), ##__VA_ARGS__); \
+                printk(AML_FMT(_level, _m, fmt), ##__VA_ARGS__); \
             } \
         } while (0)
 
-#ifdef CONFIG_AML_LOG_BUILD_LEVEL >= LOGLEVEL_ERR
+#if CONFIG_AML_LOG_BUILD_LEVEL >= LOGLEVEL_ERR
 #define _AML_ERR(_m, _rt, fmt, ...)     _AML_LOG(ERR,     _m, _rt, fmt, ##__VA_ARGS__)
 #else
 #define _AML_ERR(_m, _rt, fmt, ...)     do {} while(0)
 #endif
-#ifdef CONFIG_AML_LOG_BUILD_LEVEL >= LOGLEVEL_WARNING
+#if CONFIG_AML_LOG_BUILD_LEVEL >= LOGLEVEL_WARNING
 #define _AML_WARN(_m, _rt, fmt, ...)    _AML_LOG(WARNING, _m, _rt, fmt, ##__VA_ARGS__)
 #else
 #define _AML_WARN(_m, _rt, fmt, ...)    do {} while(0)
 #endif
-#ifdef CONFIG_AML_LOG_BUILD_LEVEL >= LOGLEVEL_NOTICE
+#if CONFIG_AML_LOG_BUILD_LEVEL >= LOGLEVEL_NOTICE
 #define _AML_NOTICE(_m, _rt, fmt, ...)  _AML_LOG(NOTICE,  _m, _rt, fmt, ##__VA_ARGS__)
 #else
 #define _AML_NOTICE(_m, _rt, fmt, ...)  do {} while(0)
 #endif
-#ifdef CONFIG_AML_LOG_BUILD_LEVEL >= LOGLEVEL_INFO
+#if CONFIG_AML_LOG_BUILD_LEVEL >= LOGLEVEL_INFO
 #define _AML_INFO(_m, _rt, fmt, ...)    _AML_LOG(INFO,    _m, _rt, fmt, ##__VA_ARGS__)
 #else
 #define _AML_INFO(_m, _rt, fmt, ...)    do {} while(0)
 #endif
-#ifdef CONFIG_AML_LOG_BUILD_LEVEL >= LOGLEVEL_DEBUG
+#if CONFIG_AML_LOG_BUILD_LEVEL >= LOGLEVEL_DEBUG
 #define _AML_DBG(_m, _rt, fmt, ...)     _AML_LOG(DEBUG,   _m, _rt, fmt, ##__VA_ARGS__)
 #else
 #define _AML_DBG(_m, _rt, fmt, ...)     do {} while(0)
 #endif
 
-#ifndef BIT
-#define BIT(n)    (1UL << (n))
-#endif //BIT
+/* FIXME: all ERROR_DEBUG_OUT should be replaced as AML_ERR */
+#define ERROR_DEBUG_OUT(fmt,...)        AML_ERR(fmt, ##__VA_ARGS__)
 
-#define ERROR_DEBUG_OUT(format,...) do { \
-                 printk("FUNCTION: %s LINE: %d:"format"",__FUNCTION__, __LINE__, ##__VA_ARGS__); \
-        } while (0)
-
-#define AML_OUTPUT(format,...) do { \
-                 printk("<%s> %d:"format"",__FUNCTION__, __LINE__, ##__VA_ARGS__); \
-        } while (0)
-
+#define HERE                            AML_ERR("here\n")
 
 #endif /* _AML_LOG_H_ */

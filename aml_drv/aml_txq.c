@@ -18,6 +18,8 @@
 #include "reg_ipc_app.h"
 #include "aml_compat.h"
 
+static void aml_txq_del_from_hw_list(struct aml_txq *txq);
+
 /******************************************************************************
  * Utils functions
  *****************************************************************************/
@@ -111,22 +113,10 @@ static inline int aml_txq_vif_idx(struct aml_vif *vif, u8 type)
 
 struct aml_txq *aml_txq_sta_get(struct aml_sta *sta, u8 tid, struct aml_hw *aml_hw)
 {
+    BUG_ON(!sta);
     if (tid >= NX_NB_TXQ_PER_STA)
         tid = 0;
-
-#ifdef CONFIG_AML_PREALLOC_BUF_STATIC
-    if (!sta) {
-        AML_INFO("aml sta is null, return null in case of race condition");
-        return NULL;
-    }
-    if (!aml_hw->txq) {
-        AML_INFO("aml txq is null");
-        return NULL;
-    }
-    return aml_hw->txq + aml_txq_sta_idx(sta, tid);
-#else
     return &aml_hw->txq[aml_txq_sta_idx(sta, tid)];
-#endif
 }
 
 struct aml_txq *aml_txq_vif_get(struct aml_vif *vif, u8 type)
@@ -134,11 +124,7 @@ struct aml_txq *aml_txq_vif_get(struct aml_vif *vif, u8 type)
     if (type > NX_UNK_TXQ_TYPE)
         type = NX_BCMC_TXQ_TYPE;
 
-#ifdef CONFIG_AML_PREALLOC_BUF_STATIC
-    return vif->aml_hw->txq + aml_txq_vif_idx(vif, type);
-#else
     return &vif->aml_hw->txq[aml_txq_vif_idx(vif, type)];
-#endif
 }
 
 static inline struct aml_sta *aml_txq_2_sta(struct aml_txq *txq)
@@ -148,6 +134,28 @@ static inline struct aml_sta *aml_txq_2_sta(struct aml_txq *txq)
 
 #endif /* CONFIG_AML_SOFTMAC */
 
+static void aml_netif_txq_flow_control(struct aml_txq *txq)
+{
+    int depth;
+
+    if (txq->ndev_idx == NDEV_NO_TXQ)
+        return;
+
+    depth = skb_queue_len(&txq->sk_list);
+    if (depth > AML_NDEV_FLOW_CTRL_STOP) {
+        /* stop net device queue if buffered too many packets */
+        txq->status |= AML_TXQ_NDEV_FLOW_CTRL;
+        netif_stop_subqueue(txq->ndev, txq->ndev_idx);
+        trace_txq_flowctrl_stop(txq);
+    } else if (depth >= AML_NDEV_FLOW_CTRL_RESTART) {
+        return;
+    } else if (txq->status & AML_TXQ_NDEV_FLOW_CTRL) {
+        txq->status &= ~AML_TXQ_NDEV_FLOW_CTRL;
+        netif_wake_subqueue(txq->ndev, txq->ndev_idx);
+        trace_txq_flowctrl_restart(txq);
+    }
+    AML_PROF_CNT(flowctrl, depth);
+}
 
 /******************************************************************************
  * Init/Deinit functions
@@ -219,6 +227,7 @@ static void aml_txq_init(struct aml_txq *txq, int idx, u8 status,
     txq->amsdu_len = 0;
 #endif /* CONFIG_AML_AMSDUS_TX */
 #endif /* CONFIG_AML_SOFTMAC */
+    /* coverity[side_effect_free] - standard kernel interface */
     spin_lock_init(&txq->txq_lock);
 }
 
@@ -297,29 +306,26 @@ void aml_txq_drop_skb(struct aml_txq *txq, struct sk_buff *skb, struct aml_hw *a
  * @aml_hw: main driver data
  * @txq: txq to flush
  */
-void aml_txq_flush(struct aml_hw *aml_hw, struct aml_txq *txq)
+static void aml_txq_flush(struct aml_hw *aml_hw, struct aml_txq *txq)
 {
-    int i = 0, pushed = 0;
-    struct sk_buff *txq_skb;
+    int pushed;
+    int nb = 0;
 
-    while(!skb_queue_empty(&txq->sk_list)) {
-        txq_skb = skb_peek(&txq->sk_list);
+    while (!skb_queue_empty(&txq->sk_list)) {
+        struct sk_buff *txq_skb = skb_peek(&txq->sk_list);
+
         if (txq_skb != NULL) {
-            i++;
+            nb++;
             aml_txq_drop_skb(txq, txq_skb, aml_hw, txq->nb_retry);
         }
     }
 
-    if (i > 0)
-        AML_INFO("txq drop %d skb", i);
+    if (nb > 0)
+        AML_INFO("txq drop %d skb", nb);
 
-    for (i = 0; i < CONFIG_USER_MAX; i++) {
-        pushed += txq->pkt_pushed[i];
-    }
-
+    pushed = aml_txq_pushed(txq);
     if (pushed)
-        dev_warn(aml_hw->dev, "TXQ[%d]: %d skb still pushed to the FW",
-                 txq->idx, pushed);
+        AML_INFO("TXQ[%d]: %d skb still pushed to the FW", txq->idx, pushed);
 }
 
 /**
@@ -337,7 +343,7 @@ static void aml_txq_deinit(struct aml_hw *aml_hw, struct aml_txq *txq)
         spin_unlock_bh(&aml_hw->tx_lock);
         return;
     }
-    AML_INFO("txq deinit, txq idx=%d, vif_idx=%d",
+    AML_INFO("txq deinit, txq idx=%d, vif_idx=%d\n",
             txq->idx, txq->sta == NULL ? 0xff : txq->sta->vif_idx);
     aml_txq_del_from_hw_list(txq);
     aml_txq_flush(aml_hw, txq);
@@ -350,7 +356,7 @@ static void aml_txq_deinit(struct aml_hw *aml_hw, struct aml_txq *txq)
  *
  * @aml_hw: main driver data
  * @aml_vif: Pointer on VIF
- * @status: Intial txq status
+ * @status: initial txq status
  *
  * Softmac : 1 VIF TXQ per HWQ
  *
@@ -426,7 +432,7 @@ void aml_txq_vif_deinit(struct aml_hw * aml_hw, struct aml_vif *aml_vif)
  *
  * @aml_hw: Main driver data
  * @aml_sta: STA for which tx queues need to be initialized
- * @status: Intial txq status
+ * @status: initial txq status
  *
  * This function initialize all the TXQ associated to a STA.
  * Softmac : 1 TXQ per TID
@@ -437,7 +443,7 @@ void aml_txq_vif_deinit(struct aml_hw * aml_hw, struct aml_vif *aml_vif)
 void aml_txq_sta_init(struct aml_hw *aml_hw, struct aml_sta *aml_sta,
                        u8 status)
 {
-    struct aml_txq *txq;
+    struct aml_txq *txq = NULL;
     int tid, idx;
 
 #ifdef CONFIG_AML_SOFTMAC
@@ -471,7 +477,7 @@ void aml_txq_sta_init(struct aml_hw *aml_hw, struct aml_sta *aml_sta,
  */
 void aml_txq_sta_deinit(struct aml_hw *aml_hw, struct aml_sta *aml_sta)
 {
-    struct aml_txq *txq;
+    struct aml_txq *txq = NULL;
     int tid;
 
     foreach_sta_txq_safe(aml_sta, txq, tid, aml_hw) {
@@ -520,13 +526,8 @@ void aml_txq_unk_vif_deinit(struct aml_vif *aml_vif)
 void aml_txq_offchan_init(struct aml_vif *aml_vif)
 {
     struct aml_hw *aml_hw = aml_vif->aml_hw;
-    struct aml_txq *txq;
+    struct aml_txq *txq = &aml_hw->txq[NX_OFF_CHAN_TXQ_IDX];
 
-#ifdef CONFIG_AML_PREALLOC_BUF_STATIC
-    txq = aml_hw->txq + NX_OFF_CHAN_TXQ_IDX;
-#else
-    txq = &aml_hw->txq[NX_OFF_CHAN_TXQ_IDX];
-#endif
     aml_txq_init(txq, NX_OFF_CHAN_TXQ_IDX, AML_TXQ_STOP_CHAN,
                   &aml_hw->hwq[AML_HWQ_VO], TID_MGT, NULL, aml_vif->ndev);
 }
@@ -536,19 +537,14 @@ void aml_txq_offchan_init(struct aml_vif *aml_vif)
  *
  * @vif: Interface that manages the STA
  *
- * This function deintialize txq for one STA.
+ * This function deinitialize txq for one STA.
  * Any buffer stuck in a queue will be freed.
  */
 void aml_txq_offchan_deinit(struct aml_vif *aml_vif)
 {
-    struct aml_txq *txq;
+    struct aml_hw *aml_hw = aml_vif->aml_hw;
 
-#ifdef CONFIG_AML_PREALLOC_BUF_STATIC
-    txq = aml_vif->aml_hw->txq + NX_OFF_CHAN_TXQ_IDX;
-#else
-    txq = &aml_vif->aml_hw->txq[NX_OFF_CHAN_TXQ_IDX];
-#endif
-    aml_txq_deinit(aml_vif->aml_hw, txq);
+    aml_txq_deinit(aml_hw, &aml_hw->txq[NX_OFF_CHAN_TXQ_IDX]);
 }
 
 
@@ -588,7 +584,7 @@ void aml_txq_tdls_vif_deinit(struct aml_vif *aml_vif)
  * @txq: TXQ to process
  * @aml_hw: Driver main data
  * @skb_timeout: Max queue duration, in jiffies, for this queue
- * @dropped: Updated to inidicate if at least one skb was dropped
+ * @dropped: Updated to indicate if at least one skb was dropped
  *
  * @return Whether there is still pkt queued in this queue.
  */
@@ -647,19 +643,14 @@ static bool aml_txq_drop_old_traffic(struct aml_txq *txq, struct aml_hw *aml_hw,
         }
     }
 
-    if (skb_queue_empty(&txq->sk_list)) {
+    if (aml_txq_is_empty(txq)) {
         aml_txq_del_from_hw_list(txq);
         txq->pkt_sent = 0;
     }
     aml_spin_unlock(&aml_hw->tx_lock);
 
     /* restart netdev queue if number no more queued buffer */
-    if (unlikely(txq->status & AML_TXQ_NDEV_FLOW_CTRL) &&
-        skb_queue_empty(&txq->sk_list)) {
-        txq->status &= ~AML_TXQ_NDEV_FLOW_CTRL;
-        netif_wake_subqueue(txq->ndev, txq->ndev_idx);
-        trace_txq_flowctrl_restart(txq);
-    }
+    aml_netif_txq_flow_control(txq);
 
     return pkt_queued;
 }
@@ -671,64 +662,57 @@ static bool aml_txq_drop_old_traffic(struct aml_txq *txq, struct aml_hw *aml_hw,
  * @vif: Vif to process
  * @return Whether there is still pkt queued in any TXQ.
  */
-
-void aml_show_tx_msg(struct aml_hw *aml_hw,struct aml_wq *aml_wq)
+static int aml_vif_txqs_dump(struct aml_hw *aml_hw, void *ptr)
 {
-    struct aml_vif *vif = (struct aml_vif *)aml_wq->data;
-    AML_INFO("vif:%d",vif->vif_index);
+    struct aml_vif *vif = ptr;
+
     aml_get_txq(vif->ndev);
     aml_txq_unexpection(vif->ndev);
+
+    return 0;
 }
+
+static void aml_txq_drop_dump(struct aml_vif *vif, const char *txq_name)
+{
+    AML_ERR("VIF%d/%s: Dropped packet(s) in %s TXQ(s)\n",
+            vif->vif_index, vif->ndev->name, txq_name);
+    spin_lock_bh(&vif->aml_hw->tx_buf_lock);
+    AML_ERR("tot_page_num=%d, free_page_num=%d\n",
+            vif->aml_hw->g_tx_param.tot_page_num, vif->aml_hw->g_tx_param.tx_page_free_num);
+    spin_unlock_bh(&vif->aml_hw->tx_buf_lock);
+
+    aml_wq_do_ptr(aml_vif_txqs_dump, vif->aml_hw, vif);
+
 #ifdef CONFIG_AML_RECOVERY
-extern struct aml_recy *aml_recy;
+    spin_lock_bh(&aml_recy->aml_hw->cmd_mgr.lock);
+    {
+        extern struct aml_recy *aml_recy;
+
+        if (!aml_recy->reason) {
+            u8 reason = RECY_REASON_CODE_TX_TIMEOUT;
+
+            aml_wq_do_data(aml_recy_doit, aml_recy->aml_hw, &reason, sizeof(reason));
+        }
+    }
+    spin_unlock_bh(&aml_recy->aml_hw->cmd_mgr.lock);
 #endif
+}
+
 static bool aml_txq_drop_ap_vif_old_traffic(struct aml_vif *vif)
 {
     struct aml_sta *sta, *tmp;
     unsigned long timeout = (((unsigned long)vif->ap.bcn_interval) * HZ * 3) >> 10;
     bool pkt_queued = false;
     bool pkt_dropped = false;
-#ifdef CONFIG_AML_RECOVERY
-    struct aml_wq *aml_wq;
-    enum aml_wq_type type = AML_WQ_RECY;
-#endif
 
     // Should never be needed but still check VIF queues
     aml_txq_drop_old_traffic(aml_txq_vif_get(vif, NX_BCMC_TXQ_TYPE),
                               vif->aml_hw, AML_TXQ_MAX_QUEUE_JIFFIES, &pkt_dropped);
     aml_txq_drop_old_traffic(aml_txq_vif_get(vif, NX_UNK_TXQ_TYPE),
                               vif->aml_hw, AML_TXQ_MAX_QUEUE_JIFFIES, &pkt_dropped);
-    WARN(pkt_dropped, "Dropped packet in BCMC/UNK queue");
 
-    if (pkt_dropped) {
-        struct aml_wq *aml_wq;
-        aml_wq = aml_wq_alloc(sizeof(struct aml_vif));
-        if (!aml_wq) {
-            AML_INFO("alloc workqueue out of memory");
-        }
-        else
-        {
-            aml_wq->id = AML_WQ_SHOW_TX_MSG;
-            memcpy(aml_wq->data, vif, sizeof(struct aml_vif));
-            aml_wq_add(vif->aml_hw, aml_wq);
-        }
-
-#ifdef CONFIG_AML_RECOVERY
-        spin_lock_bh(&aml_recy->aml_hw->cmd_mgr.lock);
-        if (!aml_recy->reason) {
-            aml_wq = aml_wq_alloc(1);
-            if (!aml_wq) {
-                AML_INFO("alloc wq out of memory");
-            } else {
-                aml_recy->reason = RECY_REASON_CODE_TX_TIMEOUT;
-                aml_wq->id = AML_WQ_RECY;
-                memcpy(aml_wq->data, &type, 1);
-                aml_wq_add(aml_recy->aml_hw, aml_wq);
-           }
-        }
-        spin_unlock_bh(&aml_recy->aml_hw->cmd_mgr.lock);
-#endif
-    }
+    if (pkt_dropped)
+        aml_txq_drop_dump(vif, "BCMC/UNK");
 
     /* protect union struct vif->ap.sta_list was overwritten
      * by vif->sta.ap = NULL when aml_cfg80211_change_iface
@@ -736,7 +720,7 @@ static bool aml_txq_drop_ap_vif_old_traffic(struct aml_vif *vif)
     spin_lock_bh(&vif->vif_lock);
     if (vif->ap.sta_list.next) {
         list_for_each_entry_safe(sta, tmp, &vif->ap.sta_list, list) {
-            struct aml_txq *txq;
+            struct aml_txq *txq = NULL;
             int tid;
             foreach_sta_txq_safe(sta, txq, tid, vif->aml_hw) {
                 pkt_queued |= aml_txq_drop_old_traffic(txq, vif->aml_hw,
@@ -760,13 +744,9 @@ static bool aml_txq_drop_ap_vif_old_traffic(struct aml_vif *vif)
  */
 static bool aml_txq_drop_sta_vif_old_traffic(struct aml_vif *vif)
 {
-    struct aml_txq *txq;
+    struct aml_txq *txq = NULL;
     bool pkt_queued = false, pkt_dropped = false;
     int tid;
-#ifdef CONFIG_AML_RECOVERY
-    struct aml_wq *aml_wq;
-    enum aml_wq_type type = AML_WQ_RECY;
-#endif
 
     if (vif->tdls_status == TDLS_LINK_ACTIVE) {
         txq = aml_txq_vif_get(vif, NX_UNK_TXQ_TYPE);
@@ -790,35 +770,9 @@ static bool aml_txq_drop_sta_vif_old_traffic(struct aml_vif *vif)
     }
     spin_unlock_bh(&vif->vif_lock);
 
-    if (pkt_dropped) {
-        struct aml_wq *aml_wq;
-        netdev_warn(vif->ndev, "Dropped packet in STA interface TXQs");
-        aml_wq = aml_wq_alloc(sizeof(struct aml_vif));
-        if (!aml_wq) {
-            AML_INFO("alloc workqueue out of memory");
-        }
-        else
-        {
-            aml_wq->id = AML_WQ_SHOW_TX_MSG;
-            memcpy(aml_wq->data, vif, sizeof(struct aml_vif));
-            aml_wq_add(vif->aml_hw, aml_wq);
-        }
-#ifdef CONFIG_AML_RECOVERY
-        spin_lock_bh(&aml_recy->aml_hw->cmd_mgr.lock);
-        if (!aml_recy->reason) {
-            aml_wq = aml_wq_alloc(1);
-            if (!aml_wq) {
-                AML_INFO("alloc wq out of memory");
-            } else {
-                aml_recy->reason = RECY_REASON_CODE_TX_TIMEOUT;
-                aml_wq->id = AML_WQ_RECY;
-                memcpy(aml_wq->data, &type, 1);
-                aml_wq_add(aml_recy->aml_hw, aml_wq);
-           }
-        }
-        spin_unlock_bh(&aml_recy->aml_hw->cmd_mgr.lock);
-#endif
-    }
+    if (pkt_dropped)
+        aml_txq_drop_dump(vif, "STA interface");
+
     return pkt_queued;
 }
 /**
@@ -868,7 +822,7 @@ static void aml_txq_cleanup_timer_cb(struct timer_list *t)
  *
  * @aml_hw: Driver main data
  */
-void aml_txq_start_cleanup_timer(struct aml_hw *aml_hw, struct aml_sta *sta)
+static void aml_txq_start_cleanup_timer(struct aml_hw *aml_hw, struct aml_sta *sta)
 {
     if (sta && !is_multicast_sta(sta->sta_idx) &&
         !timer_pending(&aml_hw->txq_cleanup))
@@ -884,13 +838,8 @@ void aml_txq_prepare(struct aml_hw *aml_hw)
 {
     int i;
 
-    for (i = 0; i < NX_NB_TXQ; i++) {
-#ifdef CONFIG_AML_PREALLOC_BUF_STATIC
-        (aml_hw->txq + i)->idx = TXQ_INACTIVE;
-#else
+    for (i = 0; i < NX_NB_TXQ; i++)
         aml_hw->txq[i].idx = TXQ_INACTIVE;
-#endif
-    }
 
     timer_setup(&aml_hw->txq_cleanup, aml_txq_cleanup_timer_cb, 0);
 }
@@ -908,16 +857,31 @@ void aml_txq_prepare(struct aml_hw *aml_hw)
  * Add the TX queue if not already present in the HW queue list.
  * To be called with tx_lock hold
  */
-void aml_txq_add_to_hw_list(struct aml_txq *txq)
+static void aml_txq_add_to_hw_list(struct aml_txq *txq)
 {
+    if (aml_txq_is_stopped(txq))
+        return;
+
     aml_spin_lock(&txq->txq_lock);
-    if (!(txq->status & AML_TXQ_IN_HWQ_LIST)) {
+    if (!aml_txq_is_scheduled(txq) && txq->credits > 0 && aml_txq_skb_ready(txq)) {
         trace_txq_add_to_hw(txq);
         txq->status |= AML_TXQ_IN_HWQ_LIST;
         list_add_tail(&txq->sched_list, &txq->hwq->list);
         txq->hwq->need_processing = true;
     }
     aml_spin_unlock(&txq->txq_lock);
+
+    if (aml_txq_is_scheduled(txq)) {
+        /* coverity[zero_deref] - never been NULL */
+        struct aml_hw *aml_hw = container_of(txq->hwq, struct aml_hw, hwq[txq->hwq->id]);
+
+        if (aml_bus_type == PCIE_MODE) {
+            aml_hwq_process(aml_hw, txq->hwq);
+        } else {
+            /* later aml_hwq_process() is called by aml_tx_task() */
+            up(&aml_hw->aml_tx_sem);
+        }
+    }
 }
 
 /**
@@ -928,10 +892,10 @@ void aml_txq_add_to_hw_list(struct aml_txq *txq)
  * Remove the TX queue from the HW queue list if present.
  * To be called with tx_lock hold
  */
-void aml_txq_del_from_hw_list(struct aml_txq *txq)
+static void aml_txq_del_from_hw_list(struct aml_txq *txq)
 {
     aml_spin_lock(&txq->txq_lock);
-    if (txq->status & AML_TXQ_IN_HWQ_LIST) {
+    if (aml_txq_is_scheduled(txq)) {
         trace_txq_del_from_hw(txq);
         txq->status &= ~AML_TXQ_IN_HWQ_LIST;
         list_del(&txq->sched_list);
@@ -940,27 +904,10 @@ void aml_txq_del_from_hw_list(struct aml_txq *txq)
 }
 
 /**
- * aml_txq_skb_ready - Check if skb are available for the txq
- *
- * @txq: Pointer on txq
- * @return True if there are buffer ready to be pushed on this txq,
- * false otherwise
- */
-static inline bool aml_txq_skb_ready(struct aml_txq *txq)
-{
-#ifdef CONFIG_MAC80211_TXQ
-    if (txq->nb_ready_mac80211 != NOT_MAC80211_TXQ)
-        return ((txq->nb_ready_mac80211 > 0) || !skb_queue_empty(&txq->sk_list));
-    else
-#endif
-    return !skb_queue_empty(&txq->sk_list);
-}
-
-/**
  * aml_txq_start - Try to Start one TX queue
  *
  * @txq: TX queue to start
- * @reason: reason why the TX queue is started (among aml_txq_stop_xxx)
+ * @reason: reason why the TX queue is started (among AML_TXQ_STOP_xxx)
  *
  * Re-start the TX queue for one reason.
  * If after this the txq is no longer stopped and some buffers are ready,
@@ -974,8 +921,7 @@ void aml_txq_start(struct aml_txq *txq, u16 reason)
     {
         trace_txq_start(txq, reason);
         txq->status &= ~reason;
-        if (!aml_txq_is_stopped(txq) && aml_txq_skb_ready(txq))
-            aml_txq_add_to_hw_list(txq);
+        aml_txq_add_to_hw_list(txq);
     }
 }
 
@@ -983,7 +929,7 @@ void aml_txq_start(struct aml_txq *txq, u16 reason)
  * aml_txq_stop - Stop one TX queue
  *
  * @txq: TX queue to stop
- * @reason: reason why the TX queue is stopped (among aml_txq_stop_xxx)
+ * @reason: reason why the TX queue is stopped (among AML_TXQ_STOP_xxx)
  *
  * Stop the TX queue. It will remove the TX queue from HW queue list
  * To be called with tx_lock hold
@@ -1003,27 +949,23 @@ void aml_txq_stop(struct aml_txq *txq, u16 reason)
 /**
  * aml_txq_sta_start - Start all the TX queue linked to a STA
  *
- * @sta: STA whose TX queues must be re-started
- * @reason: Reason why the TX queue are restarted (among aml_txq_stop_xxx)
  * @aml_hw: Driver main data
+ * @sta: STA whose TX queues must be re-started
+ * @reason: Reason why the TX queue are restarted (among AML_TXQ_STOP_xxx)
  *
  * This function will re-start all the TX queues of the STA for the reason
  * specified. It can be :
- * - aml_txq_stop_STA_PS: the STA is no longer in power save mode
- * - aml_txq_stop_VIF_PS: the VIF is in power save mode (p2p absence)
- * - aml_txq_stop_CHAN: the STA's VIF is now on the current active channel
+ * - AML_TXQ_STOP_STA_PS: the STA is no longer in power save mode
+ * - AML_TXQ_STOP_VIF_PS: the VIF is in power save mode (p2p absence)
+ * - AML_TXQ_STOP_CHAN: the STA's VIF is now on the current active channel
  *
  * Any TX queue with buffer ready and not Stopped for other reasons, will be
  * added to the HW queue list
  * To be called with tx_lock hold
  */
-void aml_txq_sta_start(struct aml_sta *aml_sta, u16 reason
-#ifdef CONFIG_AML_FULLMAC
-                        , struct aml_hw *aml_hw
-#endif
-                        )
+void aml_txq_sta_start(struct aml_hw *aml_hw, struct aml_sta *aml_sta, u16 reason)
 {
-    struct aml_txq *txq;
+    struct aml_txq *txq = NULL;
     int tid;
 
     trace_txq_sta_start(aml_sta->sta_idx);
@@ -1043,20 +985,16 @@ void aml_txq_sta_start(struct aml_sta *aml_sta, u16 reason
  *
  * This function will stop all the TX queues of the STA for the reason
  * specified. It can be :
- * - aml_txq_stop_STA_PS: the STA is in power save mode
- * - aml_txq_stop_VIF_PS: the VIF is in power save mode (p2p absence)
- * - aml_txq_stop_CHAN: the STA's VIF is not on the current active channel
+ * - AML_TXQ_STOP_STA_PS: the STA is in power save mode
+ * - AML_TXQ_STOP_VIF_PS: the VIF is in power save mode (p2p absence)
+ * - AML_TXQ_STOP_CHAN: the STA's VIF is not on the current active channel
  *
  * Any TX queue present in a HW queue list will be removed from this list.
  * To be called with tx_lock hold
  */
-void aml_txq_sta_stop(struct aml_sta *aml_sta, u16 reason
-#ifdef CONFIG_AML_FULLMAC
-                       , struct aml_hw *aml_hw
-#endif
-                       )
+void aml_txq_sta_stop(struct aml_hw *aml_hw, struct aml_sta *aml_sta, u16 reason)
 {
-    struct aml_txq *txq;
+    struct aml_txq *txq = NULL;
     int tid;
 
     if (!aml_sta)
@@ -1068,68 +1006,37 @@ void aml_txq_sta_stop(struct aml_sta *aml_sta, u16 reason
     }
 }
 
-#ifdef CONFIG_AML_SOFTMAC
-void aml_txq_tdls_sta_start(struct aml_sta *aml_sta, u16 reason,
-                             struct aml_hw *aml_hw)
-#else
-void aml_txq_tdls_sta_start(struct aml_vif *aml_vif, u16 reason,
-                             struct aml_hw *aml_hw)
-#endif
+void aml_txq_tdls_sta_start(struct aml_vif *aml_vif, u16 reason)
 {
-#ifdef CONFIG_AML_SOFTMAC
-    trace_txq_vif_start(aml_sta->vif_idx);
-    spin_lock_bh(&aml_hw->tx_lock);
+    struct aml_hw *aml_hw = aml_vif->aml_hw;
 
-    if (aml_sta->tdls.active) {
-        aml_txq_sta_start(aml_sta, reason);
-    }
-
-    spin_unlock_bh(&aml_hw->tx_lock);
-#else
     trace_txq_vif_start(aml_vif->vif_index);
     spin_lock_bh(&aml_hw->tx_lock);
 
     if (aml_vif->sta.tdls_sta)
-        aml_txq_sta_start(aml_vif->sta.tdls_sta, reason, aml_hw);
+        aml_txq_sta_start(aml_hw, aml_vif->sta.tdls_sta, reason);
 
     spin_unlock_bh(&aml_hw->tx_lock);
-#endif
 }
 
-#ifdef CONFIG_AML_SOFTMAC
-void aml_txq_tdls_sta_stop(struct aml_sta *aml_sta, u16 reason,
-                            struct aml_hw *aml_hw)
-#else
-void aml_txq_tdls_sta_stop(struct aml_vif *aml_vif, u16 reason,
-                            struct aml_hw *aml_hw)
-#endif
+void aml_txq_tdls_sta_stop(struct aml_vif *aml_vif, u16 reason)
 {
-#ifdef CONFIG_AML_SOFTMAC
-    trace_txq_vif_stop(aml_sta->vif_idx);
+    struct aml_hw *aml_hw = aml_vif->aml_hw;
 
-    spin_lock_bh(&aml_hw->tx_lock);
-
-    if (aml_sta->tdls.active) {
-        aml_txq_sta_stop(aml_sta, reason);
-    }
-
-    spin_unlock_bh(&aml_hw->tx_lock);
-#else
     trace_txq_vif_stop(aml_vif->vif_index);
 
     spin_lock_bh(&aml_hw->tx_lock);
 
     if (aml_vif->sta.tdls_sta)
-        aml_txq_sta_stop(aml_vif->sta.tdls_sta, reason, aml_hw);
+        aml_txq_sta_stop(aml_hw, aml_vif->sta.tdls_sta, reason);
 
     spin_unlock_bh(&aml_hw->tx_lock);
-#endif
 }
 
 #ifdef CONFIG_AML_FULLMAC
 static inline
 void aml_txq_vif_for_each_sta(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
-                               void (*f)(struct aml_sta *, u16, struct aml_hw *),
+                               void (*f)(struct aml_hw *, struct aml_sta *, u16),
                                u16 reason)
 {
 
@@ -1138,21 +1045,22 @@ void aml_txq_vif_for_each_sta(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
     case NL80211_IFTYPE_P2P_CLIENT:
     {
         if (aml_vif->tdls_status == TDLS_LINK_ACTIVE)
-            f(aml_vif->sta.tdls_sta, reason, aml_hw);
+            f(aml_hw, aml_vif->sta.tdls_sta, reason);
 
         if (aml_vif->sta.ap != NULL)
-            f(aml_vif->sta.ap, reason, aml_hw);
+            f(aml_hw, aml_vif->sta.ap, reason);
         break;
     }
     case NL80211_IFTYPE_AP_VLAN:
         aml_vif = aml_vif->ap_vlan.master;
+        fallthrough;
     case NL80211_IFTYPE_AP:
     case NL80211_IFTYPE_MESH_POINT:
     case NL80211_IFTYPE_P2P_GO:
     {
         struct aml_sta *sta, *tmp;
         list_for_each_entry_safe(sta, tmp, &aml_vif->ap.sta_list, list) {
-            f(sta, reason, aml_hw);
+            f(aml_hw, sta, reason);
         }
         break;
     }
@@ -1169,57 +1077,34 @@ void aml_txq_vif_for_each_sta(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
  *                      and vif's TXQ
  *
  * @vif: Interface to start
- * @reason: Start reason (aml_txq_stop_CHAN or aml_txq_stop_VIF_PS)
- * @aml_hw: Driver main data
+ * @reason: Start reason (AML_TXQ_STOP_CHAN or AML_TXQ_STOP_VIF_PS)
  *
  * Iterate over all the STA associated to the vif and re-start them for the
  * reason @reason
  * Take tx_lock
  */
-void aml_txq_vif_start(struct aml_vif *aml_vif, u16 reason,
-                        struct aml_hw *aml_hw)
+void aml_txq_vif_start(struct aml_vif *aml_vif, u16 reason)
 {
-    struct aml_txq *txq;
-#ifdef CONFIG_AML_SOFTMAC
-    struct aml_sta *aml_sta;
-    int ac;
-#endif
+    struct aml_hw *aml_hw = aml_vif->aml_hw;
 
     trace_txq_vif_start(aml_vif->vif_index);
+
     /* vif_lock should be outside of tx_lock, it avoid the lock cross @aml_txq_cleanup_timer_cb */
     spin_lock_bh(&aml_vif->vif_lock);
     spin_lock_bh(&aml_hw->tx_lock);
 
-#ifdef CONFIG_AML_SOFTMAC
-    list_for_each_entry(aml_sta, &aml_vif->stations, list) {
-        if ((!aml_vif->roc_tdls) ||
-            (aml_sta->tdls.active && aml_vif->roc_tdls && aml_sta->tdls.chsw_en))
-            aml_txq_sta_start(aml_sta, reason);
-    }
-
-    foreach_vif_txq(aml_vif, txq, ac) {
-        if (txq)
-            aml_txq_start(txq, reason);
-    }
-#else
     //Reject if monitor interface
-    if (aml_vif->wdev.iftype == NL80211_IFTYPE_MONITOR)
-        goto end;
+    if (aml_vif->wdev.iftype != NL80211_IFTYPE_MONITOR) {
+        if (aml_vif->roc_tdls && aml_vif->sta.tdls_sta && aml_vif->sta.tdls_sta->tdls.chsw_en) {
+            aml_txq_sta_start(aml_hw, aml_vif->sta.tdls_sta, reason);
+        }
+        if (!aml_vif->roc_tdls) {
+            aml_txq_vif_for_each_sta(aml_hw, aml_vif, aml_txq_sta_start, reason);
+        }
 
-    if (aml_vif->roc_tdls && aml_vif->sta.tdls_sta && aml_vif->sta.tdls_sta->tdls.chsw_en) {
-        aml_txq_sta_start(aml_vif->sta.tdls_sta, reason, aml_hw);
+        aml_txq_start(aml_txq_vif_get(aml_vif, NX_BCMC_TXQ_TYPE), reason);
+        aml_txq_start(aml_txq_vif_get(aml_vif, NX_UNK_TXQ_TYPE), reason);
     }
-    if (!aml_vif->roc_tdls) {
-        aml_txq_vif_for_each_sta(aml_hw, aml_vif, aml_txq_sta_start, reason);
-    }
-
-    txq = aml_txq_vif_get(aml_vif, NX_BCMC_TXQ_TYPE);
-    aml_txq_start(txq, reason);
-    txq = aml_txq_vif_get(aml_vif, NX_UNK_TXQ_TYPE);
-    aml_txq_start(txq, reason);
-
-end:
-#endif /* CONFIG_AML_SOFTMAC */
 
     spin_unlock_bh(&aml_hw->tx_lock);
     spin_unlock_bh(&aml_vif->vif_lock);
@@ -1230,51 +1115,28 @@ end:
  * aml_txq_vif_stop - STOP TX queues of all STA associated to the vif
  *
  * @vif: Interface to stop
- * @arg: Stop reason (aml_txq_stop_CHAN or aml_txq_stop_VIF_PS)
- * @aml_hw: Driver main data
+ * @arg: Stop reason (AML_TXQ_STOP_CHAN or AML_TXQ_STOP_VIF_PS)
  *
  * Iterate over all the STA associated to the vif and stop them for the
- * reason aml_txq_stop_CHAN or aml_txq_stop_VIF_PS
+ * reason AML_TXQ_STOP_CHAN or AML_TXQ_STOP_VIF_PS
  * Take tx_lock
  */
-void aml_txq_vif_stop(struct aml_vif *aml_vif, u16 reason,
-                       struct aml_hw *aml_hw)
+void aml_txq_vif_stop(struct aml_vif *aml_vif, u16 reason)
 {
-    struct aml_txq *txq;
-#ifdef CONFIG_AML_SOFTMAC
-    struct aml_sta *sta;
-    int ac;
-#endif
+    struct aml_hw *aml_hw = aml_vif->aml_hw;
 
     trace_txq_vif_stop(aml_vif->vif_index);
+
     /* vif_lock should be outside of tx_lock, it avoid the lock cross @aml_txq_cleanup_timer_cb */
     spin_lock_bh(&aml_vif->vif_lock);
     spin_lock_bh(&aml_hw->tx_lock);
 
-#ifdef CONFIG_AML_SOFTMAC
-    list_for_each_entry(sta, &aml_vif->stations, list) {
-        aml_txq_sta_stop(sta, reason);
-    }
-
-    foreach_vif_txq(aml_vif, txq, ac) {
-        if (txq)
-            aml_txq_stop(txq, reason);
-    }
-
-#else
     //Reject if monitor interface
-    if (aml_vif->wdev.iftype == NL80211_IFTYPE_MONITOR)
-        goto end;
-
-    aml_txq_vif_for_each_sta(aml_hw, aml_vif, aml_txq_sta_stop, reason);
-
-    txq = aml_txq_vif_get(aml_vif, NX_BCMC_TXQ_TYPE);
-    aml_txq_stop(txq, reason);
-    txq = aml_txq_vif_get(aml_vif, NX_UNK_TXQ_TYPE);
-    aml_txq_stop(txq, reason);
-
-end:
-#endif /* CONFIG_AML_SOFTMAC*/
+    if (aml_vif->wdev.iftype != NL80211_IFTYPE_MONITOR) {
+        aml_txq_vif_for_each_sta(aml_hw, aml_vif, aml_txq_sta_stop, reason);
+        aml_txq_stop(aml_txq_vif_get(aml_vif, NX_BCMC_TXQ_TYPE), reason);
+        aml_txq_stop(aml_txq_vif_get(aml_vif, NX_UNK_TXQ_TYPE), reason);
+    }
 
     spin_unlock_bh(&aml_hw->tx_lock);
     spin_unlock_bh(&aml_vif->vif_lock);
@@ -1289,12 +1151,8 @@ end:
  */
 void aml_txq_offchan_start(struct aml_hw *aml_hw)
 {
-    struct aml_txq *txq;
-#ifdef CONFIG_AML_PREALLOC_BUF_STATIC
-    txq = aml_hw->txq + NX_OFF_CHAN_TXQ_IDX;
-#else
-    txq = &aml_hw->txq[NX_OFF_CHAN_TXQ_IDX];
-#endif
+    struct aml_txq *txq = &aml_hw->txq[NX_OFF_CHAN_TXQ_IDX];
+
     spin_lock_bh(&aml_hw->tx_lock);
     aml_txq_start(txq, AML_TXQ_STOP_CHAN);
     spin_unlock_bh(&aml_hw->tx_lock);
@@ -1338,14 +1196,10 @@ void aml_txq_sta_switch_vif(struct aml_sta *sta, struct aml_vif *old_vif,
 /**
  * aml_txq_queue_skb - Queue a buffer in a TX queue
  *
- * @skb: Buffer to queue
- * @txq: TX Queue in which the buffer must be added
  * @aml_hw: Driver main data
+ * @txq: TX Queue in which the buffer must be added
+ * @skb: Buffer to queue
  * @retry: Should it be queued in the retry list
- * @skb_prev: If not NULL insert buffer after this skb instead of the tail
- * of the list (ignored if retry is true)
- *
- * @return: Return 1 if txq has been added to hwq list, 0 otherwise
  *
  * Add a buffer in the buffer list of the TX queue
  * and add this TX queue in the HW queue list if the txq is not stopped.
@@ -1357,8 +1211,7 @@ void aml_txq_sta_switch_vif(struct aml_sta *sta, struct aml_vif *old_vif,
  *
  * To be called with tx_lock hold
  */
-int aml_txq_queue_skb(struct sk_buff *skb, struct aml_txq *txq,
-                       struct aml_hw *aml_hw,  bool retry,
+void aml_txq_queue_skb(struct aml_hw *aml_hw, struct aml_txq *txq, struct sk_buff *skb, bool retry,
                        struct sk_buff *skb_prev)
 {
 #ifdef CONFIG_AML_FULLMAC
@@ -1399,17 +1252,9 @@ int aml_txq_queue_skb(struct sk_buff *skb, struct aml_txq *txq,
 
     trace_txq_queue_skb(skb, txq, retry);
 
-    /* Flowctrl corresponding netdev queue if needed */
 #ifdef CONFIG_AML_FULLMAC
-    /* If too many buffer are queued for this TXQ stop netdev queue */
-    if ((txq->ndev_idx != NDEV_NO_TXQ) &&
-        (skb_queue_len(&txq->sk_list) > AML_NDEV_FLOW_CTRL_STOP)) {
-        txq->status |= AML_TXQ_NDEV_FLOW_CTRL;
-        netif_stop_subqueue(txq->ndev, txq->ndev_idx);
-        trace_txq_flowctrl_stop(txq);
-    }
+    aml_netif_txq_flow_control(txq);
 #else /* ! CONFIG_AML_FULLMAC */
-
     if (!retry && ++txq->hwq->len == txq->hwq->len_stop) {
          trace_hwq_flowctrl_stop(txq->hwq->id);
          ieee80211_stop_queue(aml_hw->hw, txq->hwq->id);
@@ -1417,13 +1262,8 @@ int aml_txq_queue_skb(struct sk_buff *skb, struct aml_txq *txq,
      }
 #endif /* CONFIG_AML_FULLMAC */
 
-    /* add it in the hwq list if not stopped and not yet present */
-    if (!aml_txq_is_stopped(txq)) {
-        aml_txq_add_to_hw_list(txq);
-        return 1;
-    }
-
-    return 0;
+    /* add it in the hwq list if it's not stopped */
+    aml_txq_add_to_hw_list(txq);
 }
 
 /**
@@ -1459,11 +1299,14 @@ void aml_txq_confirm_any(struct aml_hw *aml_hw, struct aml_txq *txq,
 
 #endif /* CONFIG_AML_MUMIMO_TX */
 
-    if (txq->pkt_pushed[user])
+    if (txq->pkt_pushed[user] > 0)
         txq->pkt_pushed[user]--;
+    else
+        AML_WARN("txq[%d] pkt_pushed[%d] == 0!\n", txq->idx, user);
 
     if (hwq->credits[user] > hwq->size) {
-        AML_INFO("hwq->credits %d, aml_hw->stats->cfm_balance[hw1->id] %d\n", hwq->credits[user], aml_hw->stats->cfm_balance[hwq->id]);
+        AML_INFO("hwq->credits %d, aml_hw->stats->cfm_balance[hwq->id] %d\n",
+                 hwq->credits[user], aml_hw->stats->cfm_balance[hwq->id]);
         return;
     }
 
@@ -1610,9 +1453,9 @@ static bool aml_txq_mac80211_dequeue(struct aml_hw *aml_hw,
  * aml_txq_get_skb_to_push() - Get list of buffer to push for one txq
  *
  * @aml_hw: main driver data
- * @hwq: HWQ on wich buffers will be pushed
+ * @hwq: HWQ on which buffers will be pushed
  * @txq: TXQ to get buffers from
- * @user: user postion to use
+ * @user: user position to use
  * @sk_list_push: list to update
  *
  *
@@ -1688,7 +1531,7 @@ static bool aml_txq_get_skb_to_push(struct aml_hw *aml_hw, struct aml_hwq *hwq,
  *   Each time a group is selected (except for the first case where sta
  *   doesn't belongs to a MU group), the function checks that no buffer is
  *   pending for this txq on another user position. If this is the case stop
- *   the txq (aml_txq_stop_MU_POS) and return false.
+ *   the txq (AML_TXQ_STOP_MU_POS) and return false.
  *
  */
 static
@@ -1785,21 +1628,16 @@ void aml_hwq_process(struct aml_hw *aml_hw, struct aml_hwq *hwq)
         struct aml_txhdr *txhdr = NULL;
         struct sk_buff_head sk_list_push;
         struct sk_buff *skb;
-        bool txq_empty;
+        bool txq_done;
 
         trace_process_txq(txq);
 
         /* sanity check for debug */
-        if ((!(txq->status & AML_TXQ_IN_HWQ_LIST))
-            || (txq->idx == TXQ_INACTIVE)
-            || (txq->credits <= 0)
-            || (!aml_txq_skb_ready(txq))) {
-            AML_INFO("error, txq not in hwlist=%d, idx inactive=%d,"
-                    "no txq credits=%d, txq skb list empty=%d",
-                    (!(txq->status & AML_TXQ_IN_HWQ_LIST)),
-                    (txq->idx == TXQ_INACTIVE),
-                    (txq->credits <= 0),
-                    (!aml_txq_skb_ready(txq)));
+        if (!aml_txq_is_scheduled(txq) || txq->idx == TXQ_INACTIVE
+            || txq->credits <= 0 || !aml_txq_skb_ready(txq)) {
+            AML_ERR("error! txq[%d] status=%d, push_limit=%d, credits=%d, skb length=%d\n",
+                    txq->idx, txq->status, txq->push_limit,
+                    txq->credits, aml_txq_skb_queue_len(txq));
             continue;
         }
 
@@ -1813,8 +1651,7 @@ void aml_hwq_process(struct aml_hw *aml_hw, struct aml_hwq *hwq)
             continue;
         }
 
-        txq_empty = aml_txq_get_skb_to_push(aml_hw, hwq, txq, user,
-                                             &sk_list_push);
+        txq_done = aml_txq_get_skb_to_push(aml_hw, hwq, txq, user, &sk_list_push);
 
         while ((skb = __skb_dequeue(&sk_list_push)) != NULL) {
             txhdr = (struct aml_txhdr *)skb->data;
@@ -1833,7 +1670,7 @@ void aml_hwq_process(struct aml_hw *aml_hw, struct aml_hwq *hwq)
             }
         }
 
-        if (txq_empty) {
+        if (txq_done) {
             aml_txq_del_from_hw_list(txq);
             txq->pkt_sent = 0;
 #if defined CONFIG_AML_SOFTMAC && defined CONFIG_AML_AMSDUS_TX
@@ -1841,8 +1678,7 @@ void aml_hwq_process(struct aml_hw *aml_hw, struct aml_hwq *hwq)
                 ieee80211_amsdu_ctl(aml_hw->hw, txq->sta, txq->tid, NULL,
                                     0, 0, false);
 #endif
-        } else if ((hwq->credits[user] == 0) &&
-                   aml_txq_is_scheduled(txq)) {
+        } else if ((hwq->credits[user] == 0) && aml_txq_is_scheduled(txq)) {
             /* txq not empty,
                - To avoid starving need to process other txq in the list
                - For better aggregation, need to send "as many consecutive
@@ -1866,15 +1702,8 @@ void aml_hwq_process(struct aml_hw *aml_hw, struct aml_hwq *hwq)
             /* for u-apsd need to complete the SP to send EOSP frame */
         }
 
-        /* restart netdev queue if number of queued buffer is below threshold */
-        if (unlikely(txq->status & AML_TXQ_NDEV_FLOW_CTRL) &&
-            skb_queue_len(&txq->sk_list) < AML_NDEV_FLOW_CTRL_RESTART) {
-            txq->status &= ~AML_TXQ_NDEV_FLOW_CTRL;
-            netif_wake_subqueue(txq->ndev, txq->ndev_idx);
-            trace_txq_flowctrl_restart(txq);
-        }
+        aml_netif_txq_flow_control(txq);
 #endif /* CONFIG_AML_FULLMAC */
-
     }
 
 #ifdef CONFIG_AML_SOFTMAC
@@ -1910,7 +1739,7 @@ void aml_hwq_process_all(struct aml_hw *aml_hw)
     }
 }
 
-const int nx_txdesc_cnt_ext[] =
+static const int nx_txdesc_cnt_ext[] =
 {
     TX_MAX_CNT,
     TX_MAX_CNT,
@@ -1933,20 +1762,17 @@ void aml_hwq_init(struct aml_hw *aml_hw)
 
     for (i = 0; i < ARRAY_SIZE(aml_hw->hwq); i++) {
         struct aml_hwq *hwq = &aml_hw->hwq[i];
+#ifdef CONFIG_CREDIT124
+        int credits = nx_txdesc_cnt_ext[i];
+#else
+        int credits = (aml_bus_type == PCIE_MODE) ? nx_txdesc_cnt[i] : nx_txdesc_cnt_ext[i];
+#endif
 
-        for (j = 0 ; j < CONFIG_USER_MAX; j++) {
-#ifdef CONFIG_CREDIT124
-            hwq->credits[j] = nx_txdesc_cnt_ext[i];
-#else
-            hwq->credits[j] = (aml_bus_type == PCIE_MODE) ? nx_txdesc_cnt[i] : nx_txdesc_cnt_ext[i];
-#endif
-        }
+        for (j = 0 ; j < CONFIG_USER_MAX; j++)
+            hwq->credits[j] = credits;
+
         hwq->id = i;
-#ifdef CONFIG_CREDIT124
-        hwq->size = nx_txdesc_cnt_ext[i];
-#else
-        hwq->size = (aml_bus_type == PCIE_MODE) ? nx_txdesc_cnt[i] : nx_txdesc_cnt_ext[i];
-#endif
+        hwq->size = credits;
         INIT_LIST_HEAD(&hwq->list);
 
 #ifdef CONFIG_AML_SOFTMAC
@@ -1957,54 +1783,25 @@ void aml_hwq_init(struct aml_hw *aml_hw)
     }
 }
 
-int aml_txq_is_empty(struct aml_vif *aml_vif, struct aml_sta *aml_sta)
+int aml_txq_pushed_sta(struct aml_vif *aml_vif, struct aml_sta *aml_sta)
 {
-    struct aml_txq *txq;
+    struct aml_txq *txq = NULL;
     int tid;
-    int i;
+    int pushed = 0;
 
     spin_lock_bh(&aml_vif->vif_lock);
     foreach_sta_txq_safe(aml_sta, txq, tid, aml_vif->aml_hw) {
-        for (i = 0; i < CONFIG_USER_MAX ; i++) {
-            if (txq->pkt_pushed[i]) {
-                spin_unlock_bh(&aml_vif->vif_lock);
-                return 0;
-            }
-        }
+        pushed += aml_txq_pushed(txq);
     }
     spin_unlock_bh(&aml_vif->vif_lock);
 
-    return 1;
+    return pushed;
 }
 
-int aml_unktxq_is_empty(struct aml_vif *aml_vif)
+int aml_txq_pushed_bcmc_unk(struct aml_vif *aml_vif)
 {
-    int i;
-    struct aml_txq *txq;
-    if (!aml_vif) {
-        return 1;
-    }
-    txq = aml_txq_vif_get(aml_vif, NX_UNK_TXQ_TYPE);
-    for (i = 0; i < CONFIG_USER_MAX ; i++) {
-        if (txq->pkt_pushed[i]) {
-            return 0;
-        }
-    }
-    return 1;
-}
-
-int aml_bcmctxq_is_empty(struct aml_vif *aml_vif)
-{
-    int i;
-    struct aml_txq *txq;
-    if (!aml_vif) {
-        return 1;
-    }
-    txq = aml_txq_vif_get(aml_vif, NX_BCMC_TXQ_TYPE);
-    for (i = 0; i < CONFIG_USER_MAX ; i++) {
-        if (txq->pkt_pushed[i]) {
-            return 0;
-        }
-    }
-    return 1;
+    if (aml_vif)
+        return aml_txq_pushed(aml_txq_vif_get(aml_vif, NX_UNK_TXQ_TYPE))
+                + aml_txq_pushed(aml_txq_vif_get(aml_vif, NX_BCMC_TXQ_TYPE));
+    return 0;
 }

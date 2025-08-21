@@ -1,45 +1,44 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+* Copyright (C) 202X Original Author (retain original author information)
+* Copyright (C) 202X Amlogic, Inc. All rights reserved.
+*
+* Description:
+*/
+#define AML_MODULE          SDIO
+#define AML_FMT             AML_FMT_M
 
-#define AML_MODULE  SDIO
-
-#include "w2_sdio.h"
 #include <linux/mutex.h>
+
+#include "aml_interface.h"
+#include "sdio_common.h"
+#include "sg_common.h"
+#include "w2_sdio.h"
 #include "chip_ana_reg.h"
 #include "chip_pmu_reg.h"
 #include "chip_intf_reg.h"
 #include "wifi_intf_addr.h"
 #include "wifi_top_addr.h"
 #include "wifi_sdio_cfg_addr.h"
-#include "sdio_common.h"
-#include "sg_common.h"
-#include "aml_interface.h"
+#include "fi_w2_sdio.h"
 #include "wifi_w2_shared_mem_cfg.h"
 #include "aml_static_buf.h"
 #include "aml_log.h"
 
-uint8_t *g_mmc_misc;
-struct aml_hwif_sdio g_hwif_rx_sdio;
 struct aml_hif_sdio_ops g_hif_sdio_ops;
 extern struct aml_bus_state_detect bus_state_detect;
 
-extern unsigned char g_wifi_in_insmod;
 extern unsigned char *g_func_kmalloc_buf;
 static unsigned int tx_buffer_base_addr;
 static unsigned int rx_buffer_base_addr;
-extern unsigned int chip_id;
 extern unsigned char g_sdio_after_porbe;
 
-extern unsigned char wifi_in_insmod;
-extern unsigned char wifi_in_rmmod;
-extern unsigned char  chip_en_access;
-extern unsigned char wifi_sdio_shutdown;
 extern struct aml_pm_type g_wifi_pm;
 static DEFINE_MUTEX(wifi_bt_sdio_mutex);
 static DEFINE_MUTEX(wifi_ipc_mutex);
 
 extern unsigned char (*host_wake_req)(void);
 extern int (*host_suspend_req)(struct device *device);
-extern int (*host_resume_req)(struct device *device);
-
 
 static int _aml_sdio_request_byte(unsigned char func_num,
     unsigned char write, unsigned int reg_addr, unsigned char *byte)
@@ -64,7 +63,7 @@ static int _aml_sdio_request_byte(unsigned char func_num,
         return -1;
     }
 
-    ASSERT(func->num == func_num);
+    BUG_ON(func->num != func_num);
 
     AML_BT_WIFI_MUTEX_ON();
     kmalloc_buf =  (unsigned char *)ZMALLOC(len, "sdio_write", GFP_DMA);
@@ -76,6 +75,7 @@ static int _aml_sdio_request_byte(unsigned char func_num,
     }
     memcpy(kmalloc_buf, byte, len);
 
+    AML_PROF_HI(cmd52);
     /* Claim host controller */
     sdio_claim_host(func);
 
@@ -90,6 +90,7 @@ static int _aml_sdio_request_byte(unsigned char func_num,
 
     /* Release host controller */
     sdio_release_host(func);
+    AML_PROF_LO(cmd52);
 
 #if defined(DBG_PRINT_COST_TIME)
     getnstimeofday(&now);
@@ -108,7 +109,6 @@ int aml_sdio_self_define_domain_func0_write8(int addr, unsigned char data)
 {
     int ret = 0;
     bool sdio_bus_block = false;
-    unsigned char func_num = 0;
 
     sdio_bus_block = aml_sdio_block_bus_opt();
     if (sdio_bus_block)
@@ -123,9 +123,8 @@ int aml_sdio_self_define_domain_func0_write8(int addr, unsigned char data)
 //cmd52
 unsigned char aml_sdio_self_define_domain_func0_read8(int addr)
 {
-    unsigned char sramdata;
+    unsigned char sramdata = 0;
     bool sdio_bus_block = false;
-    unsigned char func_num = 0;
 
     sdio_bus_block = aml_sdio_block_bus_opt();
     if (sdio_bus_block)
@@ -156,7 +155,7 @@ int aml_sdio_self_define_domain_write8(int addr, unsigned char data)
 //cmd52
 unsigned char aml_sdio_self_define_domain_read8(int addr)
 {
-    unsigned char sramdata;
+    unsigned char sramdata = 0;
     bool sdio_bus_block = false;
 
     sdio_bus_block = aml_sdio_block_bus_opt();
@@ -183,8 +182,8 @@ int aml_sdio_bottom_write(unsigned char func_num, unsigned int addr, void *buf, 
        return 0;
     }
 
-    ASSERT(func_num != SDIO_FUNC0);
-    ASSERT(g_func_kmalloc_buf);
+    BUG_ON(func_num == SDIO_FUNC0);
+    BUG_ON(!g_func_kmalloc_buf);
 
     if (host_wake_req != NULL) {
         if (host_wake_req() == 0) {
@@ -217,7 +216,6 @@ int aml_sdio_bottom_read(unsigned char func_num, int addr, void *buf, size_t len
     unsigned char *kmalloc_buf = NULL;
     int result;
     int align_len = 0;
-    unsigned char scat_use = func_num & (1 << 8);
     bool sdio_bus_block = false;
 
     sdio_bus_block = aml_sdio_block_bus_opt();
@@ -227,8 +225,8 @@ int aml_sdio_bottom_read(unsigned char func_num, int addr, void *buf, size_t len
     }
 
     func_num &= 0xf;
-    ASSERT(func_num != SDIO_FUNC0);
-    ASSERT(g_func_kmalloc_buf);
+    BUG_ON(func_num == SDIO_FUNC0);
+    BUG_ON(!g_func_kmalloc_buf);
 
     if (host_wake_req != NULL) {
         if (host_wake_req() == 0) {
@@ -243,12 +241,7 @@ int aml_sdio_bottom_read(unsigned char func_num, int addr, void *buf, size_t len
         if (incr_addr == SDIO_OPMODE_INCREMENT) {
             struct sdio_func * func = aml_priv_to_func(func_num);
             align_len = sdio_align_size(func, len);
-
-            if ((func_num == SDIO_FUNC6) && !scat_use) {
-                kmalloc_buf = (unsigned char *)g_func_kmalloc_buf;
-            } else {
-                kmalloc_buf = (unsigned char *)g_func_kmalloc_buf;
-            }
+            kmalloc_buf = (unsigned char *)g_func_kmalloc_buf;
         }
         else
             kmalloc_buf = (unsigned char *)g_func_kmalloc_buf;
@@ -257,7 +250,7 @@ int aml_sdio_bottom_read(unsigned char func_num, int addr, void *buf, size_t len
     }
 
     if (kmalloc_buf == NULL) {
-        ERROR_DEBUG_OUT("kmalloc buf fail kmalloc_buf %x buf %x SDIO_FUNC %d\n",kmalloc_buf, buf,func_num);
+        ERROR_DEBUG_OUT("kmalloc buf fail kmalloc_buf %p buf %p SDIO_FUNC %d\n", (void *)kmalloc_buf, buf, func_num);
         AML_BT_WIFI_MUTEX_OFF();
         return SDIOH_API_RC_FAIL;
     }
@@ -412,59 +405,42 @@ void aml_sdio_tx_buffer_read(unsigned char* buf, unsigned char* addr, size_t len
     AML_WIFI_IPC_MUTEX_OFF();
 }
 
-
 //sdio func5 for rx desc
-void aml_sdio_desc_read(unsigned char* buf, unsigned char* addr, size_t len)
+int aml_sdio_desc_read(void* buf, u32 addr, size_t len)
 {
-    aml_sdio_bottom_read(SDIO_FUNC5, ((SYS_TYPE)addr % RG_WIFI_IF_FW2HST_IRQ_CFG),
-        buf, len, (len > 8 ? SDIO_OPMODE_INCREMENT : SDIO_OPMODE_FIXED));
+    return aml_sdio_bottom_read(SDIO_FUNC5, addr - RG_WIFI_IF_FW2HST_IRQ_CFG, buf, len,
+            (len > 8 ? SDIO_OPMODE_INCREMENT : SDIO_OPMODE_FIXED));
 }
 
-void aml_sdio_func6_set_base_addr(unsigned int addr)
+//sdio func6 for rx buffer
+static int aml_sdio_rx_buffer_read(void *buf, u32 addr, unsigned int len, unsigned int unused)
 {
-    if (addr >= (RXBUF_START_ADDR + LEN_256K)) {
-        if (rx_buffer_base_addr != (RXBUF_START_ADDR + LEN_256K)) {
-            rx_buffer_base_addr = RXBUF_START_ADDR + LEN_256K;
-            aml_sdio_self_define_domain_write32(RG_SCFG_FUNC6_BADDR_A, rx_buffer_base_addr);
+    int received = 0;
+    int ret = -1;
+
+    /* NB: the caller should check rx buffer boundary more strictly (with "real" rx buffer end) */
+    BUG_ON(addr < RXBUF_START_ADDR);
+    BUG_ON((addr + len) >= 0x60080000);
+    while (len) {
+        unsigned int read_len = len > SDIO_READ_MAX ? SDIO_READ_MAX : len;
+        u32 addr_lo = (addr - RXBUF_START_ADDR) & SDIO_ADDR_MASK;
+        u32 base = addr - addr_lo;
+
+        if (base != rx_buffer_base_addr) {
+            rx_buffer_base_addr = base;
+            aml_sdio_self_define_domain_write32(RG_SCFG_FUNC6_BADDR_A, base);
         }
-    } else if (addr >= (RXBUF_START_ADDR + LEN_128K)) {
-        if (rx_buffer_base_addr != (RXBUF_START_ADDR + LEN_128K)) {
-            rx_buffer_base_addr = RXBUF_START_ADDR + LEN_128K;
-            aml_sdio_self_define_domain_write32(RG_SCFG_FUNC6_BADDR_A, rx_buffer_base_addr);
-        }
-    } else {
-        if (rx_buffer_base_addr != RXBUF_START_ADDR) {
-            rx_buffer_base_addr = RXBUF_START_ADDR;
-            aml_sdio_self_define_domain_write32(RG_SCFG_FUNC6_BADDR_A, rx_buffer_base_addr);
-        }
+        ret = aml_sdio_bottom_read(SDIO_FUNC6, addr_lo, buf, read_len, SDIO_OPMODE_INCREMENT);
+        if (ret)
+            break;
+
+        len -= read_len;
+        buf += read_len;
+        addr += read_len;
+        received += read_len;
     }
+    return received ? : ret;
 }
-
-//func6 for rx buffer
-void aml_sdio_func6_rx_buffer_read(unsigned char *buf, unsigned char *addr, size_t len, unsigned char scat_use)
-{
-    unsigned char func_type = SDIO_FUNC6;
-    if (scat_use)
-        func_type |= 1<<8;
-    aml_sdio_func6_set_base_addr((unsigned long)addr);
-    aml_sdio_bottom_read(func_type, ((SYS_TYPE)addr % rx_buffer_base_addr),
-        buf, len, SDIO_OPMODE_INCREMENT);
-}
-
-void aml_sdio_rx_buffer_read(unsigned char *buf, unsigned char *addr, size_t len, unsigned char scat_use)
-{
-    if (len > LEN_256K) {
-        aml_sdio_func6_rx_buffer_read(buf, addr, LEN_128K, scat_use);
-        aml_sdio_func6_rx_buffer_read(buf + LEN_128K, addr + LEN_128K, LEN_128K, scat_use);
-        aml_sdio_func6_rx_buffer_read(buf + LEN_256K, addr + LEN_256K, len - LEN_256K, scat_use);
-    } else if (len > LEN_128K) {
-        aml_sdio_func6_rx_buffer_read(buf, addr, LEN_128K, scat_use);
-        aml_sdio_func6_rx_buffer_read(buf + LEN_128K, addr + LEN_128K, len - LEN_128K, scat_use);
-    } else {
-        aml_sdio_func6_rx_buffer_read(buf, addr, len, scat_use);
-    }
-}
-
 
 //sdio func7 for bt
 void aml_bt_sdio_read_sram(unsigned char *buf, unsigned char *addr, SYS_TYPE len)
@@ -536,6 +512,7 @@ unsigned int aml_bt_hi_read_word(unsigned int addr)
 
     /*config msb 15 bit address in BaseAddr Register*/
     aml_sdio_self_define_domain_write32(RG_SCFG_FUNC7_BADDR_A,addr & 0xfffe0000);
+    /* coverity[overrun-buffer-val] - length is correct */
     aml_bt_sdio_read_sram((unsigned char*)(SYS_TYPE)&regdata,
         /*sdio cmd 52/53 can only take 17 bit address*/
         (unsigned char*)(SYS_TYPE)(addr & 0x1ffff), sizeof(unsigned int));
@@ -572,43 +549,15 @@ void aml_bt_hi_write_word(unsigned int addr,unsigned int data)
     }
     /*config msb 15 bit address in BaseAddr Register*/
     aml_sdio_self_define_domain_write32(RG_SCFG_FUNC7_BADDR_A, addr & 0xfffe0000);
+    /* coverity[overrun-buffer-val] - length is correct */
     aml_bt_sdio_write_sram((unsigned char *)&data,
         /*sdio cmd 52/53 can only take 17 bit address*/
         (unsigned char*)(SYS_TYPE)(addr & 0x1ffff), sizeof(unsigned int));
 }
 
-unsigned int aml_sdio_read_word(unsigned int addr)
-{
-    unsigned int regdata = 0;
-
-    // for bt access always on reg
-    if (((addr & 0x00f00000) == 0x00f00000) || ((addr & 0x00f00000) == 0x00b00000)
-        || ((addr & 0x00f00000) == 0x00d00000) || ((addr & 0x00f00000) == 0x00900000)
-        || ((addr & 0x00f00000) == 0x00200000) || ((addr & 0x00f00000) == 0x00300000)
-        || ((addr & 0x00f00000) == 0x00400000)) {
-        regdata = aml_bt_hi_read_word(addr);
-    }
-
-    return regdata;
-}
-
-void aml_sdio_write_word(unsigned int addr, unsigned int data)
-{
-    // for bt access always on reg
-    if (((addr & 0x00f00000) == 0x00f00000) || ((addr & 0x00f00000) == 0x00b00000)
-        || ((addr & 0x00f00000) == 0x00d00000) || ((addr & 0x00f00000) == 0x00900000)
-        || ((addr & 0x00f00000) == 0x00200000) || ((addr & 0x00f00000) == 0x00300000)
-        || ((addr & 0x00f00000) == 0x00400000)) {
-        aml_bt_hi_write_word(addr, data);
-    }
-}
-
 void aml_sdio_scat_complete (struct amlw_hif_scatter_req * scat_req)
 {
-    struct aml_hwif_sdio *hif_sdio = &g_hwif_sdio;
-
-    ASSERT(scat_req != NULL);
-    ASSERT(hif_sdio != NULL);
+    BUG_ON(!scat_req);
 
     if (!scat_req) {
         AML_ERR("scar_req is NULL!\n");
@@ -637,8 +586,8 @@ int aml_sdio_scat_req_rw(struct amlw_hif_scatter_req *scat_req)
     int ttl_len, pkt_offset, ttl_page_num;
 
     struct mmc_request mmc_req;
-    struct mmc_command mmc_cmd;
-    struct mmc_data mmc_dat;
+    struct mmc_command mmc_cmd = {0};
+    struct mmc_data mmc_dat = {0};
     //unsigned int reg_data = 0;
 
     int result = SDIOH_API_RC_FAIL;
@@ -650,11 +599,8 @@ int aml_sdio_scat_req_rw(struct amlw_hif_scatter_req *scat_req)
        return 0;
     }
 
-    ASSERT(scat_req != NULL);
-    if (scat_req->req & HIF_WRITE)
-        func_num = SDIO_FUNC4;
-    else
-        func_num = SDIO_FUNC6;
+    BUG_ON(!scat_req);
+    func_num = SDIO_FUNC4;
 #ifdef CONFIG_AML_RECOVERY
     if (bus_state_detect.bus_err) {
         aml_sdio_scat_complete(scat_req);
@@ -692,7 +638,9 @@ int aml_sdio_scat_req_rw(struct amlw_hif_scatter_req *scat_req)
             if (sg_count >= MAXSG_SIZE)
                 break;
 
+            /* coverity[MISSING_LOCK] --miss aml_hw.tx_desc_lock*/
             packet_len = scat_req->scat_list[sgitem_count].len;
+            /* coverity[MISSING_LOCK] --miss aml_hw.tx_desc_lock*/
             pdata = scat_req->scat_list[sgitem_count].packet;
 
             // sg len must be aligned with block size
@@ -707,7 +655,7 @@ int aml_sdio_scat_req_rw(struct amlw_hif_scatter_req *scat_req)
             sg_set_buf(&scat_req->sgentries[sg_count], pdata, sg_data_size);
             sg_count++;
             ttl_len += sg_data_size;
-
+            /* coverity[MISSING_LOCK] --miss aml_hw.tx_desc_lock*/
             ttl_page_num += scat_req->scat_list[sgitem_count].page_num;
             sgitem_count++;
 
@@ -729,14 +677,14 @@ int aml_sdio_scat_req_rw(struct amlw_hif_scatter_req *scat_req)
 
         /* set scatter-gather table for request */
         blk_num = ttl_len / blk_size;
-        mmc_dat.flags = (scat_req->req & HIF_WRITE) ? MMC_DATA_WRITE : MMC_DATA_READ;
+        mmc_dat.flags = MMC_DATA_WRITE;
         mmc_dat.sg = scat_req->sgentries;
         mmc_dat.sg_len = sg_count;
         mmc_dat.blksz = blk_size;
         mmc_dat.blocks = blk_num;
 
         mmc_cmd.opcode = SD_IO_RW_EXTENDED;
-        mmc_cmd.arg = (scat_req->req & HIF_WRITE) ? 1 << 31 : 0;
+        mmc_cmd.arg = BIT(31);
         mmc_cmd.arg |= (func_num & 0x7) << 28;
         /* block basic */
         mmc_cmd.arg |= 1 << 27;
@@ -749,20 +697,22 @@ int aml_sdio_scat_req_rw(struct amlw_hif_scatter_req *scat_req)
         mmc_req.cmd = &mmc_cmd;
         mmc_req.data = &mmc_dat;
 
+        AML_PROF_CNT(cmd53_tx, blk_num);
         sdio_claim_host(func);
         mmc_set_data_timeout(&mmc_dat, func->card);
         mmc_wait_for_req(func->card->host, &mmc_req);
         sdio_release_host(func);
+        AML_PROF_CNT(cmd53_tx, 0);
 
-       // AML_INFO("setup scat-data: (%s) ====addr: 0x%X, (blksz: %d, blocks: %d) , (ttl:%d,sg:%d,scat_count:%d,ttl_page:%d)====\n",
-           // (scat_req->req & HIF_WRITE) ? "wr" : "rd", scat_req->addr,
+       // AML_INFO("setup scat-data: ====addr: 0x%X, (blksz: %d, blocks: %d) , (ttl:%d,sg:%d,scat_count:%d,ttl_page:%d)====\n",
+           // scat_req->addr,
            // mmc_dat.blksz, mmc_dat.blocks, ttl_len,
            // sg_count, scat_req->scat_count, ttl_page_num);
 
         if (mmc_cmd.error || mmc_dat.error)
         {
-            ERROR_DEBUG_OUT("ERROR CMD53 %s cmd_error = %d data_error=%d\n",
-                (scat_req->req & HIF_WRITE) ? "write" : "read", mmc_cmd.error, mmc_dat.error);
+            ERROR_DEBUG_OUT("ERROR CMD53 write cmd_error = %d data_error=%d\n",
+                mmc_cmd.error, mmc_dat.error);
 #ifdef CONFIG_AML_RECOVERY
             if (!bus_state_detect.bus_err) {
                bus_state_detect.bus_err = 1;
@@ -780,219 +730,9 @@ int aml_sdio_scat_req_rw(struct amlw_hif_scatter_req *scat_req)
     if (scat_req->result)
         ERROR_DEBUG_OUT("Scatter write request failed:%d\n", scat_req->result);
 
-    if (scat_req->req & HIF_ASYNCHRONOUS)
-        aml_sdio_scat_complete(scat_req);
+    aml_sdio_scat_complete(scat_req);
 
     return result;
-}
-
-
-EXPORT_SYMBOL(g_mmc_misc);
-int aml_sdio_scat_req_rx_read(struct amlw_hif_scatter_req *scat_req)
-{
-    uint32_t func_num = SDIO_FUNC6;
-    struct sdio_func *func = aml_priv_to_func(func_num);
-    struct mmc_host *host = func->card->host;
-    struct mmc_misc *mmc_misc = (struct mmc_misc *)g_mmc_misc;
-
-    uint8_t *pdata = NULL;
-    int result = SDIOH_API_RC_SUCCESS;
-    uint32_t blk_size = func->cur_blksize;
-    uint32_t max_blk_count = MIN(host->max_blk_count, SDIO_MAX_BLK_CNT);
-    uint32_t max_req_size = MIN(max_blk_count * blk_size, host->max_req_size);
-    uint32_t i = 0, sg_count = 0, packet_len = 0, packet_addr = 0;
-
-    ASSERT_ERR(scat_req);
-
-    memset(mmc_misc, 0, sizeof(struct mmc_misc) * scat_req->scat_count);
-
-    sg_init_table(scat_req->sgentries, MAXSG_SIZE);
-
-    while (sg_count < scat_req->scat_count) {
-
-        if (sg_count >= MAXSG_SIZE) {
-            AML_ERR(" error sg_count: %d\n", sg_count);
-            result = SDIOH_API_RC_FAIL;
-            break;
-        }
-
-        pdata = scat_req->scat_list[sg_count].packet;
-        packet_len = scat_req->scat_list[sg_count].len;
-        packet_addr = scat_req->scat_list[sg_count].page_num;
-
-        if ((packet_len == 0) || (packet_len % blk_size != 0) || (packet_len > max_req_size)) {
-            AML_ERR(" error packet_len: %d\n", packet_len);
-            result = SDIOH_API_RC_FAIL;
-            break;
-        }
-
-        sg_set_buf(&scat_req->sgentries[sg_count], pdata, packet_len);
-
-        mmc_misc[sg_count].mmc_dat.flags = MMC_DATA_READ;
-        mmc_misc[sg_count].mmc_dat.sg = &scat_req->sgentries[sg_count];
-        mmc_misc[sg_count].mmc_dat.sg_len = 1;
-        mmc_misc[sg_count].mmc_dat.blksz = blk_size;
-        mmc_misc[sg_count].mmc_dat.blocks = packet_len / blk_size;
-
-        mmc_misc[sg_count].mmc_cmd.opcode = SD_IO_RW_EXTENDED;
-        mmc_misc[sg_count].mmc_cmd.arg |= (func_num & 0x7) << 28;
-        mmc_misc[sg_count].mmc_cmd.arg |= 1 << 27;
-        mmc_misc[sg_count].mmc_cmd.arg |= SDIO_OPMODE_FIXED << 26;
-        mmc_misc[sg_count].mmc_cmd.arg |= (packet_addr & 0x1FFFF) << 9;
-        mmc_misc[sg_count].mmc_cmd.arg |= mmc_misc[sg_count].mmc_dat.blocks & 0x1FF;
-        mmc_misc[sg_count].mmc_cmd.flags = MMC_RSP_SPI_R5 | MMC_RSP_R5 | MMC_CMD_ADTC;
-
-        mmc_misc[sg_count].mmc_req.cmd = &mmc_misc[sg_count].mmc_cmd;
-        mmc_misc[sg_count].mmc_req.data = &mmc_misc[sg_count].mmc_dat;
-
-        sg_count++;
-    }
-
-    sdio_claim_host(func);
-    mmc_set_data_timeout(&mmc_misc[i].mmc_dat, func->card);
-    for (i = 0; i < sg_count; i++) {
-        mmc_wait_for_req(func->card->host, &mmc_misc[i].mmc_req);
-
-        if (mmc_misc[i].mmc_cmd.error || mmc_misc[i].mmc_dat.error) {
-            AML_ERR(" mmc_cmd error: %d; mmc_data error: %d\n", mmc_misc[i].mmc_cmd.error, mmc_misc[i].mmc_dat.error);
-            result = mmc_misc[i].mmc_cmd.error ? mmc_misc[i].mmc_cmd.error : mmc_misc[i].mmc_dat.error;
-            break;
-        }
-    }
-    sdio_release_host(func);
-
-    scat_req->free = true;
-    scat_req->scat_count = 0;
-    scat_req->len = 0;
-    scat_req->addr = 0;
-    memset(scat_req->sgentries, 0, MAX_SG_ENTRIES * sizeof(struct scatterlist));
-
-    return result;
-}
-
-struct amlw_hif_scatter_req *aml_sdio_scatter_req_get(struct aml_hwif_sdio *hif_sdio)
-{
-    struct amlw_hif_scatter_req *scat_req = NULL;
-
-    ASSERT(hif_sdio != NULL);
-
-    scat_req = hif_sdio->scat_req;
-
-    if (scat_req->free)
-    {
-        scat_req->free = false;
-    }
-    else if (scat_req->scat_count != 0) // get scat_req, but not build scatter list
-    {
-        scat_req = NULL;
-    }
-
-    return scat_req;
-}
-
-static int amlw_sdio_alloc_prep_scat_req(struct aml_hwif_sdio *hif_sdio)
-{
-    struct amlw_hif_scatter_req * scat_req = NULL;
-
-    if (!hif_sdio) {
-        AML_ERR("hif_sdio is NULL!\n");
-        return 1;
-    }
-
-    /* allocate the scatter request */
-    scat_req = ZMALLOC(sizeof(struct amlw_hif_scatter_req), "sdio_write", GFP_KERNEL);
-    if (scat_req == NULL)
-    {
-        ERROR_DEBUG_OUT("[sdio sg alloc_scat_req]: no mem\n");
-        return 1;
-    }
-
-    scat_req->free = true;
-    hif_sdio->scat_req = scat_req;
-
-    return 0;
-}
-
-int aml_sdio_enable_scatter(struct aml_hwif_sdio *hif_sdio)
-{
-    int ret;
-
-    ASSERT(hif_sdio != NULL);
-
-    if (hif_sdio->scatter_enabled)
-        return 0;
-
-    // TODO : getting hw_config to configure scatter number;
-
-    hif_sdio->scatter_enabled = true;
-
-    ret = amlw_sdio_alloc_prep_scat_req(hif_sdio);
-    return ret;
-}
-
-int aml_sdio_scat_rw(struct scatterlist *sg_list, unsigned int sg_num, unsigned int blkcnt,
-        unsigned char func_num, unsigned int addr, unsigned char write)
-{
-    struct mmc_request mmc_req;
-    struct mmc_command mmc_cmd;
-    struct mmc_data    mmc_dat;
-    struct sdio_func *func = aml_priv_to_func(func_num);
-    int ret = 0;
-
-    AML_BT_WIFI_MUTEX_ON();
-    memset(&mmc_req, 0, sizeof(struct mmc_request));
-    memset(&mmc_cmd, 0, sizeof(struct mmc_command));
-    memset(&mmc_dat, 0, sizeof(struct mmc_data));
-
-    mmc_dat.sg     = sg_list;
-    mmc_dat.sg_len = sg_num;
-    mmc_dat.blksz  = FUNC4_BLKSIZE;
-    mmc_dat.blocks = blkcnt;
-    mmc_dat.flags  = write ? MMC_DATA_WRITE : MMC_DATA_READ;
-
-    mmc_cmd.opcode = SD_IO_RW_EXTENDED;
-    mmc_cmd.arg    = write ? 1 << 31 : 0;
-    mmc_cmd.arg   |= (func_num & 0x7) << 28;
-    mmc_cmd.arg   |= 1 << 27;	/* block basic */
-    mmc_cmd.arg   |= 0 << 26;	/* 1 << 26;*/   	/*0 fix address */
-    mmc_cmd.arg   |= (addr & 0x1ffff)<< 9;
-    mmc_cmd.arg   |= blkcnt & 0x1ff;
-    mmc_cmd.flags  = MMC_RSP_SPI_R5 | MMC_RSP_R5 | MMC_CMD_ADTC;
-
-    mmc_req.cmd = &mmc_cmd;
-    mmc_req.data = &mmc_dat;
-
-    sdio_claim_host(func);
-    mmc_set_data_timeout(&mmc_dat, func->card);
-    mmc_wait_for_req(func->card->host, &mmc_req);
-    sdio_release_host(func);
-
-    if (mmc_cmd.error || mmc_dat.error) {
-        AML_ERR("ERROR CMD53 %s cmd_error = %d data_error=%d\n",
-               write ? "write" : "read", mmc_cmd.error, mmc_dat.error);
-        ret  = mmc_cmd.error;
-    }
-
-    AML_BT_WIFI_MUTEX_OFF();
-    return ret;
-}
-
-void aml_sdio_cleanup_scatter(struct aml_hwif_sdio *hif_sdio)
-{
-    AML_INFO("[sdio sg cleanup]: enter\n");
-
-    ASSERT(hif_sdio != NULL);
-
-    if (!hif_sdio->scatter_enabled)
-        return;
-
-    hif_sdio->scatter_enabled = false;
-
-    /* empty the free list */
-    FREE(hif_sdio->scat_req, "sdio_write");
-    AML_INFO("[sdio sg cleanup]: exit\n");
-
-    return;
 }
 
 extern int aml_sdio_suspend(unsigned int suspend_enable);
@@ -1033,11 +773,7 @@ void aml_sdio_init_w2_ops(void)
     ops->hi_rx_buffer_read = aml_sdio_rx_buffer_read;
 
     //for scatter list
-    ops->hi_enable_scat = aml_sdio_enable_scatter;
-    ops->hi_cleanup_scat = aml_sdio_cleanup_scatter;
-    ops->hi_get_scatreq = aml_sdio_scatter_req_get;
     ops->hi_send_frame = aml_sdio_scat_req_rw;
-    ops->hi_recv_frame = aml_sdio_scat_req_rx_read;
 
     //sdio func7 for bt
     ops->bt_hi_write_sram = aml_bt_sdio_write_sram;
@@ -1056,7 +792,7 @@ void aml_sdio_init_w2_ops(void)
 
 void aml_sdio_init_base_addr(void)
 {
-    g_func_kmalloc_buf = (unsigned char *)aml_mem_prealloc(AML_PREALLOC_SDIO, WLAN_AML_SDIO_SIZE);
+    g_func_kmalloc_buf = (unsigned char *)aml_mem_prealloc(PREALLOC_BUF_BUS, PREALLOC_BUF_BUS_SIZE);
     if (!g_func_kmalloc_buf) {
          AML_ERR(">>>sdio kmalloc failed!");
     }
@@ -1083,38 +819,34 @@ void aml_sdio_init_base_addr(void)
 */
 
 
-EXPORT_SYMBOL(g_hwif_rx_sdio);
 EXPORT_SYMBOL(g_hif_sdio_ops);
 
-
-
-void aml_sdio_calibration(void)
+static void aml_sdio_calibration(void)
 {
-    struct aml_hif_sdio_ops* hif_ops = &g_hif_sdio_ops;
     int err;
     unsigned char i, j, k, l;
     unsigned char step;
 
     step = 4;
-    hif_ops->hi_self_define_domain_write8(0x2c0, 0);
+    aml_sdio_self_define_domain_write8(0x2c0, 0);
     for (i = 0; i < 32; i += step) {
-        hif_ops->hi_self_define_domain_write8(0x2c2, i);
+        aml_sdio_self_define_domain_write8(0x2c2, i);
 
         for (j = 0; j < 32; j += step) {
-            hif_ops->hi_self_define_domain_write8(0x2c3, j);
+            aml_sdio_self_define_domain_write8(0x2c3, j);
 
             for (k = 0; k < 32; k += step) {
-                hif_ops->hi_self_define_domain_write8(0x2c4, k);
+                aml_sdio_self_define_domain_write8(0x2c4, k);
 
                 for (l = 0; l < 32; l += step) {
-                    hif_ops->hi_self_define_domain_write8(0x2c5, l);
+                    aml_sdio_self_define_domain_write8(0x2c5, l);
 
                     //msleep(3000);
-                    err = hif_ops->hi_self_define_domain_write32(RG_SCFG_FUNC2_BADDR_A, l);
+                    err = aml_sdio_self_define_domain_write32(RG_SCFG_FUNC2_BADDR_A, l);
 
                     if (err) {
                         //msleep(3000);
-                        hif_ops->hi_self_define_domain_write8(SDIO_CCCR_IOABORT, 0x1);
+                        aml_sdio_self_define_domain_write8(SDIO_CCCR_ABORT, 0x1);
                         AML_ERR("error: i:%d, j:%d, k:%d, l:%d\n", i, j, k, l);
 
                     } else {
@@ -1125,11 +857,12 @@ void aml_sdio_calibration(void)
             }
         }
     }
+    AML_ERR("error: i:%d; j:%d, k:%d, l:%d\n", i, j, k, l);
 
-    hif_ops->hi_self_define_domain_write8(0x2c2, 0);
-    hif_ops->hi_self_define_domain_write8(0x2c3, 0);
-    hif_ops->hi_self_define_domain_write8(0x2c4, 0);
-    hif_ops->hi_self_define_domain_write8(0x2c5, 0);
+    aml_sdio_self_define_domain_write8(0x2c2, 0);
+    aml_sdio_self_define_domain_write8(0x2c3, 0);
+    aml_sdio_self_define_domain_write8(0x2c4, 0);
+    aml_sdio_self_define_domain_write8(0x2c5, 0);
 }
 
 void wifi_cpu_clk_switch(unsigned int clk_cfg)
@@ -1149,7 +882,6 @@ unsigned char aml_download_wifi_fw_img(char *firmware_filename)
 {
     unsigned int offset_base = 0;
     size_t databyte = 0;
-    unsigned int regdata =0;
     int i = 0, err = 0;
     unsigned int offset = 0;
     //unsigned int rom_len = 0;
@@ -1161,7 +893,6 @@ unsigned char aml_download_wifi_fw_img(char *firmware_filename)
     const struct firmware *fw = NULL;
     struct aml_hif_sdio_ops *hif_ops = &g_hif_sdio_ops;
     unsigned int to_sdio = ~(0);
-    RG_PMU_A22_FIELD_T pmu_a22;
     RG_DPLL_A5_FIELD_T rg_dpll_a5;
     struct sdio_func *func = aml_priv_to_func(SDIO_FUNC7);
 
@@ -1178,7 +909,7 @@ unsigned char aml_download_wifi_fw_img(char *firmware_filename)
 #endif
 
     src = (unsigned char *)fw->data + (offset / 4) * BYTE_IN_LINE;
-    kmalloc_buf = (unsigned char *)aml_mem_prealloc(AML_PREALLOC_DOWNLOAD_FW, len);
+    kmalloc_buf = (unsigned char *)aml_mem_prealloc(PREALLOC_BUF_FW_DL, len);
     if (!kmalloc_buf) {
         ERROR_DEBUG_OUT("kmalloc buf fail\n");
         release_firmware(fw);
@@ -1305,6 +1036,47 @@ unsigned char aml_download_wifi_fw_img(char *firmware_filename)
     return true;
 }
 
-EXPORT_SYMBOL(aml_sdio_calibration);
 EXPORT_SYMBOL(aml_download_wifi_fw_img);
 
+void aml_sdio_hw_init(void)
+{
+    uint32_t data;
+
+    aml_sdio_calibration();
+
+    /*
+     * enable auto TX and related configuration
+     */
+    aml_sdio_self_define_domain_write8(RG_SCFG_FUNC1_AUTO_TX,
+            aml_sdio_self_define_domain_read8(RG_SCFG_FUNC1_AUTO_TX) | BIT(4));
+
+    data = 0;
+    /* coverity[overrun-buffer-val] - length is correct */
+    aml_sdio_random_ram_write((unsigned char *)&data,
+            (unsigned char *)(uintptr_t)RG_WIFI_IF_MAC_TXTABLE_RD_ID, sizeof(data));
+
+    /*
+     * frame flag bypass for function4
+     *  BIT(8)=1, w/o setting address
+     *  BIT(9)=1, disable sdio updating page table ptr.
+     *  BIT(10)=1, enable sdio update page read ptr(0xa070a8 low 8bit).
+     *  BIT(16)=1, for func6 wrapper around by rtl
+     *  BIT(25)=1, disable function 5 section address-mapping (for BT?)
+     *             when this feature is disabled,
+     *             all 128k space in one sdio-function use only
+     *             one address-mapping: 32-bit AHB Address = BaseAddr + cmdRegAddr
+     */
+    /* coverity[overrun-buffer-val] - length is correct */
+    aml_sdio_random_ram_read((unsigned char *)&data,
+            (unsigned char *)(uintptr_t)RG_SDIO_IF_MISC_CTRL, sizeof(data));
+    data |= BIT(8) | BIT(10) | BIT(16) | BIT(25);
+    /* coverity[overrun-buffer-val] - length is correct */
+    aml_sdio_random_ram_write((unsigned char *)&data,
+            (unsigned char *)(uintptr_t)RG_SDIO_IF_MISC_CTRL, sizeof(data));
+
+    data = BIT(0);
+    /* coverity[overrun-buffer-val] - length is correct */
+    aml_sdio_random_ram_write((unsigned char *)&data,
+            (unsigned char *)(uintptr_t)RG_SDIO_IF_INTR2CPU_ENABLE, sizeof(data));
+}
+EXPORT_SYMBOL(aml_sdio_hw_init);

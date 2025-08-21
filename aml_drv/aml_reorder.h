@@ -15,9 +15,7 @@
 #include <linux/timer.h>
 #include <linux/skbuff.h>
 
-#include <fw/dp_rx.h>
-
-struct aml_hw;
+struct aml_rx;
 struct aml_sta;
 
 /* in TU (1024 microseconds) */
@@ -38,7 +36,7 @@ struct aml_reo_evt_record {
 struct aml_reo_session {
     spinlock_t lock;
 
-    struct aml_hw *hw;
+    struct aml_rx *rx;
 
     u8 sta_id;
     u8 tid;
@@ -47,17 +45,17 @@ struct aml_reo_session {
     u16 win_size;       /* cache windows size */
 
     u16 timeout_tu;     /* in TU (1.024 millisecond) */
-    u16 timeout_ticks;
+    unsigned long timeout_ticks;
 
     u16 ssn;            /* start s/n */
     u16 lsn;            /* last s/n */
 
-    u8 suspend;         /* detect which frame is the first one after power resume */
+    u8 reset;           /* detect which frame is the first one after power resume or recovery */
 
     u8 pn_check;
     u64 pn;
 
-    struct timer_list timer;
+    struct list_head aging_entry;
     unsigned long last_rx;      /* in jiffies */
     unsigned long last_aging;
 
@@ -89,24 +87,31 @@ struct aml_reo_session {
     struct aml_reo_entry buf[];
 };
 
-int aml_reo_session_create(struct aml_hw *aml_hw, u8 sta_id, u8 tid, u16 sz, u16 ssn);
-int aml_reo_session_delete(struct aml_hw *aml_hw, u8 sta_id, u8 tid);
+struct aml_reo_aging {
+    struct list_head list;
+};
 
-void aml_reo_sta_deinit(struct aml_hw *aml_hw, struct aml_sta *aml_sta);
+int aml_reo_session_create(struct aml_rx *rx, struct aml_sta *sta, u8 tid, u16 sz, u16 ssn);
+int aml_reo_session_delete(struct aml_rx *rx, struct aml_sta *sta, u8 tid);
 
-struct aml_reo_session *aml_reo_session_get(struct aml_hw *aml_hw, u8 sta_id, u8 tid);
+void aml_reo_sta_deinit(struct aml_rx *rx, struct aml_sta *aml_sta);
+
+struct aml_reo_session *aml_reo_session_get(struct aml_sta *sta, u8 tid);
 static inline void aml_reo_session_put(struct aml_reo_session *reo)
 {
-    spin_unlock_bh(&reo->lock);
+    spin_unlock(&reo->lock);
 }
 
 int aml_reo_session_timeout_set(struct aml_reo_session *reo, u16 tu);
-void aml_reo_suspend(struct aml_hw *aml_hw);
-int aml_reo_bar_process(struct aml_hw *aml_hw, u8 sta_id, struct sk_buff *skb);
+void aml_reo_reset_all(struct aml_rx *rx);
+void aml_reo_sta_addkey(struct aml_sta *sta);
+int aml_reo_bar_process(struct aml_rx *rx, struct aml_sta *sta, struct sk_buff *skb);
 void aml_reo_enqueue(struct aml_reo_session *reo, struct sk_buff *skb, struct sk_buff_head *frames);
 
+void aml_reo_aging(struct aml_reo_aging *reo_aging, struct sk_buff_head *frames);
+
 /* callback API */
-void aml_reo_forward(struct aml_hw *aml_hw, struct sk_buff_head *frames);
-u32 aml_rx_skb_signature(struct sk_buff *skb);
+void aml_reo_forward(struct aml_rx *rx, struct sk_buff_head *frames);
+void aml_reo_session_add_to_aging_list(struct aml_reo_session *reo);
 
 #endif /* AML_REORDER_H_ */

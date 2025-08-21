@@ -1,3 +1,10 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+* Copyright (C) 202X Original Author (retain original author information)
+* Copyright (C) 202X Amlogic, Inc. All rights reserved.
+*
+* Description:
+*/
 #ifndef __WIFI_W2_SHARED_MEM_CFG_H__
 #define __WIFI_W2_SHARED_MEM_CFG_H__
 
@@ -56,17 +63,6 @@ LA ON: rx buffer large size 0x30000, small size: 0x20000
 #define USB_RXBUF_END_ADDR_LARGE             (0x60067788) // tx end 0x6007fcc0
 #endif
 
-#define DCCM_TRACE_START_ADDR                 (0x820e28)
-#define DCCM_TRACE_END_ADDR                   (0x820e2c)
-#define HOST_DCCM_TRACE_END_ADDR              (0xd20e2c)
-
-/* trace use dccm 20K */
-#define TRACE_START_ADDR                 (0x820e30)
-#define TRACE_END_ADDR                   (0x825e30)
-
-#define TRACE_TOTAL_SIZE    (TRACE_END_ADDR - TRACE_START_ADDR)
-#define TRACE_MAX_SIZE      (TRACE_TOTAL_SIZE >> 1) /* trace max size is total size 1/2 */
-
 //sdio
 #define RX_BUFFER_LEN_SMALL              (RXBUF_END_ADDR_SMALL - RXBUF_START_ADDR)
 #define RX_BUFFER_LEN_LARGE              (RXBUF_END_ADDR_LARGE - RXBUF_START_ADDR)
@@ -91,37 +87,6 @@ enum sdio_usb_e2a_irq_type {
     EXCEPTION_IRQ,
 };
 
-struct sdio_buffer_control
-{
-    unsigned char flag;
-    unsigned int tx_start_time;
-    unsigned int tx_total_len;
-    unsigned int rx_start_time;
-    unsigned int rx_total_len;
-    unsigned int tx_rate;
-    unsigned int rx_rate;
-    unsigned int buffer_status;
-    unsigned int hwwr_switch_addr;
-
-#ifdef USB
-    bool     traffic_busy;
-#endif
-    bool     txdesp_rehandle;
-    uint8_t  txdesp_rehandle_page_idx;
-    uint8_t  free_page_cnt;
-    uint8_t  buf_update_flag;
-    uint8_t  rxl_has_pkt;
-    uint8_t  la_enable;
-    uint16_t tot_page_num;
-    uint32_t occupy_buffer;
-    uint32_t last_new_read;
-    uint8_t  usb_trace_enable;
-    uint8_t  usb_trace_reduce;
-    uint8_t  usb_trace_large;
-    uint8_t  usb_trace_en_lock;
-};
-extern struct sdio_buffer_control sdio_buffer_ctrl;
-
 #define BUFFER_TX_USED             BIT(0)
 #define BUFFER_RX_USED             BIT(1)
 #define BUFFER_TX_NEED_ENLARGE     BIT(2)
@@ -138,24 +103,29 @@ extern struct sdio_buffer_control sdio_buffer_ctrl;
 #define BUFFER_TRACE_USED          BIT(13)
 #define BUFFER_LA_FREE             BIT(14)
 #define BUFFER_TRACE_FREE          BIT(15)
+#define DYNAMIC_BUF_IS_ON_TX  ((sdio_buffer_ctrl.buffer_status) & (BUFFER_TX_USED))
+#define DYNAMIC_BUF_IS_ON_RX  ((sdio_buffer_ctrl.buffer_status) & (BUFFER_RX_USED))
 
-#define RX_ENLARGE_READ_RX_DATA_FINSH BIT(25)
-#define HOST_RXBUF_ENLARGE_FINSH      BIT(26)
-#define RX_REDUCE_READ_RX_DATA_FINSH  BIT(27)
-#define HOST_RXBUF_REDUCE_FINSH       BIT(28)
+//RG_WIFI_IF_FW2HST_IRQ_CFG buffer flag for firmware to host
+#define RX_WRAP_TEMP_FLAG               BIT(19)
+#define FW_BUFFER_NARROW                BIT(20)
+#define FW_BUFFER_EXPAND                BIT(21)
 
-#define FW_BUFFER_STATUS   (BIT(20) | BIT(21))
-#define FW_BUFFER_NARROW   BIT(20)
-#define FW_BUFFER_EXPAND   BIT(21)
-#define RX_WRAP_FLAG       BIT(31)
-#define RX_WRAP_TEMP_FLAG  BIT(19)
+//CMD_DOWN_FIFO_FDH_ADDR + 4 buffer flag for host to firmware
+#define RX_ENLARGE_READ_RX_DATA_FINISH  BIT(25)
+#define HOST_RXBUF_ENLARGE_FINISH       BIT(26)
+#define RX_REDUCE_READ_RX_DATA_FINISH   BIT(27)
+#define HOST_RXBUF_REDUCE_FINISH        BIT(28)
+
+#define RX_WRAP_FLAG                    BIT(31)
+#define FW_BUFFER_STATUS                (FW_BUFFER_NARROW | FW_BUFFER_EXPAND)
 
 #define RX_HAS_DATA        BIT(0)
 
 #define CHAN_SWITCH_IND_MSG_ADDR       (0xa17fc0)
 #define EXCEPTION_INFO_ADDR            (0xa17fc8)
 
-struct exceptinon_info
+struct exception_info
 {
     uint8_t  type;
     uint32_t mstatus_mps_bits;

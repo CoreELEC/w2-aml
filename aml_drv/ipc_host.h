@@ -18,6 +18,7 @@
  */
 #include "ipc_shared.h"
 #include "ipc_compat.h"
+#include "aml_task.h"
 
 /*
  * ENUMERATION
@@ -49,9 +50,6 @@ struct ipc_host_cb_tag
 {
     /// WLAN driver call-back function: send_data_cfm
     int (*send_data_cfm)(void *pthis, void *host_id);
-
-    /// WLAN driver call-back function: recv_data_ind
-    uint8_t (*recv_data_ind)(void *pthis, void *host_id);
 
     /// WLAN driver call-back function: recv_radar_ind
     uint8_t (*recv_radar_ind)(void *pthis, void *host_id);
@@ -394,9 +392,12 @@ uint32_t ipc_host_tx_host_ptr_to_id(struct ipc_host_env_tag *env, void *host_ptr
 void *ipc_host_tx_host_id_to_ptr(struct ipc_host_env_tag *env, uint32_t hostid);
 void *ipc_host_tx_host_id_to_ptr_for_sdio_usb(struct ipc_host_env_tag *env, uint32_t hostid);
 
-void ipc_host_irq_ext(struct ipc_host_env_tag *env, uint32_t status);
-void ipc_host_rxdesc_handler(struct ipc_host_env_tag *env);
-void ipc_host_txcfm_handler(struct ipc_host_env_tag *env);
+#ifdef CONFIG_AML_USE_TASK
+int aml_task_fn_irqhdlr(struct aml_task *t);
+int aml_task_fn_rxdesc(struct aml_task *t);
+#else
+void aml_pcie_task(unsigned long data);
+#endif
 
 struct debug_push_msginfo {
     u32 time;
@@ -418,6 +419,7 @@ struct aml_txdesc_trigger {
     u8 dynamic_cnt;
     u8 tx_pcie_ths;
 };
-#endif // _IPC_HOST_H_
 
 extern unsigned char g_pci_msg_suspend;
+
+#endif // _IPC_HOST_H_

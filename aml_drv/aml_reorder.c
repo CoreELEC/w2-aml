@@ -12,6 +12,7 @@
 
 #include <linux/bitmap.h>
 #include <linux/ieee80211.h>
+#include <net/ip.h>
 
 #include "aml_defs.h"
 #include "aml_utils.h"
@@ -24,6 +25,43 @@
 #define AML_REO_DUMP_INTERVAL   usecs_to_jiffies(10 * USEC_PER_SEC)
 
 static u16 aml_reo_timeout_per_tid[IEEE80211_NUM_UPS] = AML_REO_TIMEOUT_TU_DEFAULT;
+
+static inline u32 aml_rx_ip_signature(struct iphdr *iphdr)
+{
+    u32 sign = (u32)ntohs(iphdr->id) << 16;
+    void *hdr = (void *)iphdr + (iphdr->ihl << 2);
+
+    if (iphdr->protocol == IPPROTO_UDP)
+        sign |= ntohs(((struct udphdr *)hdr)->check);
+    else if (iphdr->protocol == IPPROTO_TCP)
+        sign |= ntohs(((struct tcphdr *)hdr)->check);
+
+    return sign;
+}
+
+/* return the first TCP/UDP msdu's IPv4 identification(high 16-bit) and TCP/UDP checksum(low 16-bit) */
+static inline u32 aml_rx_skb_signature(struct sk_buff *skb)
+{
+    struct aml_skb_rxcb *rxcb;
+    struct ethhdr *eth;
+
+    if (!skb)
+        return 0;
+
+    rxcb = AML_SKB_RXCB(skb);
+
+    if (rxcb->amsdu) {
+        skb = skb_peek(&rxcb->amsdu->msdus);
+        if (!skb)
+            return 0;
+    }
+
+    eth = (struct ethhdr *)skb->data;
+    if (eth->h_proto == htons(ETH_P_IP)) {
+        return aml_rx_ip_signature((struct iphdr *)(eth + 1));
+    }
+    return 0;
+}
 
 static inline long aml_reo_evt_msec(struct aml_reo_evt_record *rec)
 {
@@ -106,13 +144,14 @@ static inline int aml_reo_pn_check(struct aml_reo_session *reo, struct aml_rhd_e
         reo->pn_check = 1;
 
     if (reo->pn_check) {
-        if (!hd->pn_present || reo->pn >= hd->pn) {
+        if (!hd->pn_present || reo->pn >= hd->pn[0]) {
             ++reo->stats.pn_err;
             AML_RLMT_ERR("PN error! sta %d, tid %d, pn_present %d, pn %llu, last %llu\n",
-                         reo->sta_id, reo->tid, hd->pn_present, hd->pn, reo->pn);
+                         reo->sta_id, reo->tid,
+                         hd->pn_present, (unsigned long long)hd->pn[0], reo->pn);
             return -1;
         }
-        reo->pn = hd->pn;
+        reo->pn = hd->pn[0];
     }
     return 0;
 }
@@ -123,8 +162,8 @@ static int aml_reo_dequeue(struct aml_reo_session *reo, struct sk_buff_head *fra
     BUG_ON(!frames);
     lockdep_assert_held(&reo->lock);
 
-    if (aml_reo_pn_check(reo, AML_RHD_EXT(skb->data))) {
-        dev_kfree_skb(skb);
+    if (aml_reo_pn_check(reo, AML_RHD_EXT(skb))) {
+        aml_mpdu_free(skb);
         return -1;
     }
 
@@ -168,35 +207,30 @@ static void aml_reo_shift_to(struct aml_reo_session *reo, u16 ssn, struct sk_buf
         reo->lsn = sn;
 
     if (!aml_reo_has_buffer(reo))
-        del_timer(&reo->timer);
+        list_del_init(&reo->aging_entry);
 }
 
 static inline void aml_reo_entry_aging(struct aml_reo_session *reo, struct sk_buff_head *frames)
 {
     unsigned long now = jiffies;
 
-    if (aml_reo_has_buffer(reo)) {
-        if (reo->last_aging != now) {
-            int ssn = aml_reo_entry_expired_lsn(reo, now);
+    BUG_ON(!aml_reo_has_buffer(reo));
 
-            if (ssn >= 0) {
-                BUG_ON(ssn == reo->ssn);
-                aml_reo_evt_set(&reo->last.timeout, ssn);
-                aml_reo_shift_to(reo, ssn, frames);
-            }
-            reo->last_aging = now;
+    if (reo->last_aging != now) {
+        int ssn = aml_reo_entry_expired_lsn(reo, now);
+
+        if (ssn >= 0) {
+            BUG_ON(ssn == reo->ssn);
+            aml_reo_evt_set(&reo->last.timeout, ssn);
+            aml_reo_shift_to(reo, ssn, frames);
         }
-
-        if (aml_reo_has_buffer(reo))
-            mod_timer(&reo->timer, jiffies + (reo->timeout_ticks >> 2) + 1);
+        reo->last_aging = now;
     }
-    if (time_after(now, reo->stats.next_dump))
-        aml_reo_dump(reo);
 }
 
 void aml_reo_enqueue(struct aml_reo_session *reo, struct sk_buff *skb, struct sk_buff_head *frames)
 {
-    struct aml_rhd_ext *ext = AML_RHD_EXT(skb->data);
+    struct aml_rhd_ext *ext = AML_RHD_EXT(skb);
     u16 sn = ext->sn;
     int index = aml_reo_entry_index(reo, sn);
 
@@ -208,15 +242,14 @@ void aml_reo_enqueue(struct aml_reo_session *reo, struct sk_buff *skb, struct sk
     AML_DBG("skb %8p sn %d index %d sta %d tid %d [%4d ~ %4d]\n",
             skb, sn, index, reo->sta_id, reo->tid, reo->ssn, reo->lsn);
 
-    /* the first frame after power resume? */
-    if (reo->suspend) {
-        /* power is already resumed since a frame is received */
-        reo->suspend = 0;
+    /* the first frame after power resume or recovery? */
+    if (reo->reset) {
+        reo->reset = 0;
 
         BUG_ON(aml_reo_has_buffer(reo));    /* must be empty */
 
         /*
-         * during power suspend, frames of this session may be dropped by firmware.
+         * during power suspend or recovery, frames of this session may be dropped by firmware.
          * reset the session with the first frame's sn.
          */
         reo->ssn = reo->lsn = sn;
@@ -238,7 +271,7 @@ void aml_reo_enqueue(struct aml_reo_session *reo, struct sk_buff *skb, struct sk
                       aml_reo_evt_msec(&reo->last.bar),
                       aml_reo_evt_msec(&reo->last.out_win),
                       aml_reo_evt_msec(&reo->last.timeout));
-        dev_kfree_skb(skb);
+        aml_mpdu_free(skb);
 
         /* don't aging for this case */
         return;
@@ -264,16 +297,19 @@ void aml_reo_enqueue(struct aml_reo_session *reo, struct sk_buff *skb, struct sk
         AML_RLMT_WARN("skb %8p(%d) already exists at sn %d, index %d, new skb %8p(%d).\n",
                       skb0, skb0->len, sn, index, skb, skb->len);
         if (reo->pn_check || ext->pn_present) {
-            struct aml_rhd_ext *ext0 = AML_RHD_EXT(skb0->data);
+            struct aml_rhd_ext *ext0 = AML_RHD_EXT(skb0);
 
-            if (!ext0->pn_present || ext0->pn < ext->pn) {
+            if (!ext0->pn_present || ext0->pn[0] < ext->pn[0]) {
                 AML_RLMT_WARN("replace original skb %8p(%d) because pn %lld < %lld.\n",
-                              skb0, skb0->len, ext0->pn, ext->pn);
+                              skb0,
+                              skb0->len,
+                              (unsigned long long)ext0->pn[0],
+                              (unsigned long long)ext->pn[0]);
                 aml_reo_entry_skb_set(reo, index, skb);
                 skb = skb0;
             }
         }
-        dev_kfree_skb(skb);
+        aml_mpdu_free(skb);
     } else if (sn == reo->ssn) {
         if (aml_reo_dequeue(reo, frames, skb, index) == 0) {
             AML_DBG("skb %8p sn %d index %d just in order\n", skb, sn, index);
@@ -289,8 +325,9 @@ void aml_reo_enqueue(struct aml_reo_session *reo, struct sk_buff *skb, struct sk
         AML_DBG("skb %8p sn %d index %d out of order\n", skb, sn, index);
         if (ieee80211_sn_less(reo->lsn, sn))
             reo->lsn = sn;
+        if (reo->stats.in_buffer == 1)
+            aml_reo_session_add_to_aging_list(reo);
     }
-    aml_reo_entry_aging(reo, frames);
 }
 
 static void aml_reo_reset_ssn(struct aml_reo_session *reo, u16 ssn)
@@ -313,7 +350,7 @@ static void aml_reo_reset_ssn(struct aml_reo_session *reo, u16 ssn)
     reo->ssn = reo->lsn = ssn;
 }
 
-static void aml_reo_forward_to(struct aml_hw *aml_hw, struct aml_reo_session *reo, u16 ssn)
+static void aml_reo_forward_to(struct aml_rx *rx, struct aml_reo_session *reo, u16 ssn)
 {
     struct sk_buff_head frames;
 
@@ -337,16 +374,16 @@ static void aml_reo_forward_to(struct aml_hw *aml_hw, struct aml_reo_session *re
     }
     aml_reo_session_put(reo);
 
-    aml_reo_forward(aml_hw, &frames);
+    aml_reo_forward(rx, &frames);
 }
 
-static inline void aml_reo_forward_all(struct aml_hw *aml_hw, struct aml_reo_session *reo)
+static inline void aml_reo_forward_all(struct aml_rx *rx, struct aml_reo_session *reo)
 {
-    spin_lock_bh(&reo->lock);
-    aml_reo_forward_to(aml_hw, reo, reo->lsn);
+    spin_lock(&reo->lock);
+    aml_reo_forward_to(rx, reo, reo->lsn);
 }
 
-int aml_reo_bar_process(struct aml_hw *aml_hw, u8 sta_id, struct sk_buff *skb)
+int aml_reo_bar_process(struct aml_rx *rx, struct aml_sta *sta, struct sk_buff *skb)
 {
 #define IEEE80211_BAR_CTRL_GCR_MASK             (BIT(4) | BIT(3))
 
@@ -360,12 +397,12 @@ int aml_reo_bar_process(struct aml_hw *aml_hw, u8 sta_id, struct sk_buff *skb)
     struct per_tid {
         __le16 tid_info;
         __le16 start_seq_num;
-    };
+    } __packed;
 
     struct ieee80211_bar *bar = (struct ieee80211_bar *)skb->data;
     int len = skb->len - offsetof(struct ieee80211_bar, start_seq_num);
 
-    if (len >= sizeof(bar->start_seq_num)) {
+    if (sta && len >= sizeof(bar->start_seq_num)) {
         struct per_tid *end = (void *)(skb->data + skb->len);
         struct per_tid *per = (void *)&bar->control;    /* if non-MULTI_TID */
         u16 control = le16_to_cpu(bar->control);
@@ -392,7 +429,7 @@ int aml_reo_bar_process(struct aml_hw *aml_hw, u8 sta_id, struct sk_buff *skb)
             break;
         }
 
-        AML_INFO("BAR: sta %u [%d] %*ph\n", sta_id, skb->len, (int)skb->len, skb->data);
+        AML_INFO("BAR: sta %u [%d] %*ph\n", sta->sta_idx, skb->len, (int)skb->len, skb->data);
 
         for (; per < end; per++) {
             struct aml_reo_session *reo;
@@ -402,12 +439,12 @@ int aml_reo_bar_process(struct aml_hw *aml_hw, u8 sta_id, struct sk_buff *skb)
             if (tid >= IEEE80211_NUM_UPS)
                 goto malformed;
 
-            reo = aml_reo_session_get(aml_hw, sta_id, tid);
+            reo = aml_reo_session_get(sta, tid);
             if (reo)
-                aml_reo_forward_to(aml_hw, reo,
+                aml_reo_forward_to(rx, reo,
                                    IEEE80211_SEQ_TO_SN(le16_to_cpu(per->start_seq_num)));
             else
-                AML_RLMT_WARN("no REO session! sta %u tid %u\n", sta_id, tid);
+                AML_RLMT_WARN("no REO session! sta %u tid %u\n", sta->sta_idx, tid);
         }
         return 0;
     }
@@ -416,21 +453,18 @@ malformed:
     return -1;
 }
 
-static void aml_reo_reorder_timer_expired(struct timer_list *t)
+void aml_reo_aging(struct aml_reo_aging *reo_aging, struct sk_buff_head *frames)
 {
-    struct aml_reo_session *reo = from_timer(reo, t, timer);
-    struct sk_buff_head frames;
+    struct aml_reo_session *reo, *next;
 
-    __skb_queue_head_init(&frames);
-
-    spin_lock(&reo->lock);
-    aml_reo_entry_aging(reo, &frames);
-    spin_unlock(&reo->lock);
-
-    aml_reo_forward(reo->hw, &frames);
+    list_for_each_entry_safe(reo, next, &reo_aging->list, aging_entry) {
+        spin_lock(&reo->lock);
+        aml_reo_entry_aging(reo, frames);
+        spin_unlock(&reo->lock);
+    }
 }
 
-static void aml_reo_session_release(struct aml_hw *aml_hw, struct aml_sta *sta, u8 tid)
+static void aml_reo_session_release(struct aml_rx *rx, struct aml_sta *sta, u8 tid)
 {
     struct aml_reo_session *reo = sta->reos[tid];
 
@@ -444,16 +478,15 @@ static void aml_reo_session_release(struct aml_hw *aml_hw, struct aml_sta *sta, 
 
     sta->reos[tid] = NULL;  /* firstly detach it from station */
 
-    del_timer_sync(&reo->timer);
-    aml_reo_forward_all(aml_hw, reo);
+    list_del_init(&reo->aging_entry);
+    aml_reo_forward_all(rx, reo);
     aml_reo_dump(reo);
 
     kfree(reo);
 }
 
-struct aml_reo_session *aml_reo_session_get(struct aml_hw *aml_hw, u8 sta_id, u8 tid)
+struct aml_reo_session *aml_reo_session_get(struct aml_sta *sta, u8 tid)
 {
-    struct aml_sta *sta = aml_sta_get(aml_hw, sta_id);
     struct aml_reo_session *reo;
 
     if (!sta)
@@ -466,17 +499,17 @@ struct aml_reo_session *aml_reo_session_get(struct aml_hw *aml_hw, u8 sta_id, u8
     if (!reo)
         return NULL;
 
-    spin_lock_bh(&reo->lock);
+    spin_lock(&reo->lock);
 
     return reo;
 }
 
-/* forward all buffered frames and set flag suspend to all reorder sessions */
-void aml_reo_suspend(struct aml_hw *aml_hw)
+/* forward all buffered frames and set reset flag to all reorder sessions */
+void aml_reo_reset_all(struct aml_rx *rx)
 {
     int sta_id;
     u8 tid;
-    struct aml_sta *sta = aml_hw->sta_table;
+    struct aml_sta *sta = aml_rx2hw(rx)->sta_table;
 
     for (sta_id = 0; sta_id < NX_REMOTE_STA_MAX; sta_id++, sta++) {
         if (!sta->valid)
@@ -486,8 +519,8 @@ void aml_reo_suspend(struct aml_hw *aml_hw)
             struct aml_reo_session *reo = sta->reos[tid];
 
             if (reo) {
-                reo->suspend = 1;
-                aml_reo_forward_all(aml_hw, reo);
+                reo->reset = 1;
+                aml_reo_forward_all(rx, reo);
             }
         }
     }
@@ -507,9 +540,8 @@ int aml_reo_session_timeout_set(struct aml_reo_session *reo, u16 tu)
     return 0;
 }
 
-int aml_reo_session_create(struct aml_hw *aml_hw, u8 sta_id, u8 tid, u16 sz, u16 ssn)
+int aml_reo_session_create(struct aml_rx *rx, struct aml_sta *sta, u8 tid, u16 sz, u16 ssn)
 {
-    struct aml_sta *sta = aml_sta_get(aml_hw, sta_id);
     struct aml_reo_session *reo;
     u16 max_buf_sz;
     u16 win_size = 1;
@@ -520,9 +552,10 @@ int aml_reo_session_create(struct aml_hw *aml_hw, u8 sta_id, u8 tid, u16 sz, u16
     BUG_ON((win_size >> 1) >= sz);
     BUG_ON(win_size > IEEE80211_SN_MODULO);
 
-    AML_RLMT_NOTICE("sta %u tid %u ssn %u sz %u(%u)\n", sta_id, tid, ssn, sz, win_size);
     if (!sta)
         goto del_ba;
+
+    AML_RLMT_NOTICE("%pM: tid %u ssn %u sz %u(%u)\n", sta->mac_addr, tid, ssn, sz, win_size);
 
     if (WARN_ON(tid >= ARRAY_SIZE(sta->reos)))
         goto del_ba;
@@ -530,10 +563,10 @@ int aml_reo_session_create(struct aml_hw *aml_hw, u8 sta_id, u8 tid, u16 sz, u16
         goto del_ba;
 
     max_buf_sz = sta->he ? IEEE80211_MAX_AMPDU_BUF : IEEE80211_MAX_AMPDU_BUF_HT;
-    if (sz == 0 || WARN_ON(sz > max_buf_sz))
-        sz = max_buf_sz;
     if (WARN_ON(sz < 1))
         sz = 1;
+    else if (WARN_ON(sz > max_buf_sz))
+        sz = max_buf_sz;
 
     reo = sta->reos[tid];
     if (reo) {
@@ -542,13 +575,13 @@ int aml_reo_session_create(struct aml_hw *aml_hw, u8 sta_id, u8 tid, u16 sz, u16
          * then AP will "re-ADDBA" to shift SSN without DELBA prior.
          */
         if (reo->buf_size == sz) {
-            spin_lock_bh(&reo->lock);
-            aml_reo_forward_to(aml_hw, reo, ssn);
+            spin_lock(&reo->lock);
+            aml_reo_forward_to(rx, reo, ssn);
             return 0;
         }
         AML_RLMT_WARN("a new reo session will be rebuilt! new buffer size %d != %d\n",
                       sz, reo->buf_size);
-        aml_reo_session_release(aml_hw, sta, tid);
+        aml_reo_session_release(rx, sta, tid);
     }
 
     reo = kzalloc(sizeof(struct aml_reo_session)
@@ -560,9 +593,10 @@ int aml_reo_session_create(struct aml_hw *aml_hw, u8 sta_id, u8 tid, u16 sz, u16
         goto del_ba;
     }
 
+    /* coverity[USELESS_CALL], spinlock_check(_lock); */
     spin_lock_init(&reo->lock);
-    reo->hw = aml_hw;
-    reo->sta_id = sta_id;
+    reo->rx = rx;
+    reo->sta_id = sta->sta_idx;
     reo->tid = tid;
     reo->buf_size = sz;
     reo->win_size = win_size;
@@ -573,7 +607,7 @@ int aml_reo_session_create(struct aml_hw *aml_hw, u8 sta_id, u8 tid, u16 sz, u16
     reo->pn_check = 0;
 
     aml_reo_session_timeout_set(reo, aml_reo_timeout_per_tid[tid]);
-    timer_setup(&reo->timer, aml_reo_reorder_timer_expired, 0 /* TIMER_DEFERRABLE? */);
+    INIT_LIST_HEAD(&reo->aging_entry);
     reo->last_rx = jiffies;
     reo->last_aging = jiffies;
 
@@ -590,29 +624,45 @@ int aml_reo_session_create(struct aml_hw *aml_hw, u8 sta_id, u8 tid, u16 sz, u16
     return 0;
 
 del_ba:
-    AML_RLMT_ERR("FIXME: delete BA since it's invalid!\n");
+    AML_RLMT_ERR("FIXME: delete BA (sta %p)!\n", sta);
     return -1;
 }
 
-int aml_reo_session_delete(struct aml_hw *aml_hw, u8 sta_id, u8 tid)
+int aml_reo_session_delete(struct aml_rx *rx, struct aml_sta *sta, u8 tid)
 {
-    struct aml_sta *sta = aml_sta_get(aml_hw, sta_id);
-
-    AML_RLMT_NOTICE("sta %u tid %u\n", sta_id, tid);
     if (!sta) {
-        AML_RLMT_ERR("reo sta not found!\n");
+        AML_RLMT_ERR("no sta!\n");
         return -1;
     }
 
-    aml_reo_session_release(aml_hw, sta, tid);
+    AML_RLMT_NOTICE("sta %u tid %u\n", sta->sta_idx, tid);
+    aml_reo_session_release(rx, sta, tid);
 
     return 0;
 }
 
-void aml_reo_sta_deinit(struct aml_hw *aml_hw, struct aml_sta *aml_sta)
+void aml_reo_sta_deinit(struct aml_rx *rx, struct aml_sta *aml_sta)
 {
     u8 tid;
 
     for (tid = 0; tid < ARRAY_SIZE(aml_sta->reos); tid++)
-        aml_reo_session_release(aml_hw, aml_sta, tid);
+        aml_reo_session_release(rx, aml_sta, tid);
+}
+
+void aml_reo_sta_addkey(struct aml_sta *sta)
+{
+    int i = 0;
+    struct aml_reo_session *reo = NULL;
+
+    if (!sta)
+        return;
+
+    for (i = 0; i < IEEE80211_NUM_UPS; i++) {
+        reo = sta->reos[i];
+        if (reo) {
+            AML_ERR("tid:%d old pn %llu", i, reo->pn);
+            reo->pn = 0;
+            reo->pn_check = 1;
+        }
+    }
 }

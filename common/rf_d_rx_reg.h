@@ -1,3 +1,11 @@
+
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+* Copyright (C) 202X Original Author (retain original author information)
+* Copyright (C) 202X Amlogic, Inc. All rights reserved.
+*
+* Description:
+*/
 #ifdef RF_D_RX_REG
 #else
 #define RF_D_RX_REG
@@ -1774,7 +1782,7 @@ typedef union RG_RX_A67_FIELD
 // Bit 11          rg_wf2g_txlpbk2tia_en          U     RW        default = 'h0
 // Bit 12          rg_wf_rx_adcbuf_en             U     RW        default = 'h0
 // Bit 16  :13     rg_wf_rx_adcbuf_sra_sel        U     RW        default = 'h0
-// Bit 20          rg_wf_rx_lpf_rfix_conect_en     U     RW        default = 'h0
+// Bit 20          rg_wf_rx_lpf_rfix_connect_en     U     RW        default = 'h0
 // Bit 25  :24     rg_wf_rx_rssipga_rcc           U     RW        default = 'h0
 // Bit 29  :28     rg_wf_rx_rssipga_rcm           U     RW        default = 'h0
 typedef union RG_RX_A68_FIELD
@@ -1797,7 +1805,7 @@ typedef union RG_RX_A68_FIELD
     unsigned int RG_WF_RX_ADCBUF_EN : 1;
     unsigned int RG_WF_RX_ADCBUF_SRA_SEL : 4;
     unsigned int rsvd_0 : 3;
-    unsigned int RG_WF_RX_LPF_RFIX_CONECT_EN : 1;
+    unsigned int RG_WF_RX_LPF_RFIX_CONNECT_EN : 1;
     unsigned int rsvd_1 : 3;
     unsigned int RG_WF_RX_RSSIPGA_RCC : 2;
     unsigned int rsvd_2 : 2;

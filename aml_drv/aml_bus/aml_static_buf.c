@@ -1,175 +1,111 @@
-#include "aml_static_buf.h"
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+* Copyright (C) 202X Original Author (retain original author information)
+* Copyright (C) 202X Amlogic, Inc. All rights reserved.
+*
+* Description:
+*/
 #include <linux/kernel.h>
-#include <linux/skbuff.h>
+#include <linux/slab.h>
+
+#include "aml_static_buf.h"
 #include "aml_log.h"
 
-void* wlan_static_hw_rx_buf;
-void* wlan_static_sdio_buf;
-void* wlan_static_amsdu_buf;
-void* wlan_static_trace_ptr_expend_buf;
-void* wlan_static_trace_str_expend_buf;
-void* wlan_static_aml_buf_type_txq;
-void* wlan_static_aml_buf_type_dump;
-void* wlan_static_download_fw;
+static const struct {
+    const char *name;
+    size_t size;
+} pre_buf_infos[PREALLOC_BUF_TYPE_MAX] = {
+#define PREALLOC_INFO(n) [PREALLOC_##n] = { #n, PREALLOC_##n##_SIZE }
+    PREALLOC_INFO(BUF_FW_DL),
+    PREALLOC_INFO(BUF_BUS),
+    PREALLOC_INFO(BUF_TYPE_DUMP),
+    PREALLOC_INFO(BUF_TYPE_RXBUF),
+    PREALLOC_INFO(BUF_TYPE_TXQ),
+    PREALLOC_INFO(BUF_TYPE_AMSDU),
+    PREALLOC_INFO(TRACE_PTR_EXPEND),
+    PREALLOC_INFO(TRACE_STR_EXPEND),
+#undef PREALLOC_INFO
+};
 
-void* aml_mem_prealloc(int section, unsigned long size)
+static struct {
+    void *buf;
+    size_t actual_size;
+} pre_bufs[PREALLOC_BUF_TYPE_MAX];
+
+void *__aml_mem_prealloc(enum prealloc_buf_type buf_type, size_t req_size, size_t *actual_size)
 {
-    pr_info("sectoin %d, size %ld\n", section, size);
+    void *buf = NULL;
+    const char *name;
 
-    if (section == AML_PREALLOC_BUF_TYPE_TXQ) {
-        if (size > AML_PREALLOC_BUF_TYPE_TXQ_SIZE) {
-            pr_err("request aml BUF_TYPE_TXQ size(%lu) > %d\n",
-                size, AML_PREALLOC_BUF_TYPE_TXQ_SIZE);
-            return NULL;
-        }
-        return wlan_static_aml_buf_type_txq;
+    if (buf_type >= PREALLOC_BUF_TYPE_MAX) {
+        AML_ERR("type %d (>= %d) is invalid!\n", buf_type, PREALLOC_BUF_TYPE_MAX);
+        return NULL;
     }
 
-    if (section == AML_PREALLOC_BUF_TYPE_DUMP) {
-        if (size > AML_PREALLOC_BUF_TYPE_DUMP_SIZE) {
-            pr_err("request AML_PREALLOC_BUF_TYPE_DUMP(%lu) > %d\n",
-                size, AML_PREALLOC_BUF_TYPE_DUMP_SIZE);
-            return NULL;
-        }
+    name = pre_buf_infos[buf_type].name;
+    buf = pre_bufs[buf_type].buf;
+    if (actual_size)
+        *actual_size = pre_bufs[buf_type].actual_size;
 
-        return wlan_static_aml_buf_type_dump;
-    }
+    if (pre_bufs[buf_type].actual_size >= req_size)
+        AML_INFO("PREALLOC_%s req size %d\n", name, (int)req_size);
+    else if (actual_size)
+        AML_WARN("PREALLOC_%s actual size %d < %d\n", name, (int)(*actual_size), (int)req_size);
+    else
+        buf = NULL;
 
-    if (section == AML_PREALLOC_DOWNLOAD_FW) {
-        if (size > FW_VERBOSE_RING_SIZE) {
-            pr_err("request DHD_PREALLOC_FW_VERBOSE_RING(%lu) > %d\n",
-                size, FW_VERBOSE_RING_SIZE);
-            return NULL;
-        }
-
-        return wlan_static_download_fw;
-    }
-
-    if (section == AML_PREALLOC_HW_RX) {
-        if (size > WLAN_AML_HW_RX_SIZE) {
-            pr_err("request WLAN_AML_HW_RX_SIZE(%lu) > %d\n",
-                size, WLAN_AML_HW_RX_SIZE);
-            return NULL;
-        }
-        return wlan_static_hw_rx_buf;
-    }
-    if (section == AML_PREALLOC_SDIO) {
-        if (size > WLAN_AML_SDIO_SIZE) {
-            pr_err("request WLAN_AML_SDIO_SIZE(%lu) > %d\n",
-                size, WLAN_AML_SDIO_SIZE);
-            return NULL;
-        }
-        return wlan_static_sdio_buf;
-    }
-
-    if (section == AML_PREALLOC_AMSDU) {
-        if (size > WLAN_AML_AMSDU_SIZE) {
-            pr_err("request WLAN_AML_AMSDU_SIZE(%lu) > %d\n",
-                size, WLAN_AML_AMSDU_SIZE);
-            return NULL;
-        }
-        return wlan_static_amsdu_buf;
-    }
-
-    if (section == AML_PREALLOC_TRACE_PTR_EXPEND_BUF) {
-           if (size > AML_PREALLOC_TRACE_PTR_EXPEND_BUF_SIZE) {
-               pr_err("request AML_PREALLOC_TRACE_PTR_EXPEND_BUF_SIZE(%lu) > %d\n",
-                   size, AML_PREALLOC_TRACE_PTR_EXPEND_BUF_SIZE);
-               return NULL;
-           }
-           return wlan_static_trace_ptr_expend_buf;
-       }
-
-       if (section == AML_PREALLOC_TRACE_STR_EXPEND_BUF) {
-           if (size > AML_PREALLOC_TRACE_STR_EXPEND_BUF_SIZE) {
-               pr_err("request AML_PREALLOC_TRACE_STR_EXPEND_BUF_SIZE(%lu) > %d\n",
-                   size, AML_PREALLOC_TRACE_STR_EXPEND_BUF_SIZE);
-               return NULL;
-           }
-           return wlan_static_trace_str_expend_buf;
-       }
-
-    if (section < 0 || section > AML_PREALLOC_MAX)
-        pr_err("request section id(%d) is out of max index %d\n",
-            section, AML_PREALLOC_MAX);
-
-    pr_err("%s: failed to alloc section %d, size=%ld\n",
-        __func__, section, size);
-
-    return NULL;
+    if (!buf)
+        AML_ERR("PREALLOC_%s req size %d: no memory!\n", name, (int)req_size);
+    return buf;
 }
-EXPORT_SYMBOL(aml_mem_prealloc);
-
-int aml_init_wlan_mem(void)
-{
-    wlan_static_aml_buf_type_txq = kzalloc(AML_PREALLOC_BUF_TYPE_TXQ_SIZE, GFP_KERNEL);
-    if (!wlan_static_aml_buf_type_txq)
-        goto err_mem_alloc0;
-
-    wlan_static_aml_buf_type_dump = kzalloc(AML_PREALLOC_BUF_TYPE_DUMP_SIZE, GFP_KERNEL);
-    if (!wlan_static_aml_buf_type_dump) {
-        /* alloc large memory fail sometimes, for example after OTA upgrade */
-        wlan_static_aml_buf_type_dump = kzalloc(AML_PREALLOC_BUF_TYPE_DUMP_SIZE, GFP_KERNEL | __GFP_NOFAIL);
-        if (!wlan_static_aml_buf_type_dump)
-            goto err_mem_alloc1;
-    }
-    wlan_static_download_fw = kzalloc(FW_VERBOSE_RING_SIZE, GFP_KERNEL);
-    if (!wlan_static_download_fw)
-        goto err_mem_alloc2;
-
-    wlan_static_hw_rx_buf = kzalloc(WLAN_AML_HW_RX_SIZE, GFP_KERNEL);
-    if (!wlan_static_hw_rx_buf) {
-        /* alloc large memory fail sometimes, for example after OTA upgrade */
-        wlan_static_hw_rx_buf = kzalloc(WLAN_AML_HW_RX_SIZE, GFP_KERNEL | __GFP_NOFAIL);
-        if (!wlan_static_hw_rx_buf)
-            goto err_mem_alloc3;
-    }
-    wlan_static_sdio_buf = kzalloc(WLAN_AML_SDIO_SIZE, GFP_KERNEL);
-    if (!wlan_static_sdio_buf)
-        goto err_mem_alloc4;
-
-    wlan_static_amsdu_buf = kzalloc(WLAN_AML_AMSDU_SIZE, GFP_KERNEL);
-    if (!wlan_static_amsdu_buf)
-        goto err_mem_alloc5;
-
-    wlan_static_trace_ptr_expend_buf = kzalloc(AML_PREALLOC_TRACE_PTR_EXPEND_BUF_SIZE, GFP_KERNEL);
-    if (!wlan_static_trace_ptr_expend_buf)
-        goto err_mem_alloc6;
-
-    wlan_static_trace_str_expend_buf = kzalloc(AML_PREALLOC_TRACE_STR_EXPEND_BUF_SIZE, GFP_KERNEL);
-    if (!wlan_static_trace_str_expend_buf)
-        goto err_mem_alloc7;
-
-    pr_info("%s ok\n", __func__);
-    return 0;
-
-err_mem_alloc7:
-    kfree(wlan_static_trace_str_expend_buf);
-err_mem_alloc6:
-    kfree(wlan_static_trace_ptr_expend_buf);
-err_mem_alloc5:
-    kfree(wlan_static_sdio_buf);
-err_mem_alloc4:
-    kfree(wlan_static_hw_rx_buf);
-err_mem_alloc3:
-    kfree(wlan_static_download_fw);
-err_mem_alloc2:
-    kfree(wlan_static_aml_buf_type_dump);
-err_mem_alloc1:
-    kfree(wlan_static_aml_buf_type_txq);
-err_mem_alloc0:
-    return -ENOMEM;
-}
+EXPORT_SYMBOL(__aml_mem_prealloc);
 
 void aml_deinit_wlan_mem(void)
 {
+    int i;
+
     AML_FN_ENTRY();
-    kfree(wlan_static_amsdu_buf);
-    kfree(wlan_static_sdio_buf);
-    kfree(wlan_static_hw_rx_buf);
-    kfree(wlan_static_download_fw);
-    kfree(wlan_static_aml_buf_type_dump);
-    kfree(wlan_static_aml_buf_type_txq);
-    kfree(wlan_static_trace_ptr_expend_buf);
-    kfree(wlan_static_trace_str_expend_buf);
+
+    for (i = 0; i < PREALLOC_BUF_TYPE_MAX; i++) {
+        void *buf = pre_bufs[i].buf;
+
+        if (buf) {
+            kfree(buf);
+            pre_bufs[i].buf = NULL;
+        }
+    }
+}
+
+int aml_init_wlan_mem(void)
+{
+    int i;
+
+    for (i = 0; i < PREALLOC_BUF_TYPE_MAX; i++) {
+        size_t size = pre_buf_infos[i].size;
+        void *buf = kzalloc(size, GFP_KERNEL);
+
+        if (!buf && i == PREALLOC_BUF_TYPE_RXBUF) {
+            /* after OTA upgrade, large memory may fail, try small one */
+            size >>= 1;
+            buf = kzalloc(size, GFP_KERNEL);
+            if (!buf) {
+                size >>= 1;
+                buf = kzalloc(size, GFP_KERNEL | __GFP_NOFAIL);
+            }
+            if (buf)
+                AML_WARN("PREALLOC_%s gets smaller (%zd bytes)!\n", pre_buf_infos[i].name, size);
+        }
+
+        /* try again for no-RX buffer if system is temporarily out of resource */
+        if (!buf && !(buf = kzalloc(size, GFP_KERNEL | __GFP_NOFAIL))) {
+            AML_ERR("no memory for PREALLOC_%s (%zd bytes)!\n", pre_buf_infos[i].name, size);
+            aml_deinit_wlan_mem();
+            return -ENOMEM;
+        }
+        pre_bufs[i].buf = buf;
+        pre_bufs[i].actual_size = size;
+    }
+
+    AML_INFO("OK\n");
+    return 0;
 }

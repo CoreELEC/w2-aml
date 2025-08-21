@@ -138,7 +138,7 @@ static ssize_t aml_dbgfs_mactrace_read(struct file *file,
 
     mutex_lock(&priv->dbgdump.mutex);
     if (!priv->debugfs.trace_prst) {
-        char msg[64];
+        char msg[64] = {0};
         mutex_unlock(&priv->dbgdump.mutex);
         scnprintf(msg, sizeof(msg), "Force trigger\n");
         aml_dbgfs_trigger_fw_dump(priv, msg);
@@ -495,7 +495,9 @@ static void aml_um_helper_work(struct work_struct *ws)
                                                      helper_work);
     struct aml_hw *aml_hw = container_of(aml_debugfs, struct aml_hw,
                                            debugfs);
+
     aml_um_helper(aml_debugfs, NULL);
+
     if (!aml_debugfs->unregistering)
         aml_umh_done(aml_hw);
     aml_debugfs->helper_scheduled = false;
@@ -506,12 +508,13 @@ int aml_trigger_um_helper(struct aml_debugfs *aml_debugfs)
     struct aml_hw *aml_hw = container_of(aml_debugfs, struct aml_hw,
                                            debugfs);
 
+    spin_lock_bh(&aml_debugfs->umh_lock);
     if (aml_debugfs->helper_scheduled == true) {
+        spin_unlock_bh(&aml_debugfs->umh_lock);
         dev_err(aml_hw->dev, "%s: Already scheduled\n", __func__);
         return -EBUSY;
     }
 
-    spin_lock_bh(&aml_debugfs->umh_lock);
     if (aml_debugfs->unregistering) {
         spin_unlock_bh(&aml_debugfs->umh_lock);
         dev_err(aml_hw->dev, "%s: unregistering\n", __func__);
@@ -544,6 +547,7 @@ int aml_dbgfs_register_fw_dump(struct aml_hw *aml_hw,
     DEBUGFS_ADD_FILE(um_helper, dir_drv, S_IWUSR | S_IRUSR);
 
     aml_debugfs->trace_prst = aml_debugfs->helper_scheduled = false;
+    /* coverity[side_effect_free] - standard kernel interface */
     spin_lock_init(&aml_debugfs->umh_lock);
     DEBUGFS_ADD_FILE(rhd,       dir_diags, S_IRUSR);
     DEBUGFS_ADD_FILE(rbd,       dir_diags, S_IRUSR);

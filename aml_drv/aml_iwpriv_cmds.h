@@ -1,10 +1,18 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+* Copyright (C) 202X Original Author (retain original author information)
+* Copyright (C) 202X Amlogic, Inc. All rights reserved.
+*
+* Description:
+*/
 #ifndef __AML_IWPRIV_CMD_H
 #define __AML_IWPRIV_CMD_H
 #include <net/iw_handler.h>
 #include "aml_log.h"
 
 extern struct iw_handler_def iw_handle;
-extern int aml_get_txq(struct net_device *dev);
+int aml_get_txq(struct net_device *dev);
+int aml_set_fwlog_cmd(struct net_device *dev, int mode);
 
 enum aml_iwpriv_subcmd
 {
@@ -87,7 +95,7 @@ enum aml_iwpriv_subcmd
     AML_IWP_SET_BT_MAC_EFUSE = 77,
     AML_IWP_GET_BT_MAC_FROM_EFUSE = 78,
     AML_IWP_SET_LIMIT_POWER = 79,
-    AML_IWP_ENABLE_SDIO_CAL_SPEED = 80,
+    /* AML_IWP_ENABLE_SDIO_CAL_SPEED = 80, */
     AML_IWP_GET_XOSC_OFFSET = 81,
     AML_IWP_GET_CSI_STATUS_COM = 82,
     AML_IWP_GET_CSI_STATUS_SP = 83,
@@ -115,7 +123,7 @@ enum aml_iwpriv_subcmd
     AML_IWP_SET_DC_TONE = 103,
     AML_IWP_STOP_DC_TONE = 104,
     AML_IWP_FIX_TX_PWR = 105,
-#ifdef CONFIG_SDIO_TX_ENH
+#if 0
     AML_IWP_GET_SDIO_TX_ENH_STATS = 106,
     AML_IWP_RESET_SDIO_TX_ENH_STATS = 107,
     AML_IWP_SET_TXCFM_READ_THR = 108,
@@ -134,8 +142,9 @@ enum aml_iwpriv_subcmd
     AML_IWP_GET_BT_DIGITAL_GAIN_EFUSE_TIMES = 120,
     AML_IWP_SET_BT_DIGITAL_GAIN = 121,
     AML_IWP_GET_BT_DIGITAL_GAIN = 122,
+#ifdef CONFIG_TCP_WIN_SCALE
     AML_IWP_SET_TCP_ACK_WINDOW_SCALE = 123,
-    AML_IWP_SET_MDNS_OFFLOAD_DEBUG = 124,
+#endif
     AML_IWP_SET_BEACON_TIMEOUT = 125,
     AML_IWP_SET_BINDWITH_CAP = 126,
     AML_IWP_SET_AGG_TX = 127,
@@ -146,6 +155,14 @@ enum aml_iwpriv_subcmd
     AML_IWP_DEL_APF_PROGRAM = 132,
     AML_IWP_GET_APF_STATUS = 133,
     AML_IWP_SET_APF_MAC_ADDR = 134,
+    AML_IWP_LEGACY_SET_REG = 135,
+    AML_IWP_LEGACY_SET_RF_REG = 136,
+    AML_IWP_GET_PS_INFO = 137,
+    AML_IWP_GET_TEMP = 138,
+    AML_IWP_SET_PROT_TYPE = 139,
+    AML_IWP_CLOSE_SOCKET = 140,
+    AML_IWP_SET_REGDOM_EN = 141,
+    AML_IWP_SET_COEX_MODE = 142,
 };
 
 #define IW_PRIV_INT_SIZE_MASK   0x01FF

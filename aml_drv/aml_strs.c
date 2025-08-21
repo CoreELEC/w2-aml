@@ -10,7 +10,9 @@
  ******************************************************************************
  */
 
+#include "aml_strs.h"
 #include "lmac_msg.h"
+#include "aml_strs.h"
 
 static const char *const aml_mmid2str[MSG_I(MM_MAX)] = {
     [MSG_I(MM_RESET_REQ)]                 = "MM_RESET_REQ",
@@ -148,7 +150,6 @@ const char *const aml_mm_other_id2str[MM_SUB_A2E_MAX] = {
     [MM_SUB_SET_PT_CALIBRATION]      = "MM_SUB_SET_PT_CALIBRATION",
     [MM_SUB_NOTIFY_IP]               = "MM_SUB_NOTIFY_IP",
     [MM_SUB_CALIBRATION]             = "MM_SUB_CALIBRATION",
-    [MM_SUB_READ_EFUSE]              = "MM_SUB_READ_EFUSE",
     [MM_SUB_SET_TEMP_START]          = "MM_SUB_SET_TEMP_START",
     [MM_SUB_ENABLE_WF]               = "MM_SUB_ENABLE_WF",
     [MM_SUB_SEND_FWLOG]              = "MM_SUB_SEND_FWLOG",
@@ -180,7 +181,8 @@ const char *const aml_mm_other_id2str[MM_SUB_A2E_MAX] = {
     [MM_SUB_TX_FLUSH]                = "MM_SUB_TX_FLUSH",
     [MM_SUB_SET_LINKLOSS_THRESHOLD]  = "MM_SUB_SET_LINKLOSS_THRESHOLD",
     [MM_SUB_SET_AGG_REQ]             = "MM_SUB_SET_AGG_REQ",
-
+    [MM_SUB_SET_PROT_TYPE]           = "MM_SUB_SET_PROT_TYPE",
+    [MM_SUB_REGDOM_EN]               = "MM_SUB_REGDOM_EN",
 };
 
 static const char *const aml_dbgid2str[MSG_I(DBG_MAX)] = {

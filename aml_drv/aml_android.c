@@ -53,7 +53,8 @@ static int aml_android_get_rssi(struct aml_vif *vif, char *cmdstr, int len)
         struct aml_plat *aml_plat = vif->aml_hw->plat;
 
         // Generic info
-        rssi = (AML_REG_READ(aml_plat, AML_ADDR_MAC_PHY, REG_OF_SYNC_RSSI) & 0xffff) - 256;
+        rssi = AML_SHOW_RSSI(AML_REG_READ(aml_plat, AML_ADDR_MAC_PHY, REG_OF_SYNC_RSSI) & 0xff);
+        /* coverity[overrun-buffer-val] - the string 'ssid' is configured without a null terminator */
         bytes = snprintf(&cmdstr[bytes], len, "%s rssi %d\n",
                 ssid_sprintf(vif->sta.assoc_ssid, vif->sta.assoc_ssid_len), rssi);
     }
@@ -114,7 +115,7 @@ int aml_android_priv_ioctl(struct aml_vif *vif, void __user *data)
     if (cmd.total_len > AML_ANDROID_CMD_MAX_LEN || cmd.total_len < 0)
         return -EFAULT;
 
-    resp = kmalloc(cmd.total_len, GFP_KERNEL);
+    resp = kzalloc(cmd.total_len, GFP_KERNEL);
     if (!resp) {
         ret = -ENOMEM;
         goto exit;

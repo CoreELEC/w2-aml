@@ -49,7 +49,7 @@ void dump_apf_program(const u8 *program, size_t length) {
  * Return:
  *   0 on success, or a negative error code on failure.
  */
-int aml_cfgvendor_apf_get_capabilities(struct wiphy *wiphy,
+static int aml_cfgvendor_apf_get_capabilities(struct wiphy *wiphy,
     struct wireless_dev *wdev, const void *data, int len)
 {
     struct net_device *ndev = wdev->netdev;
@@ -135,14 +135,14 @@ int aml_cfgvendor_apf_get_capabilities(struct wiphy *wiphy,
  * Return:
  *   0 on success, or a negative error code on failure.
  */
-int aml_cfgvendor_apf_set_filter(struct wiphy *wiphy,
+static int aml_cfgvendor_apf_set_filter(struct wiphy *wiphy,
     struct wireless_dev *wdev, const void  *data, int len)
 {
     struct net_device *ndev = wdev->netdev;
     const struct nlattr *iter;
     u8 *program = NULL;
     u32 program_len = 0;
-    int ret, tmp, type;
+    int ret = 0, tmp, type;
     struct aml_vif *aml_vif = netdev_priv(ndev);
     struct aml_hw *aml_hw = aml_vif->aml_hw;
     struct apf_pgm_status apf_pgm_status = {0};
@@ -266,7 +266,7 @@ int aml_cfgvendor_apf_set_filter(struct wiphy *wiphy,
  * Return:
  *   0 on success, or a negative error code on failure.
  */
-int aml_cfgvendor_apf_read_filter_data(struct wiphy *wiphy,
+static int aml_cfgvendor_apf_read_filter_data(struct wiphy *wiphy,
     struct wireless_dev *wdev, const void *data, int len)
 {
     struct net_device *ndev = wdev->netdev;
@@ -274,7 +274,8 @@ int aml_cfgvendor_apf_read_filter_data(struct wiphy *wiphy,
     struct aml_hw *aml_hw = aml_vif->aml_hw;
     struct sk_buff *skb = NULL;
     u8 *buf = NULL;
-    int ret, buf_len, program_len, mem_needed;
+    int ret = 0;
+    int program_len, mem_needed;
 
     APF_LOCK();
 
@@ -371,4 +372,65 @@ fail:
 
     return ret;
 }
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0))
+static const struct nla_policy apf_attribute_policy[APF_ATTRIBUTE_MAX] = {
+    [APF_ATTRIBUTE_VERSION] = { .type = NLA_U32 },
+    [APF_ATTRIBUTE_MAX_LEN] = { .type = NLA_U32 },
+    [APF_ATTRIBUTE_PROGRAM] = { .type = NLA_BINARY },
+    [APF_ATTRIBUTE_PROGRAM_LEN] = { .type = NLA_U32 },
+};
+#endif /* LINUX_VERSION >= 5.3 */
 #endif /* CONFIG_AML_APF */
+
+static const struct wiphy_vendor_command aml_wiphy_vendor_commands[] =
+{
+    ANDROID_MDNS_OFFLOAD_VENDOR_CMD,
+#ifdef CONFIG_AML_APF
+    {
+        {
+        .vendor_id = GOOGLE_VENDOR_OUI,
+        .subcmd = APF_SUBCMD_GET_CAPABILITIES
+        },
+        .flags = WIPHY_VENDOR_CMD_NEED_WDEV | WIPHY_VENDOR_CMD_NEED_NETDEV,
+        .doit = aml_cfgvendor_apf_get_capabilities,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0))
+        .policy = apf_attribute_policy,
+        .maxattr = APF_ATTRIBUTE_MAX
+#endif /* LINUX_VERSION >= 5.3 */
+    },
+
+    {
+        {
+        .vendor_id = GOOGLE_VENDOR_OUI,
+        .subcmd = APF_SUBCMD_SET_FILTER
+        },
+        .flags = WIPHY_VENDOR_CMD_NEED_WDEV | WIPHY_VENDOR_CMD_NEED_NETDEV,
+        .doit = aml_cfgvendor_apf_set_filter,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0))
+        .policy = apf_attribute_policy,
+        .maxattr = APF_ATTRIBUTE_MAX
+#endif /* LINUX_VERSION >= 5.3 */
+    },
+
+    {
+        {
+        .vendor_id = GOOGLE_VENDOR_OUI,
+        .subcmd = APF_SUBCMD_READ_FILTER_DATA
+        },
+        .flags = WIPHY_VENDOR_CMD_NEED_WDEV | WIPHY_VENDOR_CMD_NEED_NETDEV,
+        .doit = aml_cfgvendor_apf_read_filter_data,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0))
+        .policy = apf_attribute_policy,
+        .maxattr = APF_ATTRIBUTE_MAX
+#endif /* LINUX_VERSION >= 5.3 */
+    },
+#endif /* CONFIG_AML_APF */
+};
+
+void aml_wiphy_vendor_init(struct wiphy *wiphy)
+{
+    wiphy->n_vendor_commands = ARRAY_SIZE(aml_wiphy_vendor_commands);
+    wiphy->vendor_commands = aml_wiphy_vendor_commands;
+}
+
