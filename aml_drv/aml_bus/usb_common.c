@@ -122,7 +122,7 @@ static const struct usb_device_id auc_devices[] =
     {}
 };
 
-MODULE_DEVICE_TABLE(usb, auc_devices);
+//MODULE_DEVICE_TABLE(usb, auc_devices);
 
 static struct usb_driver aml_usb_common_driver = {
 
