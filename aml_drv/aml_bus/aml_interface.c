@@ -6,7 +6,7 @@
 #include "aml_interface.h"
 #include "aml_compat.h"
 
-char *bus_type = "pci";
+char *bus_type = "sdio";
 unsigned int aml_bus_type;
 unsigned char wifi_drv_rmmod_ongoing = 0;
 struct aml_bus_state_detect bus_state_detect;
