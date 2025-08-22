@@ -6519,9 +6519,9 @@ int aml_cfg80211_init(struct aml_plat *aml_plat, void **platform_data)
         NL80211_FEATURE_ACTIVE_MONITOR |
         NL80211_FEATURE_AP_MODE_CHAN_WIDTH_CHANGE;
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0)
-    wiphy->features |= NL80211_FEATURE_SAE;
-#endif
+//#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0)
+//    wiphy->features |= NL80211_FEATURE_SAE;
+//#endif
 
     wiphy->iface_combinations   = aml_combinations;
     /* -1 not to include combination with radar detection, will be re-added in
