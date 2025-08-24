@@ -12,36 +12,36 @@
 #include "wifi_w2_shared_mem_cfg.h"
 #include "aml_static_buf.h"
 
-uint8_t *g_mmc_misc;
-struct aml_hwif_sdio g_hwif_rx_sdio;
-struct aml_hif_sdio_ops g_hif_sdio_ops;
-extern struct aml_bus_state_detect bus_state_detect;
+uint8_t *w2_g_mmc_misc;
+struct aml_hwif_sdio w2_g_hwif_rx_sdio;
+struct aml_hif_sdio_ops w2_g_hif_sdio_ops;
+extern struct aml_bus_state_detect w2_bus_state_detect;
 
-extern unsigned char g_wifi_in_insmod;
+extern unsigned char w2_g_wifi_in_insmod;
 extern unsigned char *g_func_kmalloc_buf;
 static unsigned int tx_buffer_base_addr;
 static unsigned int rx_buffer_base_addr;
 extern unsigned int chip_id;
-extern unsigned char g_sdio_after_porbe;
+extern unsigned char w2_g_sdio_after_porbe;
 
 extern unsigned char wifi_in_insmod;
 extern unsigned char wifi_in_rmmod;
 extern unsigned char  chip_en_access;
 extern unsigned char wifi_sdio_shutdown;
-extern struct aml_pm_type g_wifi_pm;
+extern struct aml_pm_type w2_g_wifi_pm;
 static DEFINE_MUTEX(wifi_bt_sdio_mutex);
 static DEFINE_MUTEX(wifi_ipc_mutex);
 
-extern unsigned char (*host_wake_req)(void);
-extern int (*host_suspend_req)(struct device *device);
-extern int (*host_resume_req)(struct device *device);
+extern unsigned char (*w2_host_wake_req)(void);
+extern int (*w2_host_suspend_req)(struct device *device);
+extern int (*w2_host_resume_req)(struct device *device);
 
 
 static int _aml_sdio_request_byte(unsigned char func_num,
     unsigned char write, unsigned int reg_addr, unsigned char *byte)
 {
     int err_ret = 0;
-    struct sdio_func * func = aml_priv_to_func(func_num);
+    struct sdio_func * func = w2_aml_priv_to_func(func_num);
     unsigned char *kmalloc_buf = NULL;
     unsigned char len = sizeof(unsigned char);
 
@@ -182,8 +182,8 @@ int aml_sdio_bottom_write(unsigned char func_num, unsigned int addr, void *buf, 
     ASSERT(func_num != SDIO_FUNC0);
     ASSERT(g_func_kmalloc_buf);
 
-    if (host_wake_req != NULL) {
-        if (host_wake_req() == 0) {
+    if (w2_host_wake_req != NULL) {
+        if (w2_host_wake_req() == 0) {
             ERROR_DEBUG_OUT("aml_sdio_bottom_write, host wake fail\n");
             return -1;
         }
@@ -196,12 +196,12 @@ int aml_sdio_bottom_write(unsigned char func_num, unsigned int addr, void *buf, 
     result = _aml_sdio_request_buffer(func_num, incr_addr, SDIO_WRITE, addr, kmalloc_buf, len);
 
     AML_BT_WIFI_MUTEX_OFF();
-    if (result && !bus_state_detect.bus_err && (atomic_read(&g_wifi_pm.is_shut_down) == 0)) {
-        if (bus_state_detect.is_drv_load_finished) {
-            bus_state_detect.bus_err = 1;
+    if (result && !w2_bus_state_detect.bus_err && (atomic_read(&w2_g_wifi_pm.is_shut_down) == 0)) {
+        if (w2_bus_state_detect.is_drv_load_finished) {
+            w2_bus_state_detect.bus_err = 1;
             ERROR_DEBUG_OUT("sdio bus error(%d), will do reovery later\n", result);
         } else {
-            bus_state_detect.bus_err = 2;
+            w2_bus_state_detect.bus_err = 2;
             ERROR_DEBUG_OUT("sdio bus error(%d), sdio reset by timer later\n", result);
          }
     }
@@ -226,8 +226,8 @@ int aml_sdio_bottom_read(unsigned char func_num, int addr, void *buf, size_t len
     ASSERT(func_num != SDIO_FUNC0);
     ASSERT(g_func_kmalloc_buf);
 
-    if (host_wake_req != NULL) {
-        if (host_wake_req() == 0) {
+    if (w2_host_wake_req != NULL) {
+        if (w2_host_wake_req() == 0) {
             ERROR_DEBUG_OUT("aml_sdio_bottom_read, host wake fail\n");
             return -1;
         }
@@ -237,7 +237,7 @@ int aml_sdio_bottom_read(unsigned char func_num, int addr, void *buf, size_t len
     /* read block mode */
     if (func_num != SDIO_FUNC0) {
         if (incr_addr == SDIO_OPMODE_INCREMENT) {
-            struct sdio_func * func = aml_priv_to_func(func_num);
+            struct sdio_func * func = w2_aml_priv_to_func(func_num);
             align_len = sdio_align_size(func, len);
 
             if ((func_num == SDIO_FUNC6) && !scat_use) {
@@ -265,12 +265,12 @@ int aml_sdio_bottom_read(unsigned char func_num, int addr, void *buf, size_t len
     }
 
     AML_BT_WIFI_MUTEX_OFF();
-    if (result && !bus_state_detect.bus_err && (atomic_read(&g_wifi_pm.is_shut_down) == 0)) {
-        if (bus_state_detect.is_drv_load_finished) {
-            bus_state_detect.bus_err = 1;
+    if (result && !w2_bus_state_detect.bus_err && (atomic_read(&w2_g_wifi_pm.is_shut_down) == 0)) {
+        if (w2_bus_state_detect.is_drv_load_finished) {
+            w2_bus_state_detect.bus_err = 1;
             ERROR_DEBUG_OUT("sdio bus error(%d), will do reovery later\n", result);
         } else {
-            bus_state_detect.bus_err = 2;
+            w2_bus_state_detect.bus_err = 2;
             ERROR_DEBUG_OUT("sdio bus error(%d), sdio reset by timer later\n", result);
          }
     }
@@ -465,14 +465,14 @@ void aml_sdio_rx_buffer_read(unsigned char *buf, unsigned char *addr, size_t len
 //sdio func7 for bt
 void aml_bt_sdio_read_sram(unsigned char *buf, unsigned char *addr, SYS_TYPE len)
 {
-    if (bus_state_detect.bus_err) {
+    if (w2_bus_state_detect.bus_err) {
         printk("%s: sdio bus is recovery ongoing, can not read/write\n", __func__);
         return;
     }
 #ifdef CONFIG_PM
-    if (atomic_read(&g_wifi_pm.bus_suspend_cnt)) {
+    if (atomic_read(&w2_g_wifi_pm.bus_suspend_cnt)) {
         ERROR_DEBUG_OUT("bus suspend (%d) ongoing, do not read/write now!\n",
-            atomic_read(&g_wifi_pm.bus_suspend_cnt));
+            atomic_read(&w2_g_wifi_pm.bus_suspend_cnt));
         return;
     }
 #endif
@@ -484,14 +484,14 @@ void aml_bt_sdio_read_sram(unsigned char *buf, unsigned char *addr, SYS_TYPE len
 void aml_bt_sdio_write_sram(unsigned char *buf, unsigned char *addr, SYS_TYPE len)
 {
 
-    if (bus_state_detect.bus_err) {
+    if (w2_bus_state_detect.bus_err) {
         printk("%s: sdio bus is recovery ongoing, can not read/write\n", __func__);
         return;
     }
 #ifdef CONFIG_PM
-    if (atomic_read(&g_wifi_pm.bus_suspend_cnt)) {
+    if (atomic_read(&w2_g_wifi_pm.bus_suspend_cnt)) {
         ERROR_DEBUG_OUT("bus suspend (%d) ongoing, do not read/write now!\n",
-            atomic_read(&g_wifi_pm.bus_suspend_cnt));
+            atomic_read(&w2_g_wifi_pm.bus_suspend_cnt));
         return;
     }
 #endif
@@ -511,14 +511,14 @@ unsigned int aml_bt_hi_read_word(unsigned int addr)
      * one address-mapping: 32-bit AHB Address = BaseAddr + cmdRegAddr
      */
 
-    if (bus_state_detect.bus_err) {
+    if (w2_bus_state_detect.bus_err) {
         printk("%s: sdio bus is recovery ongoing, can not read/write\n", __func__);
         return regdata;
     }
 #ifdef CONFIG_PM
-    if (atomic_read(&g_wifi_pm.bus_suspend_cnt)) {
+    if (atomic_read(&w2_g_wifi_pm.bus_suspend_cnt)) {
         ERROR_DEBUG_OUT("bus suspend (%d) ongoing, do not read/write now!\n",
-            atomic_read(&g_wifi_pm.bus_suspend_cnt));
+            atomic_read(&w2_g_wifi_pm.bus_suspend_cnt));
         return regdata;
     }
 #endif
@@ -543,14 +543,14 @@ void aml_bt_hi_write_word(unsigned int addr,unsigned int data)
 {
     unsigned int reg_tmp;
 
-    if (bus_state_detect.bus_err) {
+    if (w2_bus_state_detect.bus_err) {
         printk("%s: sdio bus is recovery ongoing, can not read/write\n", __func__);
         return;
     }
 #ifdef CONFIG_PM
-    if (atomic_read(&g_wifi_pm.bus_suspend_cnt)) {
+    if (atomic_read(&w2_g_wifi_pm.bus_suspend_cnt)) {
         ERROR_DEBUG_OUT("bus suspend (%d) ongoing, do not read/write now!\n",
-            atomic_read(&g_wifi_pm.bus_suspend_cnt));
+            atomic_read(&w2_g_wifi_pm.bus_suspend_cnt));
         return;
     }
 #endif
@@ -601,7 +601,7 @@ void aml_sdio_write_word(unsigned int addr, unsigned int data)
 
 void aml_sdio_scat_complete (struct amlw_hif_scatter_req * scat_req)
 {
-    struct aml_hwif_sdio *hif_sdio = &g_hwif_sdio;
+    struct aml_hwif_sdio *hif_sdio = &w2_g_hwif_sdio;
 
     ASSERT(scat_req != NULL);
     ASSERT(hif_sdio != NULL);
@@ -620,7 +620,7 @@ void aml_sdio_scat_complete (struct amlw_hif_scatter_req * scat_req)
 
 int aml_sdio_scat_req_rw(struct amlw_hif_scatter_req *scat_req)
 {
-    struct aml_hwif_sdio *hif_sdio = &g_hwif_sdio;
+    struct aml_hwif_sdio *hif_sdio = &w2_g_hwif_sdio;
     struct sdio_func *func = NULL;
     struct mmc_host *host = NULL;
 
@@ -652,7 +652,7 @@ int aml_sdio_scat_req_rw(struct amlw_hif_scatter_req *scat_req)
     else
         func_num = SDIO_FUNC6;
 #ifdef CONFIG_AML_RECOVERY
-    if (bus_state_detect.bus_err) {
+    if (w2_bus_state_detect.bus_err) {
         aml_sdio_scat_complete(scat_req);
         return 0;
     }
@@ -760,8 +760,8 @@ int aml_sdio_scat_req_rw(struct amlw_hif_scatter_req *scat_req)
             ERROR_DEBUG_OUT("ERROR CMD53 %s cmd_error = %d data_error=%d\n",
                 (scat_req->req & HIF_WRITE) ? "write" : "read", mmc_cmd.error, mmc_dat.error);
 #ifdef CONFIG_AML_RECOVERY
-            if (!bus_state_detect.bus_err) {
-               bus_state_detect.bus_err = 1;
+            if (!w2_bus_state_detect.bus_err) {
+               w2_bus_state_detect.bus_err = 1;
             }
             break;
 #endif
@@ -783,13 +783,13 @@ int aml_sdio_scat_req_rw(struct amlw_hif_scatter_req *scat_req)
 }
 
 
-EXPORT_SYMBOL(g_mmc_misc);
+EXPORT_SYMBOL(w2_g_mmc_misc);
 int aml_sdio_scat_req_rx_read(struct amlw_hif_scatter_req *scat_req)
 {
     uint32_t func_num = SDIO_FUNC6;
-    struct sdio_func *func = aml_priv_to_func(func_num);
+    struct sdio_func *func = w2_aml_priv_to_func(func_num);
     struct mmc_host *host = func->card->host;
-    struct mmc_misc *mmc_misc = (struct mmc_misc *)g_mmc_misc;
+    struct mmc_misc *mmc_misc = (struct mmc_misc *)w2_g_mmc_misc;
 
     uint8_t *pdata = NULL;
     int result = SDIOH_API_RC_SUCCESS;
@@ -932,7 +932,7 @@ int aml_sdio_scat_rw(struct scatterlist *sg_list, unsigned int sg_num, unsigned 
     struct mmc_request mmc_req;
     struct mmc_command mmc_cmd;
     struct mmc_data    mmc_dat;
-    struct sdio_func *func = aml_priv_to_func(func_num);
+    struct sdio_func *func = w2_aml_priv_to_func(func_num);
     int ret = 0;
 
     AML_BT_WIFI_MUTEX_ON();
@@ -995,7 +995,7 @@ extern int aml_sdio_suspend(unsigned int suspend_enable);
 
 void aml_sdio_init_w2_ops(void)
 {
-    struct aml_hif_sdio_ops* ops = &g_hif_sdio_ops;
+    struct aml_hif_sdio_ops* ops = &w2_g_hif_sdio_ops;
     //func0 operation func, read/write self define domain reg, no need to set base addr
     ops->hi_self_define_domain_func0_write8 = aml_sdio_self_define_domain_func0_write8;
     ops->hi_self_define_domain_func0_read8 = aml_sdio_self_define_domain_func0_read8;
@@ -1043,16 +1043,16 @@ void aml_sdio_init_w2_ops(void)
 
     //for suspend & resume
     ops->hif_suspend = aml_sdio_suspend;
-    g_sdio_after_porbe = 1;
+    w2_g_sdio_after_porbe = 1;
 
     // check and wake firstly.
-    host_wake_req = NULL;
-    host_suspend_req = NULL;
+    w2_host_wake_req = NULL;
+    w2_host_suspend_req = NULL;
 }
 
 void aml_sdio_init_base_addr(void)
 {
-    g_func_kmalloc_buf = (unsigned char *)aml_mem_prealloc(AML_PREALLOC_SDIO, WLAN_AML_SDIO_SIZE);
+    g_func_kmalloc_buf = (unsigned char *)w2_aml_mem_prealloc(AML_PREALLOC_SDIO, WLAN_AML_SDIO_SIZE);
     if (!g_func_kmalloc_buf) {
          printk(">>>sdio kmalloc failed!");
     }
@@ -1074,19 +1074,19 @@ void aml_sdio_init_base_addr(void)
 
 
 
-/*set_wifi_bt_sdio_driver_bit() is used to determine whether to unregister sdio power driver.
-  *Only when g_sdio_wifi_bt_alive is 0, then call aml_sdio_exit().
+/*w2_set_wifi_bt_sdio_driver_bit() is used to determine whether to unregister sdio power driver.
+  *Only when g_sdio_wifi_bt_alive is 0, then call w2_aml_sdio_exit().
 */
 
 
-EXPORT_SYMBOL(g_hwif_rx_sdio);
-EXPORT_SYMBOL(g_hif_sdio_ops);
+EXPORT_SYMBOL(w2_g_hwif_rx_sdio);
+EXPORT_SYMBOL(w2_g_hif_sdio_ops);
 
 
 
-void aml_sdio_calibration(void)
+void w2_aml_sdio_calibration(void)
 {
-    struct aml_hif_sdio_ops* hif_ops = &g_hif_sdio_ops;
+    struct aml_hif_sdio_ops* hif_ops = &w2_g_hif_sdio_ops;
     int err;
     unsigned char i, j, k, l;
     unsigned char step;
@@ -1130,7 +1130,7 @@ void aml_sdio_calibration(void)
 
 void wifi_cpu_clk_switch(unsigned int clk_cfg)
 {
-    struct aml_hif_sdio_ops *hif_ops = &g_hif_sdio_ops;
+    struct aml_hif_sdio_ops *hif_ops = &w2_g_hif_sdio_ops;
     hif_ops->hi_random_word_write(RG_INTF_CPU_CLK, clk_cfg);
 
     printk("%s(%d):cpu_clk_reg=0x%08x\n", __func__, __LINE__,
@@ -1141,7 +1141,7 @@ void wifi_cpu_clk_switch(unsigned int clk_cfg)
 unsigned char buf_iccm_rd[ICCM_BUFFER_RD_LEN];
 #endif
 
-unsigned char aml_download_wifi_fw_img(char *firmware_filename)
+unsigned char w2_aml_download_wifi_fw_img(char *firmware_filename)
 {
     unsigned int offset_base = 0;
     size_t databyte = 0;
@@ -1155,11 +1155,11 @@ unsigned char aml_download_wifi_fw_img(char *firmware_filename)
     unsigned char *src = NULL;
     unsigned char *kmalloc_buf = NULL;
     const struct firmware *fw = NULL;
-    struct aml_hif_sdio_ops *hif_ops = &g_hif_sdio_ops;
+    struct aml_hif_sdio_ops *hif_ops = &w2_g_hif_sdio_ops;
     unsigned int to_sdio = ~(0);
     RG_PMU_A22_FIELD_T pmu_a22;
     RG_DPLL_A5_FIELD_T rg_dpll_a5;
-    struct sdio_func *func = aml_priv_to_func(SDIO_FUNC7);
+    struct sdio_func *func = w2_aml_priv_to_func(SDIO_FUNC7);
 
     printk("%s: %d\n", __func__, __LINE__);
     err =request_firmware(&fw, firmware_filename, &func->dev);
@@ -1174,7 +1174,7 @@ unsigned char aml_download_wifi_fw_img(char *firmware_filename)
 #endif
 
     src = (unsigned char *)fw->data + (offset / 4) * BYTE_IN_LINE;
-    kmalloc_buf = (unsigned char *)aml_mem_prealloc(AML_PREALLOC_DOWNLOAD_FW, len);
+    kmalloc_buf = (unsigned char *)w2_aml_mem_prealloc(AML_PREALLOC_DOWNLOAD_FW, len);
     if (!kmalloc_buf) {
         ERROR_DEBUG_OUT("kmalloc buf fail\n");
         release_firmware(fw);
@@ -1301,6 +1301,6 @@ unsigned char aml_download_wifi_fw_img(char *firmware_filename)
     return true;
 }
 
-EXPORT_SYMBOL(aml_sdio_calibration);
-EXPORT_SYMBOL(aml_download_wifi_fw_img);
+EXPORT_SYMBOL(w2_aml_sdio_calibration);
+EXPORT_SYMBOL(w2_aml_download_wifi_fw_img);
 

@@ -1069,14 +1069,14 @@ static inline void *aml_get_shared_trace_buf(struct aml_hw *aml_hw)
     return NULL;
 #endif
 }
-extern unsigned int aml_bus_type;
+extern unsigned int w2_aml_bus_type;
 
 static inline void aml_spin_lock(spinlock_t* lock)
 {
 #ifdef CONFIG_AML_USE_TASK
     spin_lock_bh(lock);
 #else
-    (aml_bus_type == PCIE_MODE) ? spin_lock(lock) : spin_lock_bh(lock);
+    (w2_aml_bus_type == PCIE_MODE) ? spin_lock(lock) : spin_lock_bh(lock);
 #endif
 }
 
@@ -1085,7 +1085,7 @@ static inline void aml_spin_unlock(spinlock_t* lock)
 #ifdef CONFIG_AML_USE_TASK
     spin_unlock_bh(lock);
 #else
-    (aml_bus_type == PCIE_MODE) ? spin_unlock(lock) : spin_unlock_bh(lock);
+    (w2_aml_bus_type == PCIE_MODE) ? spin_unlock(lock) : spin_unlock_bh(lock);
 #endif
 }
 void aml_connect_flags_set(struct aml_vif *aml_vif, u32 flags);

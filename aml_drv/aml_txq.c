@@ -1810,7 +1810,7 @@ void aml_hwq_process(struct aml_hw *aml_hw, struct aml_hwq *hwq)
             aml_tx_push(aml_hw, txhdr, 0);
             aml_check_tcpack_skb(aml_hw, skb, skb->len);
         }
-        if ((aml_bus_type == PCIE_MODE) && (g_txdesc_trigger.txdesc_cnt > 0)) {
+        if ((w2_aml_bus_type == PCIE_MODE) && (g_txdesc_trigger.txdesc_cnt > 0)) {
             ipc_app2emb_trigger_setf(aml_hw, IPC_IRQ_A2E_TXDESC);
             g_txdesc_trigger.txdesc_cnt = 0;
             if (g_txdesc_trigger.dynamic_cnt == 0) {
@@ -1927,14 +1927,14 @@ void aml_hwq_init(struct aml_hw *aml_hw)
 #ifdef CONFIG_CREDIT124
             hwq->credits[j] = nx_txdesc_cnt_ext[i];
 #else
-            hwq->credits[j] = (aml_bus_type == PCIE_MODE) ? nx_txdesc_cnt[i] : nx_txdesc_cnt_ext[i];
+            hwq->credits[j] = (w2_aml_bus_type == PCIE_MODE) ? nx_txdesc_cnt[i] : nx_txdesc_cnt_ext[i];
 #endif
         }
         hwq->id = i;
 #ifdef CONFIG_CREDIT124
         hwq->size = nx_txdesc_cnt_ext[i];
 #else
-        hwq->size = (aml_bus_type == PCIE_MODE) ? nx_txdesc_cnt[i] : nx_txdesc_cnt_ext[i];
+        hwq->size = (w2_aml_bus_type == PCIE_MODE) ? nx_txdesc_cnt[i] : nx_txdesc_cnt_ext[i];
 #endif
         INIT_LIST_HEAD(&hwq->list);
 

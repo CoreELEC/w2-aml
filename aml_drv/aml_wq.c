@@ -15,7 +15,7 @@
 #include "aml_scc.h"
 #include "aml_main.h"
 
-extern struct aml_pm_type g_wifi_pm;
+extern struct aml_pm_type w2_g_wifi_pm;
 
 struct aml_wq *aml_wq_alloc(int len)
 {
@@ -128,15 +128,15 @@ static void aml_wq_doit(struct work_struct *work)
             {
                 int error;
                 int cnt = 0;
-                while (atomic_read(&g_wifi_pm.bus_suspend_cnt) > 0)
+                while (atomic_read(&w2_g_wifi_pm.bus_suspend_cnt) > 0)
                 {
                     msleep(50);
                     cnt++;
                     if (cnt > 200)
                     {
                         AML_INFO("no resume cnt 0x%x\n",
-                                atomic_read(&g_wifi_pm.bus_suspend_cnt));
-                        atomic_set(&g_wifi_pm.bus_suspend_cnt, 0);
+                                atomic_read(&w2_g_wifi_pm.bus_suspend_cnt));
+                        atomic_set(&w2_g_wifi_pm.bus_suspend_cnt, 0);
                         return;
                     }
                 }
@@ -145,7 +145,7 @@ static void aml_wq_doit(struct work_struct *work)
                     AML_INFO("resume err:%d\n", error);
                     break;
                 }
-                atomic_set(&g_wifi_pm.drv_suspend_cnt, 0);
+                atomic_set(&w2_g_wifi_pm.drv_suspend_cnt, 0);
                 AML_DBG(AML_FN_ENTRY_STR);
                 break;
             }

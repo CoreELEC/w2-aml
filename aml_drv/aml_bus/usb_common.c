@@ -9,38 +9,38 @@
 #include "chip_intf_reg.h"
 #include "aml_interface.h"
 
-struct auc_hif_ops g_auc_hif_ops;
-struct usb_device *g_udev = NULL;
+struct auc_hif_ops w2_g_auc_hif_ops;
+struct usb_device *w2_g_udev = NULL;
 struct aml_hwif_usb g_hwif_usb;
-unsigned char auc_driver_insmoded;
-unsigned char auc_wifi_in_insmod;
-unsigned char g_chip_function_ctrl = 0;
-unsigned char g_usb_after_probe;
-struct crg_msc_cbw *g_cmd_buf = NULL;
-struct mutex auc_usb_mutex;
+unsigned char w2_auc_driver_insmoded;
+unsigned char w2_auc_wifi_in_insmod;
+unsigned char w2_g_chip_function_ctrl = 0;
+unsigned char w2_g_usb_after_probe;
+struct crg_msc_cbw *w2_g_cmd_buf = NULL;
+struct mutex w2_auc_usb_mutex;
 unsigned char *g_kmalloc_buf;
-extern unsigned char wifi_drv_rmmod_ongoing;
-extern struct aml_bus_state_detect bus_state_detect;
-extern struct aml_pm_type g_wifi_pm;
+extern unsigned char w2_wifi_drv_rmmod_ongoing;
+extern struct aml_bus_state_detect w2_bus_state_detect;
+extern struct aml_pm_type w2_g_wifi_pm;
 extern void auc_w2_ops_init(void);
 extern void extern_wifi_set_enable(int is_on);
 /*for bluetooth get read/write point*/
-int bt_wt_ptr = 0;
-int bt_rd_ptr = 0;
+int w2_bt_wt_ptr = 0;
+int w2_bt_rd_ptr = 0;
 /*co-exist flag for bt/wifi mode*/
-int coex_flag = 0;
+int w2_coex_flag = 0;
 static int auc_probe(struct usb_interface *interface, const struct usb_device_id *id)
 {
-    g_udev = usb_get_dev(interface_to_usbdev(interface));
+    w2_g_udev = usb_get_dev(interface_to_usbdev(interface));
     memset(g_kmalloc_buf,0,1024*20);
-    memset(g_cmd_buf,0,sizeof(struct crg_msc_cbw ));
-    g_usb_after_probe = 1;
+    memset(w2_g_cmd_buf,0,sizeof(struct crg_msc_cbw ));
+    w2_g_usb_after_probe = 1;
 
     auc_w2_ops_init();
-    g_auc_hif_ops.hi_enable_scat();
+    w2_g_auc_hif_ops.hi_enable_scat();
 #ifdef CONFIG_PM
-    if (atomic_read(&g_wifi_pm.bus_suspend_cnt)) {
-        atomic_set(&g_wifi_pm.bus_suspend_cnt, 0);
+    if (atomic_read(&w2_g_wifi_pm.bus_suspend_cnt)) {
+        atomic_set(&w2_g_wifi_pm.bus_suspend_cnt, 0);
     }
 #endif
     PRINT("%s(%d)\n",__func__,__LINE__);
@@ -51,16 +51,16 @@ static int auc_probe(struct usb_interface *interface, const struct usb_device_id
 static void auc_disconnect(struct usb_interface *interface)
 {
     usb_set_intfdata(interface, NULL);
-    usb_put_dev(g_udev);
-    g_usb_after_probe = 0;
-    atomic_set(&g_wifi_pm.bus_suspend_cnt, 0);
+    usb_put_dev(w2_g_udev);
+    w2_g_usb_after_probe = 0;
+    atomic_set(&w2_g_wifi_pm.bus_suspend_cnt, 0);
     PRINT("--------aml_usb:disconnect-------\n");
 }
 
 #ifdef CONFIG_PM
 static int auc_reset_resume(struct usb_interface *interface)
 {
-    atomic_set(&g_wifi_pm.bus_suspend_cnt, 0);
+    atomic_set(&w2_g_wifi_pm.bus_suspend_cnt, 0);
     PRINT("--------aml_usb:reset done-------\n");
     return 0;
 }
@@ -69,9 +69,9 @@ static int auc_suspend(struct usb_interface *interface,pm_message_t state)
 {
     int cnt = 0;
 
-    if (atomic_read(&g_wifi_pm.wifi_enable))
+    if (atomic_read(&w2_g_wifi_pm.wifi_enable))
     {
-        while (atomic_read(&g_wifi_pm.drv_suspend_cnt) == 0)
+        while (atomic_read(&w2_g_wifi_pm.drv_suspend_cnt) == 0)
         {
             msleep(50);
             cnt++;
@@ -83,35 +83,35 @@ static int auc_suspend(struct usb_interface *interface,pm_message_t state)
         }
     }
 
-    atomic_set(&g_wifi_pm.bus_suspend_cnt, 1);
+    atomic_set(&w2_g_wifi_pm.bus_suspend_cnt, 1);
     PRINT("---------aml_usb suspend-------\n");
     return 0;
 }
 
 static int auc_resume(struct usb_interface *interface)
 {
-    atomic_set(&g_wifi_pm.bus_suspend_cnt, 0);
+    atomic_set(&w2_g_wifi_pm.bus_suspend_cnt, 0);
     return 0;
 }
 #endif
 
-extern lp_shutdown_func g_lp_shutdown_func;
+extern lp_shutdown_func w2_g_lp_shutdown_func;
 void auc_shutdown(struct device *dev)
 {
     //Mask interrupt reporting to the host
-    atomic_set(&g_wifi_pm.is_shut_down, 2);
+    atomic_set(&w2_g_wifi_pm.is_shut_down, 2);
 
     // Notify fw to enter shutdown mode
-    if (g_lp_shutdown_func != NULL)
+    if (w2_g_lp_shutdown_func != NULL)
     {
-        g_lp_shutdown_func();
+        w2_g_lp_shutdown_func();
     }
 
     //notify fw shutdown
     //notify bt wifi will go shutdown
     auc_write_word_by_ep_for_wifi(RG_AON_A55, auc_read_word_by_ep_for_wifi(RG_AON_A55, USB_EP4)|BIT(28) ,USB_EP4);
 
-    atomic_set(&g_wifi_pm.is_shut_down, 1);
+    atomic_set(&w2_g_wifi_pm.is_shut_down, 1);
 }
 
 static const struct usb_device_id auc_devices[] =
@@ -141,40 +141,40 @@ static struct usb_driver aml_usb_common_driver = {
 };
 
 
-int aml_usb_insmod(void)
+int w2_aml_usb_insmod(void)
 {
     int err = 0;
 
-    g_cmd_buf = ZMALLOC(sizeof(*g_cmd_buf), "cmd stage", GFP_DMA | GFP_ATOMIC);
-    if (!g_cmd_buf) {
-        PRINT("g_cmd_buf malloc fail\n");
+    w2_g_cmd_buf = ZMALLOC(sizeof(*w2_g_cmd_buf), "cmd stage", GFP_DMA | GFP_ATOMIC);
+    if (!w2_g_cmd_buf) {
+        PRINT("w2_g_cmd_buf malloc fail\n");
         return -ENOMEM;
     }
     g_kmalloc_buf = (unsigned char *)ZMALLOC(20*1024, "reg tmp", GFP_DMA | GFP_ATOMIC);
     if (!g_kmalloc_buf) {
         ERROR_DEBUG_OUT("data malloc fail\n");
-        FREE(g_cmd_buf, "cmd stage");
+        FREE(w2_g_cmd_buf, "cmd stage");
         return -ENOMEM;
     }
     err = usb_register(&aml_usb_common_driver);
     if (err) {
         PRINT("failed to register usb driver: %d \n", err);
     }
-    auc_driver_insmoded = 1;
-    auc_wifi_in_insmod = 0;
+    w2_auc_driver_insmoded = 1;
+    w2_auc_wifi_in_insmod = 0;
     USB_LOCK_INIT();
     PRINT("%s(%d) aml common driver insmod\n", __func__, __LINE__);
 
     return err;
 }
 
-void aml_usb_rmmod(void)
+void w2_aml_usb_rmmod(void)
 {
     usb_deregister(&aml_usb_common_driver);
-    auc_driver_insmoded = 0;
-    wifi_drv_rmmod_ongoing = 0;
-    g_auc_hif_ops.hi_cleanup_scat();
-    FREE(g_cmd_buf, "cmd stage");
+    w2_auc_driver_insmoded = 0;
+    w2_wifi_drv_rmmod_ongoing = 0;
+    w2_g_auc_hif_ops.hi_cleanup_scat();
+    FREE(w2_g_cmd_buf, "cmd stage");
     FREE(g_kmalloc_buf, "reg tmp");
     USB_LOCK_DESTROY();
 #ifndef CONFIG_PT_MODE
@@ -187,7 +187,7 @@ void aml_usb_rmmod(void)
 
    PRINT("%s(%d) aml common driver rmsmod\n",__func__, __LINE__);
 }
-void aml_usb_reset(void)
+void w2_aml_usb_reset(void)
 {
     uint32_t count = 0;
     uint32_t try_cnt = 0;
@@ -199,7 +199,7 @@ Try_again:
 
 #ifndef CONFIG_LINUXPC_VERSION
     extern_wifi_set_enable(0);
-    while (g_usb_after_probe) {
+    while (w2_g_usb_after_probe) {
         msleep(5);
         count++;
         if (count > 40 && try_cnt <= 3) {
@@ -216,7 +216,7 @@ Try_again:
 
     count = 0;
     try_cnt = 0;
-    while ((!g_usb_after_probe) && try_cnt <= 3) {
+    while ((!w2_g_usb_after_probe) && try_cnt <= 3) {
         msleep(5);
         count++;
         if (count > 200) {
@@ -226,25 +226,25 @@ Try_again:
             goto Try_again;
         }
     };
-    bus_state_detect.bus_reset_ongoing = 0;
-    bus_state_detect.bus_err = 0;
+    w2_bus_state_detect.bus_reset_ongoing = 0;
+    w2_bus_state_detect.bus_err = 0;
     printk("%s: ******* usb reset end *******\n", __func__);
 
     return;
 #endif
 }
-EXPORT_SYMBOL(aml_usb_reset);
-EXPORT_SYMBOL(aml_usb_insmod);
-EXPORT_SYMBOL(aml_usb_rmmod);
-EXPORT_SYMBOL(g_cmd_buf);
-EXPORT_SYMBOL(g_auc_hif_ops);
-EXPORT_SYMBOL(g_udev);
-EXPORT_SYMBOL(auc_driver_insmoded);
-EXPORT_SYMBOL(auc_wifi_in_insmod);
-EXPORT_SYMBOL(auc_usb_mutex);
-EXPORT_SYMBOL(g_usb_after_probe);
-EXPORT_SYMBOL(bt_wt_ptr);
-EXPORT_SYMBOL(bt_rd_ptr);
-EXPORT_SYMBOL(coex_flag);
-EXPORT_SYMBOL(g_chip_function_ctrl);
+EXPORT_SYMBOL(w2_aml_usb_reset);
+EXPORT_SYMBOL(w2_aml_usb_insmod);
+EXPORT_SYMBOL(w2_aml_usb_rmmod);
+EXPORT_SYMBOL(w2_g_cmd_buf);
+EXPORT_SYMBOL(w2_g_auc_hif_ops);
+EXPORT_SYMBOL(w2_g_udev);
+EXPORT_SYMBOL(w2_auc_driver_insmoded);
+EXPORT_SYMBOL(w2_auc_wifi_in_insmod);
+EXPORT_SYMBOL(w2_auc_usb_mutex);
+EXPORT_SYMBOL(w2_g_usb_after_probe);
+EXPORT_SYMBOL(w2_bt_wt_ptr);
+EXPORT_SYMBOL(w2_bt_rd_ptr);
+EXPORT_SYMBOL(w2_coex_flag);
+EXPORT_SYMBOL(w2_g_chip_function_ctrl);
 

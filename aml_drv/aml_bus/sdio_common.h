@@ -109,7 +109,7 @@ enum SDIO_STD_FUNNUM {
     SDIO_FUNC7,
 };
 
-extern struct aml_hwif_sdio g_hwif_sdio;
+extern struct aml_hwif_sdio w2_g_hwif_sdio;
 
 struct aml_hwif_sdio {
     struct sdio_func * sdio_func_if[SDIO_FUNCNUM_MAX];
@@ -122,15 +122,15 @@ struct aml_hwif_sdio {
     struct amlw_hif_scatter_req *scat_req;
 };
 
-extern unsigned char g_sdio_driver_insmoded;
-extern struct sdio_func *aml_priv_to_func(int func_n);
+extern unsigned char w2_g_sdio_driver_insmoded;
+extern struct sdio_func *w2_aml_priv_to_func(int func_n);
 
-int aml_sdio_init(void);
-void aml_sdio_calibration(void);
+int w2_aml_sdio_init(void);
+void w2_aml_sdio_calibration(void);
 extern void sdio_reinit(void);
 extern void amlwifi_set_sdio_host_clk(int clk);
 extern void set_usb_bt_power(int is_on);
-struct sdio_func *aml_priv_to_func(int func_n);
+struct sdio_func *w2_aml_priv_to_func(int func_n);
 int aml_sdio_pm_suspend(struct device *device);
 int aml_sdio_pm_resume(struct device *device);
 bool aml_sdio_block_bus_opt(void);

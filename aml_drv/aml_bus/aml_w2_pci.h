@@ -13,7 +13,7 @@
 
 int aml_pci_register_drv(void);
 void aml_pci_unregister_drv(void);
-int aml_pci_insmod(void);
-void aml_pci_rmmod(void);
+int w2_aml_pci_insmod(void);
+void w2_aml_pci_rmmod(void);
 
 #endif /* _AML_PCI_H_ */

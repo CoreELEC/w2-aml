@@ -9,7 +9,7 @@ void* wlan_static_aml_buf_type_txq;
 void* wlan_static_aml_buf_type_dump;
 void* wlan_static_download_fw;
 
-void* aml_mem_prealloc(int section, unsigned long size)
+void* w2_aml_mem_prealloc(int section, unsigned long size)
 {
     pr_info("sectoin %d, size %ld\n", section, size);
 
@@ -77,7 +77,7 @@ void* aml_mem_prealloc(int section, unsigned long size)
 
     return NULL;
 }
-EXPORT_SYMBOL(aml_mem_prealloc);
+EXPORT_SYMBOL(w2_aml_mem_prealloc);
 
 int aml_init_wlan_mem(void)
 {

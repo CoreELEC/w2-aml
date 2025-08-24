@@ -22,8 +22,8 @@
 #include "aml_msg_rx.h"
 #include "aml_mdns_offload.h"
 
-extern unsigned int aml_bus_type;
-extern char *bus_type;
+extern unsigned int w2_aml_bus_type;
+extern char *w2_bus_type;
 
 /**
  *
@@ -143,7 +143,7 @@ int aml_msg_task(void *data)
 /**
  *
  */
-extern struct aml_bus_state_detect bus_state_detect;
+extern struct aml_bus_state_detect w2_bus_state_detect;
 unsigned char g_fw_recovery_flag = 0;
 static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
 {
@@ -164,7 +164,7 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
         printk(KERN_CRIT"cmd queue crashed\n");
         cmd->result = -EPIPE;
         spin_unlock_bh(&cmd_mgr->lock);
-        if (aml_bus_type == PCIE_MODE) {
+        if (w2_aml_bus_type == PCIE_MODE) {
             for (i = 0; i < NX_VIRT_DEV_MAX; i++) {
                 if (aml_hw->vif_table[i] != NULL) {
                     struct aml_vif *vif = aml_hw->vif_table[i];
@@ -192,7 +192,7 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
         }
         last = list_entry(cmd_mgr->cmds.prev, struct aml_cmd, list);
         if ((last->flags & (AML_CMD_FLAG_WAIT_ACK | AML_CMD_FLAG_WAIT_PUSH))
-            || ((aml_bus_type == PCIE_MODE) && (last->flags & AML_CMD_FLAG_WAIT_CFM))) {
+            || ((w2_aml_bus_type == PCIE_MODE) && (last->flags & AML_CMD_FLAG_WAIT_CFM))) {
 #if 0 // queue even NONBLOCK command.
             if (cmd->flags & AML_CMD_FLAG_NONBLOCK) {
                 printk(KERN_CRIT"cmd queue busy\n");
@@ -226,7 +226,7 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
 
     if (!defer_push) {
         spin_lock_bh(&cmd_mgr->lock);
-        if ((aml_bus_type != PCIE_MODE) && (cmd->flags & AML_CMD_FLAG_CALL_THREAD)) {
+        if ((w2_aml_bus_type != PCIE_MODE) && (cmd->flags & AML_CMD_FLAG_CALL_THREAD)) {
             cmd->flags |= AML_CMD_FLAG_WAIT_PUSH;
             up(&aml_hw->aml_msg_sem);
             spin_unlock_bh(&cmd_mgr->lock);
@@ -294,8 +294,8 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
             }
             spin_unlock_bh(&cmd_mgr->lock);
 #ifdef CONFIG_PT_MODE
-            if (aml_bus_type == SDIO_MODE) {
-                if (bus_state_detect.is_drv_load_finished) {
+            if (w2_aml_bus_type == SDIO_MODE) {
+                if (w2_bus_state_detect.is_drv_load_finished) {
                     if (!g_fw_recovery_ongoing) {
                         g_fw_recovery_ongoing = 1;
                         g_fw_recovery_flag = 1;
@@ -325,7 +325,7 @@ static int cmd_mgr_llind(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
     struct aml_hw *aml_hw = container_of(cmd_mgr, struct aml_hw, cmd_mgr);
     bool defer_push = true;
 
-    if (aml_bus_type != USB_MODE)
+    if (w2_aml_bus_type != USB_MODE)
         CMD_PRINT(cmd);
     aml_spin_lock(&cmd_mgr->lock);
     list_for_each_entry(cur, &cmd_mgr->cmds, list) {
@@ -354,7 +354,7 @@ static int cmd_mgr_llind(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
     }
 
     if (next) {
-        if (aml_bus_type != PCIE_MODE) {
+        if (w2_aml_bus_type != PCIE_MODE) {
             up(&aml_hw->aml_msg_sem);
         } else {
             if (!defer_push) {
@@ -405,7 +405,7 @@ static int cmd_mgr_msgind(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd_e2amsg *ms
     list_for_each_entry(cmd, &cmd_mgr->cmds, list) {
         if (cmd->reqid == msg->id &&
             (cmd->flags & AML_CMD_FLAG_WAIT_CFM)) {
-            if (aml_bus_type != USB_MODE)
+            if (w2_aml_bus_type != USB_MODE)
                 CMD_PRINT(cmd);
             if (!cmd_mgr_run_callback(aml_hw, cmd, msg, cb)) {
                 found = true;
@@ -432,7 +432,7 @@ static int cmd_mgr_msgind(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd_e2amsg *ms
             }
         }
     }
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         if (found && (next != NULL) && (next->flags & AML_CMD_FLAG_WAIT_PUSH)) {
             CMD_PRINT(next);
             AML_INFO("next len 0x%x, queue sz %d \n", AML_CMD_A2EMSG_LEN(next->a2e_msg), cmd_mgr->queue_sz);

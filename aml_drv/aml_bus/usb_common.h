@@ -29,18 +29,18 @@
         } while (0)
 
 
-extern struct mutex auc_usb_mutex;
+extern struct mutex w2_auc_usb_mutex;
 
 #define USB_BEGIN_LOCK() do {\
-    mutex_lock(&auc_usb_mutex);\
+    mutex_lock(&w2_auc_usb_mutex);\
 } while (0)
 
 #define USB_END_LOCK() do {\
-    mutex_unlock(&auc_usb_mutex);\
+    mutex_unlock(&w2_auc_usb_mutex);\
 } while (0)
 
-#define USB_LOCK_INIT()  mutex_init(&auc_usb_mutex)
-#define USB_LOCK_DESTROY() mutex_destroy(&auc_usb_mutex);
+#define USB_LOCK_INIT()  mutex_init(&w2_auc_usb_mutex)
+#define USB_LOCK_DESTROY() mutex_destroy(&w2_auc_usb_mutex);
 
 #define ZMALLOC(size, name, gfp) kzalloc(size, gfp)
 #define FREE(a, name) kfree(a)
@@ -115,6 +115,6 @@ struct aml_hwif_usb {
     struct amlw_hif_scatter_req *scat_req;
 };
 
-int aml_usb_insmod(void);
+int w2_aml_usb_insmod(void);
 
 #endif

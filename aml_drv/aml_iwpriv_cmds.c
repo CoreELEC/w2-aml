@@ -303,7 +303,7 @@ static int aml_set_scan_time(struct net_device *dev, int scan_duration)
 int aml_get_reg_2(struct net_device *dev, unsigned int addr,union iwreq_data *wrqu, char *extra)
 {
     unsigned int reg_val = 0;
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
          u8 *map_address = NULL;
          if (addr & 3) {
              reg_val = 0xdead5555;
@@ -311,7 +311,7 @@ int aml_get_reg_2(struct net_device *dev, unsigned int addr,union iwreq_data *wr
          else {
              map_address = aml_pci_get_map_address(dev, addr);
              if (map_address) {
-                 reg_val = aml_pci_readl(map_address);
+                 reg_val = w2_aml_pci_readl(map_address);
              }
          }
      } else {
@@ -335,7 +335,7 @@ int aml_get_reg(struct net_device *dev, char *str_addr, union iwreq_data *wrqu, 
 
     addr = simple_strtol(str_addr, NULL, 0);
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         u8 *map_address = NULL;
         if (addr & 3) {
             reg_val = 0xdead5555;
@@ -343,7 +343,7 @@ int aml_get_reg(struct net_device *dev, char *str_addr, union iwreq_data *wrqu, 
         else {
             map_address = aml_pci_get_map_address(dev, addr);
             if (map_address) {
-                reg_val = aml_pci_readl(map_address);
+                reg_val = w2_aml_pci_readl(map_address);
             }
         }
     } else {
@@ -363,7 +363,7 @@ int aml_get_reg(struct net_device *dev, char *str_addr, union iwreq_data *wrqu, 
 int aml_set_reg(struct net_device *dev, int addr, int val)
 {
 
-    if (aml_bus_type != PCIE_MODE) {
+    if (w2_aml_bus_type != PCIE_MODE) {
         struct aml_vif *aml_vif = netdev_priv(dev);
         struct aml_hw *aml_hw = aml_vif->aml_hw;
         struct aml_plat *aml_plat = aml_hw->plat;
@@ -376,7 +376,7 @@ int aml_set_reg(struct net_device *dev, int addr, int val)
         }
         map_address = aml_pci_get_map_address(dev, addr);
         if (map_address) {
-            aml_pci_writel(val, map_address);
+            w2_aml_pci_writel(val, map_address);
         }
     }
 
@@ -399,25 +399,25 @@ int aml_sdio_start_test(struct net_device *dev)
     printk("sdio stress testing start\n");
 
     while (1) {
-        if (aml_bus_type == USB_MODE) {
+        if (w2_aml_bus_type == USB_MODE) {
             aml_hw->plat->hif_ops->hi_write_sram((unsigned char *)set_buf, (unsigned char *)0x6000f4f4, 100, USB_EP4);
             aml_hw->plat->hif_ops->hi_read_sram((unsigned char *)get_buf, (unsigned char *)0x6000f4f4, 100, USB_EP4); //RXU_STAT_DESC_POOL
-        } else if (aml_bus_type == SDIO_MODE) {
+        } else if (w2_aml_bus_type == SDIO_MODE) {
             aml_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)set_buf, (unsigned char *)0x6000f4f4, 100); //RXU_STAT_DESC_POOL
             aml_hw->plat->hif_sdio_ops->hi_random_ram_read((unsigned char *)get_buf, (unsigned char *)0x6000f4f4, 100); //RXU_STAT_DESC_POOL
         }
 
         if (memcmp(set_buf, get_buf, 100)) {
-            if (aml_bus_type == USB_MODE) {
+            if (w2_aml_bus_type == USB_MODE) {
                 temperature = aml_hw->plat->hif_ops->hi_read_word(0x00a04940, USB_EP4);
-            } else if (aml_bus_type == SDIO_MODE) {
+            } else if (w2_aml_bus_type == SDIO_MODE) {
                 temperature = aml_hw->plat->hif_sdio_ops->hi_random_word_read(0x00a04940);
             }
             printk(" test NG, temperature is 0x%08x\n", temperature & 0x0000ffff);
         } else {
-            if (aml_bus_type == USB_MODE) {
+            if (w2_aml_bus_type == USB_MODE) {
                 temperature = aml_hw->plat->hif_ops->hi_read_word(0x00a04940,USB_EP4);
-            } else if (aml_bus_type == SDIO_MODE) {
+            } else if (w2_aml_bus_type == SDIO_MODE) {
                 temperature = aml_hw->plat->hif_sdio_ops->hi_random_word_read(0x00a04940);
             }
 
@@ -428,9 +428,9 @@ int aml_sdio_start_test(struct net_device *dev)
             }
         }
         memset(get_buf, 0x77, 100);
-        if (aml_bus_type == USB_MODE) {
+        if (w2_aml_bus_type == USB_MODE) {
             aml_hw->plat->hif_ops->hi_write_sram((unsigned char *)rst_buf, (unsigned char *)0x6000f4f4, 100, USB_EP4); //RXU_STAT_DESC_POOL
-        } else if (aml_bus_type == SDIO_MODE) {
+        } else if (w2_aml_bus_type == SDIO_MODE) {
             aml_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)rst_buf, (unsigned char *)0x6000f4f4, 100); //RXU_STAT_DESC_POOL
         }
     }
@@ -1200,7 +1200,7 @@ static int aml_get_clock(struct net_device *dev)
     uint32_t temp_value =0;
 
 
-    if (PCIE_MODE == aml_bus_type)
+    if (PCIE_MODE == w2_aml_bus_type)
     {
         AML_REG_WRITE(0xffffffff, aml_plat, AML_ADDR_SYSTEM, CLK_ADDR0 );
         AML_REG_WRITE(0xffffffff, aml_plat, AML_ADDR_SYSTEM, CLK_ADDR1 );
@@ -1562,7 +1562,7 @@ static int aml_get_buf_state(struct net_device *dev)
     struct aml_vif *aml_vif = netdev_priv(dev);
     struct aml_hw *aml_hw = aml_vif->aml_hw;
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         printk("invalid cmd\n");
         return -1;
     }
@@ -1573,7 +1573,7 @@ static int aml_get_buf_state(struct net_device *dev)
         printk("la status:       OFF\n");
     }
 
-    if (aml_bus_type == USB_MODE) {
+    if (w2_aml_bus_type == USB_MODE) {
         if (aml_hw->trace_enable) {
             printk("trace status:    ON\n");
         } else {
@@ -1709,7 +1709,7 @@ static int aml_set_max_drop_num(struct net_device *dev, int num)
 
     if (num < 0)
     {
-        if (aml_bus_type == USB_MODE)
+        if (w2_aml_bus_type == USB_MODE)
             num = MAX_DROP_TCP_ACK_CNT_USB;
         else
             num = MAX_DROP_TCP_ACK_CNT;
@@ -1782,7 +1782,7 @@ static int aml_set_bus_timeout_test(struct net_device *dev, int enable)
     struct aml_hw *aml_hw = aml_vif->aml_hw;
     struct aml_plat *aml_plat = aml_hw->plat;
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         return 0;
      }
     if (enable) {
@@ -1902,10 +1902,10 @@ static int aml_dump_reg(struct net_device *dev, int addr, int size)
     len += scnprintf(&la_buf[len], (REG_DUMP_SIZE - len), "========dump range [0x%x ---- 0x%x], Size 0x%x========\n",
             address, address + size, size);
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         for (i = 0; i < size / 4; i++) {
             len += scnprintf(&la_buf[len], (REG_DUMP_SIZE - len), "addr 0x%x ----- value 0x%x\n",
-                address + i * 4, aml_pci_readl(map_address+ i*4));
+                address + i * 4, w2_aml_pci_readl(map_address+ i*4));
 
             if ((REG_DUMP_SIZE - len) < 38) {
                 FILE_WRITE(fp, la_buf, len, &fp->f_pos);
@@ -1970,10 +1970,10 @@ static int aml_emb_la_dump(struct net_device *dev)
 
     memset(la_buf, 0, LA_BUF_SIZE);
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         for (i=0; i < 0x3fff; i+=2) {
             len += scnprintf(&la_buf[len], (LA_BUF_SIZE - len), "%08x%08x\n",
-                aml_pci_readl(map_address+((1+i)*4)), aml_pci_readl(map_address+(i*4)));
+                w2_aml_pci_readl(map_address+((1+i)*4)), w2_aml_pci_readl(map_address+(i*4)));
 
             if ((LA_BUF_SIZE - len) < 20) {
                 FILE_WRITE(fp, la_buf, len, &fp->f_pos);
@@ -2037,10 +2037,10 @@ static int aml_emb_la_dump(struct net_device *dev)
 
     memset(la_buf, 0, LA_BUF_SIZE);
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         for (i=0; i < 0x3fff; i+=2) {
             len += scnprintf(&la_buf[len], (LA_BUF_SIZE - len), "%08x%08x\n",
-                aml_pci_readl(map_address+((1+i)*4)), aml_pci_readl(map_address+(i*4)));
+                w2_aml_pci_readl(map_address+((1+i)*4)), w2_aml_pci_readl(map_address+(i*4)));
 
             if ((LA_BUF_SIZE - len) < 20) {
                 aml_send_log_to_user(la_buf, len, AML_LA_MACTRACE_UPLOAD);
@@ -3688,7 +3688,7 @@ int aml_emb_la_enable(struct net_device *dev, int enable)
     struct aml_vif *aml_vif = netdev_priv(dev);
     struct aml_hw *aml_hw = aml_vif->aml_hw;
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         printk("invalid cmd\n");
         return -1;
     }
@@ -3698,7 +3698,7 @@ int aml_emb_la_enable(struct net_device *dev, int enable)
         return -1;
     }
 
-    if (aml_bus_type == USB_MODE && aml_hw->trace_enable) {
+    if (w2_aml_bus_type == USB_MODE && aml_hw->trace_enable) {
         AML_INFO("usb trace is enable, usb la is forbidden!");
         return -1;
     }
@@ -4177,7 +4177,7 @@ int aml_set_usb_trace_enable(struct net_device *dev, int enable)
     struct aml_vif *aml_vif = netdev_priv(dev);
     struct aml_hw *aml_hw = aml_vif->aml_hw;
 
-    if (aml_bus_type != USB_MODE) {
+    if (w2_aml_bus_type != USB_MODE) {
         printk("invalid cmd\n");
         return -1;
     }
@@ -4218,24 +4218,24 @@ int aml_set_fwlog_cmd(struct net_device *dev, int mode)
     struct aml_hw *aml_hw = aml_vif->aml_hw;
     int ret = 0;
 
-    if (aml_bus_type == USB_MODE && !aml_hw->trace_enable) {
+    if (w2_aml_bus_type == USB_MODE && !aml_hw->trace_enable) {
         AML_INFO("usb trace is disable!");
         return -1;
     }
 
 #ifdef CONFIG_AML_DEBUGFS
-    if (aml_bus_type != PCIE_MODE && trace_log_file_info.log_buf && trace_log_file_info.ptr) {
+    if (w2_aml_bus_type != PCIE_MODE && trace_log_file_info.log_buf && trace_log_file_info.ptr) {
         if (mode == 0) {
             ret = aml_traceind(aml_vif->aml_hw->ipc_env->pthis, mode);
             if (ret < 0)
                 return -1;
         }
         aml_send_fwlog_cmd(aml_vif, mode);
-        if (aml_bus_type == USB_MODE) {
+        if (w2_aml_bus_type == USB_MODE) {
             aml_dbgfs_fw_trace_create(aml_vif->aml_hw);
         }
     } else {
-        AML_INFO("bus_type err or trace_log_file_info init failed!");
+        AML_INFO("w2_bus_type err or trace_log_file_info init failed!");
     }
 #endif
     return 0;
@@ -4614,7 +4614,7 @@ int aml_sdio_max_speed_test_cmd(struct net_device *dev, int enable)
     }
     memset(data, 0x66, DATA_LEN);
 
-    scat_req = aml_hw->plat->hif_sdio_ops->hi_get_scatreq(&g_hwif_sdio);
+    scat_req = aml_hw->plat->hif_sdio_ops->hi_get_scatreq(&w2_g_hwif_sdio);
     if (scat_req != NULL) {
         scat_req->req = HIF_WRITE | HIF_ASYNCHRONOUS;
         scat_req->addr = 0x0;
@@ -5054,7 +5054,7 @@ static int aml_iwpriv_get(struct net_device *dev,
         case AML_IWP_GET_CLK:
            aml_get_clock(dev);
            break;
-        if (aml_bus_type != PCIE_MODE) {
+        if (w2_aml_bus_type != PCIE_MODE) {
             case AML_IWP_BUS_START_TEST:
                 aml_sdio_start_test(dev);
                 break;

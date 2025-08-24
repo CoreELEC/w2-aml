@@ -51,8 +51,8 @@
                  /*BIT(0): TX DONE intr, BIT(1): RX DONE intr*/
 #define RG_SDIO_IF_INTR2CPU_ENABLE    (WIFI_SDIO_IF+0x30)
 
-extern uint8_t *g_mmc_misc;
-extern struct aml_hwif_sdio g_hwif_rx_sdio;
+extern uint8_t *w2_g_mmc_misc;
+extern struct aml_hwif_sdio w2_g_hwif_rx_sdio;
 
 struct mmc_misc{
     struct mmc_request mmc_req;
@@ -112,10 +112,10 @@ struct aml_hif_sdio_ops {
 };
 
 
-extern struct aml_hif_sdio_ops g_hif_sdio_ops;
-extern unsigned char g_sdio_driver_insmoded;
+extern struct aml_hif_sdio_ops w2_g_hif_sdio_ops;
+extern unsigned char w2_g_sdio_driver_insmoded;
 
-unsigned char aml_download_wifi_fw_img(char *firmware_filename);
+unsigned char w2_aml_download_wifi_fw_img(char *firmware_filename);
 int aml_sdio_scat_req_rw(struct amlw_hif_scatter_req *scat_req);
 void aml_sdio_init_base_addr(void);
 void aml_sdio_init_w2_ops(void);

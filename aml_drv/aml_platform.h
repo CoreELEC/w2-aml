@@ -166,10 +166,10 @@ enum aml_platform_addr {
     AML_ADDR_SYSTEM,
     AML_ADDR_MAX,
 };
-extern unsigned int aml_bus_type;
+extern unsigned int w2_aml_bus_type;
 extern char * aml_wifi_get_bus_type(void);
-extern u32 aml_pci_readl(u8* addr);
-extern void aml_pci_writel(u32 data, u8* addr);
+extern u32 w2_aml_pci_readl(u8* addr);
+extern void w2_aml_pci_writel(u32 data, u8* addr);
 
 struct aml_hw;
 
@@ -227,9 +227,9 @@ static inline void aml_prevent_fw_sleep(struct aml_plat *plat, uint32_t sleep_pr
 {
     uint32_t sleep_prevent;
 
-    sleep_prevent = aml_pci_readl(AML_ADDR(plat, AML_ADDR_AON, RG_AON_A53));
+    sleep_prevent = w2_aml_pci_readl(AML_ADDR(plat, AML_ADDR_AON, RG_AON_A53));
     sleep_prevent |= sleep_prevent_type;
-    aml_pci_writel(sleep_prevent, AML_ADDR(plat, AML_ADDR_AON, RG_AON_A53));
+    w2_aml_pci_writel(sleep_prevent, AML_ADDR(plat, AML_ADDR_AON, RG_AON_A53));
 }
 
 /*RG_AON_A53 BIT(14) prevent fw goto sleep ,*/
@@ -237,9 +237,9 @@ static inline void aml_allow_fw_sleep(struct aml_plat *plat, uint32_t sleep_allo
 {
     uint32_t sleep_allowed;
 
-    sleep_allowed = aml_pci_readl(AML_ADDR(plat, AML_ADDR_AON, RG_AON_A53));
+    sleep_allowed = w2_aml_pci_readl(AML_ADDR(plat, AML_ADDR_AON, RG_AON_A53));
     sleep_allowed &= (~sleep_allow_type);
-    aml_pci_writel(sleep_allowed, AML_ADDR(plat, AML_ADDR_AON, RG_AON_A53));
+    w2_aml_pci_writel(sleep_allowed, AML_ADDR(plat, AML_ADDR_AON, RG_AON_A53));
 }
 
 static inline void aml_wait_fw_wake(struct aml_plat *plat)
@@ -247,11 +247,11 @@ static inline void aml_wait_fw_wake(struct aml_plat *plat)
     uint32_t fw_status = 0;
     uint32_t loop = 20000;
 
-    fw_status = aml_pci_readl(AML_ADDR(plat, AML_ADDR_AON, RG_AON_A54));
+    fw_status = w2_aml_pci_readl(AML_ADDR(plat, AML_ADDR_AON, RG_AON_A54));
 
     while ((fw_status == PS_DOZE) && (loop-- > 0))
     {
-        fw_status = aml_pci_readl(AML_ADDR(plat, AML_ADDR_AON, RG_AON_A54));
+        fw_status = w2_aml_pci_readl(AML_ADDR(plat, AML_ADDR_AON, RG_AON_A54));
         udelay(10);
         if (loop == 0)
             return;
@@ -266,23 +266,23 @@ static inline u32 aml_reg_read(struct aml_plat *plat, u32 base, u32 offset)
     uint32_t reg_value = 0;
 #endif
 
-    if (aml_bus_type == USB_MODE) {
+    if (w2_aml_bus_type == USB_MODE) {
         return plat->hif_ops->hi_read_word((unsigned int)(unsigned long)AML_ADDR(plat, base, offset), USB_EP4);
-    } else if (aml_bus_type == SDIO_MODE) {
+    } else if (w2_aml_bus_type == SDIO_MODE) {
        return plat->hif_sdio_ops->hi_random_word_read((unsigned int)(unsigned long)AML_ADDR(plat, base, offset));
     } else {
 #ifdef CONFIG_AML_POWER_SAVE_MODE
         if (offset == RG_AON_A54) {
-            return aml_pci_readl(AML_ADDR(plat, base, offset));
+            return w2_aml_pci_readl(AML_ADDR(plat, base, offset));
     }
 
             aml_prevent_fw_sleep(plat, PS_READ_WRITE_REG);
             aml_wait_fw_wake(plat);
-            reg_value = aml_pci_readl(AML_ADDR(plat, base, offset));
+            reg_value = w2_aml_pci_readl(AML_ADDR(plat, base, offset));
             aml_allow_fw_sleep(plat, PS_READ_WRITE_REG);
             return reg_value;
 #else
-        return aml_pci_readl(AML_ADDR(plat, base, offset));
+        return w2_aml_pci_readl(AML_ADDR(plat, base, offset));
 #endif
         }
 
@@ -290,23 +290,23 @@ static inline u32 aml_reg_read(struct aml_plat *plat, u32 base, u32 offset)
 
 static inline void aml_reg_write(u32 val, struct aml_plat *plat, u32 base, u32 offset)
 {
-    if (aml_bus_type == USB_MODE) {
+    if (w2_aml_bus_type == USB_MODE) {
         plat->hif_ops->hi_write_word((unsigned int)(unsigned long)AML_ADDR(plat, base, offset), val, USB_EP4);
-    } else if (aml_bus_type == SDIO_MODE) {
+    } else if (w2_aml_bus_type == SDIO_MODE) {
         plat->hif_sdio_ops->hi_random_word_write((unsigned int)(unsigned long)AML_ADDR(plat, base, offset), val);
     } else {
 #ifdef CONFIG_AML_POWER_SAVE_MODE
         if (offset == RG_AON_A54) {
-            aml_pci_writel(val, AML_ADDR(plat, base, offset));
+            w2_aml_pci_writel(val, AML_ADDR(plat, base, offset));
     }
         else {
             aml_prevent_fw_sleep(plat, PS_READ_WRITE_REG);
             aml_wait_fw_wake(plat);
-            aml_pci_writel(val, AML_ADDR(plat, base, offset));
+            w2_aml_pci_writel(val, AML_ADDR(plat, base, offset));
             aml_allow_fw_sleep(plat, PS_READ_WRITE_REG);
     }
 #else
-    aml_pci_writel(val, AML_ADDR(plat, base, offset));
+    w2_aml_pci_writel(val, AML_ADDR(plat, base, offset));
 #endif
     }
 }
@@ -328,9 +328,9 @@ struct aml_pci
 
 static inline struct device *aml_platform_get_dev(struct aml_plat *aml_plat)
 {
-    if (aml_bus_type == USB_MODE) {
+    if (w2_aml_bus_type == USB_MODE) {
         return &(aml_plat->usb_dev->dev);
-    } else if (aml_bus_type == SDIO_MODE) {
+    } else if (w2_aml_bus_type == SDIO_MODE) {
         return aml_plat->dev;
     } else {
         return &(aml_plat->pci_dev->dev);

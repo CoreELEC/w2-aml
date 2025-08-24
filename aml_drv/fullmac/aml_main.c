@@ -518,8 +518,8 @@ extern int aml_trace_buf_init(void);
 
 extern void aml_trace_buf_deinit(void);
 #endif
-extern struct aml_bus_state_detect bus_state_detect;
-extern struct usb_device *g_udev;
+extern struct aml_bus_state_detect w2_bus_state_detect;
+extern struct usb_device *w2_g_udev;
 /*********************************************************************
  * helper
  *********************************************************************/
@@ -767,10 +767,10 @@ static void aml_csa_finish(struct work_struct *ws)
     int error = csa->status;
     unsigned int addr;
 
-    if (aml_bus_type == USB_MODE) {
+    if (w2_aml_bus_type == USB_MODE) {
         addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
         aml_hw->plat->hif_ops->hi_write_sram((unsigned char *)csa->buf.addr, (unsigned char *)(unsigned long)addr, csa->buf.size, USB_EP4);
-    } else if (aml_bus_type == SDIO_MODE) {
+    } else if (w2_aml_bus_type == SDIO_MODE) {
         addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
         aml_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)csa->buf.addr, (unsigned char *)(unsigned long)addr, csa->buf.size);
     }
@@ -1006,11 +1006,11 @@ static int aml_open(struct net_device *dev)
     AML_DBG(AML_FN_ENTRY_STR);
 
 #ifdef CONFIG_AML_RECOVERY
-    if ((aml_bus_type != PCIE_MODE) && (bus_state_detect.bus_err)) {
+    if ((w2_aml_bus_type != PCIE_MODE) && (w2_bus_state_detect.bus_err)) {
         if ((AML_VIF_TYPE(aml_vif) != NL80211_IFTYPE_AP) && (aml_recy != NULL) && (aml_recy_flags_chk(AML_RECY_OPEN_VIF_PROC))) {
             aml_recy_flags_clr(AML_RECY_OPEN_VIF_PROC);
         }
-        AML_INFO("bus reset err(%d), can't open now !\n", bus_state_detect.bus_err);
+        AML_INFO("bus reset err(%d), can't open now !\n", w2_bus_state_detect.bus_err);
         return -EBUSY;
     }
 
@@ -1253,7 +1253,7 @@ static int aml_close(struct net_device *dev)
     aml_hw->show_switch_info = 0;
     if (aml_hw->vif_started == 0) {
         /* This also lets both ipc sides remain in sync before resetting */
-        if (aml_bus_type == PCIE_MODE) {
+        if (w2_aml_bus_type == PCIE_MODE) {
             aml_ipc_tx_drain(aml_hw);
             aml_send_reset(aml_hw);
         }
@@ -1267,7 +1267,7 @@ static int aml_close(struct net_device *dev)
         clear_bit(AML_DEV_STARTED, &aml_hw->flags);
     }
 
-    if (aml_bus_type != PCIE_MODE)
+    if (w2_aml_bus_type != PCIE_MODE)
         aml_scan_clear_scan_res(aml_hw);
 #ifdef CONFIG_AML_RECOVERY
     if ((AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_AP) || (AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_P2P_GO)) {
@@ -1275,7 +1275,7 @@ static int aml_close(struct net_device *dev)
      }
      aml_recy_flags_clr(recy_clr_flag | AML_RECY_CLOSE_VIF_PROC);
 #endif
-    if ((aml_bus_type == USB_MODE) && aml_hw->g_urb) {
+    if ((w2_aml_bus_type == USB_MODE) && aml_hw->g_urb) {
         u8 cnt = 0;
         /*wait for cmd cmplete*/
         while (aml_hw->cmd_mgr.queue_sz > 0) {
@@ -1573,14 +1573,14 @@ static struct wireless_dev *aml_interface_add(struct aml_hw *aml_hw,
 
     spin_lock_init(&vif->vif_lock);
 #ifndef CONFIG_LINUXPC_VERSION
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0)
         aml_rps_cpus_enable(ndev);
         //aml_xps_cpus_enable(ndev);
         aml_rps_dev_flow_table_enable(ndev);
         aml_rps_sock_flow_sysctl_enable();
 #endif
-    } else if (aml_bus_type == SDIO_MODE) {
+    } else if (w2_aml_bus_type == SDIO_MODE) {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
         aml_rps_cpus_disable(ndev);
 #endif
@@ -2824,17 +2824,17 @@ static int aml_cfg80211_change_beacon(struct wiphy *wiphy, struct net_device *de
     }
 
     // Sync buffer for FW
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         if ((error = aml_ipc_buf_a2e_init(aml_hw, &buf, bcn_buf, bcn->len))) {
             netdev_err(dev, "Failed to allocate IPC buf for new beacon\n");
             kfree(bcn_buf);
             return error;
         }
-    } else if (aml_bus_type == USB_MODE) {
+    } else if (w2_aml_bus_type == USB_MODE) {
         addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
         aml_hw->plat->hif_ops->hi_write_sram((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len, USB_EP4);
         kfree(bcn_buf);
-    } else if (aml_bus_type == SDIO_MODE) {
+    } else if (w2_aml_bus_type == SDIO_MODE) {
         addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
         aml_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len);
         kfree(bcn_buf);
@@ -3806,17 +3806,17 @@ static int aml_cfg80211_channel_switch(struct wiphy *wiphy,
         }
     }
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         if ((error = aml_ipc_buf_a2e_init(aml_hw, &buf, bcn_buf, bcn->len))) {
             netdev_err(dev, "Failed to allocate IPC buf for CSA beacon\n");
             kfree(bcn_buf);
             return error;
         }
-    } else if (aml_bus_type == USB_MODE) {
+    } else if (w2_aml_bus_type == USB_MODE) {
         addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
         aml_hw->plat->hif_ops->hi_write_sram((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len, USB_EP4);
         kfree(bcn_buf);
-    } else if (aml_bus_type == SDIO_MODE) {
+    } else if (w2_aml_bus_type == SDIO_MODE) {
         addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
         aml_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len);
         kfree(bcn_buf);
@@ -5000,7 +5000,7 @@ int aml_wake_fw_req(struct aml_hw *aml_hw)
     }
 
 }
-extern struct aml_pm_type g_wifi_pm;
+extern struct aml_pm_type w2_g_wifi_pm;
 
 int aml_ps_wow_resume(struct aml_hw *aml_hw)
 {
@@ -5016,13 +5016,13 @@ int aml_ps_wow_resume(struct aml_hw *aml_hw)
         return -EINVAL;
     }
 
-    if (aml_bus_type == USB_MODE) {
-        while (g_udev->state != USB_STATE_CONFIGURED) {
+    if (w2_aml_bus_type == USB_MODE) {
+        while (w2_g_udev->state != USB_STATE_CONFIGURED) {
             udelay(100);
         }
 
-        if (atomic_read(&g_wifi_pm.drv_suspend_cnt)) {
-            atomic_set(&g_wifi_pm.drv_suspend_cnt, 0);
+        if (atomic_read(&w2_g_wifi_pm.drv_suspend_cnt)) {
+            atomic_set(&w2_g_wifi_pm.drv_suspend_cnt, 0);
             USB_BEGIN_LOCK();
             if (aml_hw->g_urb->status != -EINPROGRESS)
             {
@@ -5037,7 +5037,7 @@ int aml_ps_wow_resume(struct aml_hw *aml_hw)
         }
     }
 
-    if (aml_bus_type == SDIO_MODE)
+    if (w2_aml_bus_type == SDIO_MODE)
     {
         // clear sleep req flag
         reg_value = aml_hw->plat->hif_sdio_ops->hi_self_define_domain_read8(RG_SDIO_PMU_HOST_REQ);
@@ -5059,7 +5059,7 @@ int aml_ps_wow_resume(struct aml_hw *aml_hw)
 
     aml_send_me_set_ps_mode(aml_hw, MM_PS_MODE_OFF);
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         struct aml_ipc_buf *ipc_desc;
         struct rxdesc_tag *rxdesc;
         AML_INFO("repush:rxbuff cnt=%u,rxdesc=%u\n",aml_hw->repush_rxbuff_cnt,aml_hw->repush_rxdesc);
@@ -5183,7 +5183,7 @@ static int aml_ps_wow_suspend(struct aml_hw *aml_hw, struct cfg80211_wowlan *wow
                 aml_send_dhcp_req(aml_hw, aml_vif, 1);
 
 #ifdef CONFIG_SDIO_TX_ENH
-                if (aml_bus_type == SDIO_MODE) {
+                if (w2_aml_bus_type == SDIO_MODE) {
                     if (aml_hw->txcfm_param.dyn_en) {
                         aml_update_dyn_txcfm(aml_hw, 0);
                         aml_update_tx_cfm(aml_hw);
@@ -5247,7 +5247,7 @@ static int aml_ps_wow_suspend(struct aml_hw *aml_hw, struct cfg80211_wowlan *wow
 
     count = 0;
     while ((aml_hw->suspend_ind != SUSPEND_IND_DONE)
-        || ((aml_bus_type == PCIE_MODE) && (AML_REG_READ(aml_hw->plat, AML_ADDR_MAC_PHY, ISTATUS_HOST) & BIT(24)))) {
+        || ((w2_aml_bus_type == PCIE_MODE) && (AML_REG_READ(aml_hw->plat, AML_ADDR_MAC_PHY, ISTATUS_HOST) & BIT(24)))) {
         msleep(10);
         if (count++ > 100) {
             printk("%s %d, ERROR wait suspend_ind timeout:%d, start resume cmd:%d\n",
@@ -5257,10 +5257,10 @@ static int aml_ps_wow_suspend(struct aml_hw *aml_hw, struct cfg80211_wowlan *wow
     }
 
     //When in rx buf reduce, not expend rx buf,after resume, do rx buf expend
-    if (aml_bus_type != PCIE_MODE) {
+    if (w2_aml_bus_type != PCIE_MODE) {
         if (aml_hw->rx_buf_state & FW_BUFFER_EXPAND) {
             aml_tx_rx_buf_init(aml_hw);
-            if (aml_bus_type == SDIO_MODE)
+            if (w2_aml_bus_type == SDIO_MODE)
                 aml_hw->g_tx_param.tx_page_free_num = SDIO_TX_PAGE_NUM_SMALL;
             else
                 aml_hw->g_tx_param.tx_page_free_num = USB_TX_PAGE_NUM_SMALL;
@@ -5281,15 +5281,15 @@ static int aml_ps_wow_suspend(struct aml_hw *aml_hw, struct cfg80211_wowlan *wow
         }
     }
 
-    if (aml_bus_type == USB_MODE) {
+    if (w2_aml_bus_type == USB_MODE) {
         USB_BEGIN_LOCK();
-        atomic_set(&g_wifi_pm.drv_suspend_cnt, 1);
+        atomic_set(&w2_g_wifi_pm.drv_suspend_cnt, 1);
         if (aml_hw->g_urb->status != 0) {
             usb_kill_urb(aml_hw->g_urb);
             printk("%s kill urb status %d\n", __func__, aml_hw->g_urb->status);
         }
         USB_END_LOCK();
-    } else if (aml_bus_type == PCIE_MODE) {
+    } else if (w2_aml_bus_type == PCIE_MODE) {
         aml_hw->repush_rxdesc = 0;
         aml_hw->repush_rxbuff_cnt = 0;
     } else {
@@ -5318,8 +5318,8 @@ static int aml_cfg80211_suspend(struct wiphy *wiphy, struct cfg80211_wowlan *wow
     AML_DBG(AML_FN_ENTRY_STR);
 #ifdef CONFIG_AML_RECOVERY
     if ((aml_recy != NULL && aml_recy_flags_chk(AML_RECY_STATE_ONGOING)) ||
-        ((aml_bus_type != PCIE_MODE) && (bus_state_detect.bus_err))) {
-        AML_INFO("recy ongoing or bus err(%d), do not allow suspend now!\n", bus_state_detect.bus_err);
+        ((w2_aml_bus_type != PCIE_MODE) && (w2_bus_state_detect.bus_err))) {
+        AML_INFO("recy ongoing or bus err(%d), do not allow suspend now!\n", w2_bus_state_detect.bus_err);
         return -EBUSY;
     }
 #endif
@@ -5328,10 +5328,10 @@ static int aml_cfg80211_suspend(struct wiphy *wiphy, struct cfg80211_wowlan *wow
     if (error){
         return error;
     }
-    atomic_set(&g_wifi_pm.drv_suspend_cnt, 1);
+    atomic_set(&w2_g_wifi_pm.drv_suspend_cnt, 1);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
-    if (aml_bus_type == PCIE_MODE)
+    if (w2_aml_bus_type == PCIE_MODE)
         free_irq(aml_hw->plat->pci_dev->irq, aml_hw);
 #endif
     printk("%s ok exit   %d\n", __func__, __LINE__);
@@ -5355,27 +5355,27 @@ static int aml_cfg80211_resume(struct wiphy *wiphy)
     AML_DBG(AML_FN_ENTRY_STR);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         ret = request_irq(aml_hw->plat->pci_dev->irq, aml_irq_pcie_hdlr, 0, "aml", aml_hw);
         AML_INFO("alloc irq:%d, ret:%d\n", aml_hw->plat->pci_dev->irq, ret);
     }
 #endif
 
 #if 1
-    while (atomic_read(&g_wifi_pm.bus_suspend_cnt) > 0)
+    while (atomic_read(&w2_g_wifi_pm.bus_suspend_cnt) > 0)
     {
         msleep(50);
         cnt++;
         if (cnt > 200)
         {
             AML_INFO("no resume cnt 0x%x\n",
-                    atomic_read(&g_wifi_pm.bus_suspend_cnt));
-            atomic_set(&g_wifi_pm.bus_suspend_cnt, 0);
+                    atomic_read(&w2_g_wifi_pm.bus_suspend_cnt));
+            atomic_set(&w2_g_wifi_pm.bus_suspend_cnt, 0);
             return -1;
         }
     }
 #else
-    if ((atomic_read(&g_wifi_pm.bus_suspend_cnt) > 0) && (aml_bus_type == USB_MODE)) {
+    if ((atomic_read(&w2_g_wifi_pm.bus_suspend_cnt) > 0) && (w2_aml_bus_type == USB_MODE)) {
         struct aml_wq *aml_wq;
 
         aml_wq = aml_wq_alloc(0);
@@ -5393,7 +5393,7 @@ static int aml_cfg80211_resume(struct wiphy *wiphy)
     if (error){
         return error;
     }
-    atomic_set(&g_wifi_pm.drv_suspend_cnt, 0);
+    atomic_set(&w2_g_wifi_pm.drv_suspend_cnt, 0);
     printk("%s,%d, resume is ok\n", __func__, __LINE__);
     return 0;
 #else
@@ -6259,7 +6259,7 @@ static int aml_hwctx_buf_init(struct aml_hw *aml_hw)
         return -1;
     }
 
-    if (aml_bus_type != PCIE_MODE) {
+    if (w2_aml_bus_type != PCIE_MODE) {
         buf_size = sizeof(struct scan_results) * (SCAN_RESULTS_MAX_CNT);
         aml_hw->scan_results = kmalloc(buf_size, GFP_ATOMIC);
         if (!aml_hw->scan_results) {
@@ -6292,7 +6292,7 @@ static void aml_hwctx_buf_deinit(struct aml_hw *aml_hw)
         kfree(aml_hw->sta_table);
     if (aml_hw->stats)
         kfree(aml_hw->stats);
-    if (aml_bus_type != PCIE_MODE) {
+    if (w2_aml_bus_type != PCIE_MODE) {
         if (aml_hw->scan_results)
             kfree(aml_hw->scan_results);
         if (aml_hw->scanres_payload_buf)
@@ -6334,14 +6334,14 @@ int aml_napi_poll(struct napi_struct *napi, int weight)
 }
 #endif
 
-extern lp_shutdown_func g_lp_shutdown_func;
+extern lp_shutdown_func w2_g_lp_shutdown_func;
 void aml_interface_shutdown_init(struct aml_hw *aml_hw)
 {
     //save aml_hw
     g_pst_aml_hw = aml_hw;
 
     //aml_lp_shutdown_send_req
-    g_lp_shutdown_func = aml_lp_shutdown_send_req;
+    w2_g_lp_shutdown_func = aml_lp_shutdown_send_req;
 }
 
 static int aml_panic_callback(struct notifier_block *nb, unsigned long event, void *arg)
@@ -6412,7 +6412,7 @@ static int aml_interface_add_all(struct aml_hw *aml_hw, bool custchan)
     return 0;
 }
 
-extern struct aml_bus_state_detect bus_state_detect;
+extern struct aml_bus_state_detect w2_bus_state_detect;
 int aml_cfg80211_init(struct aml_plat *aml_plat, void **platform_data)
 {
     struct aml_hw *aml_hw = NULL;
@@ -6552,12 +6552,12 @@ int aml_cfg80211_init(struct aml_plat *aml_plat, void **platform_data)
     wiphy->extended_capabilities_len = ARRAY_SIZE(aml_hw->ext_capa);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0) // template solution for S905L3A
 #ifndef CONFIG_AML_USE_TASK
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         tasklet_init(&aml_hw->task, aml_pcie_task, (unsigned long)aml_hw);
     }
 #endif
 #else
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         tasklet_init(&aml_hw->task, aml_pcie_task, (unsigned long)aml_hw);
     }
 #endif
@@ -6571,7 +6571,7 @@ int aml_cfg80211_init(struct aml_plat *aml_plat, void **platform_data)
 
     printk("%s:%d\n", __func__, __LINE__);
 
-    if (aml_bus_type != PCIE_MODE) {
+    if (w2_aml_bus_type != PCIE_MODE) {
         aml_rxdata_init();
         aml_rxbuf_list_init(aml_hw);
     }
@@ -6675,7 +6675,7 @@ int aml_cfg80211_init(struct aml_plat *aml_plat, void **platform_data)
         printk("%s failed to register panic notifier(%d)\n", __func__, ret);
     }
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         g_txdesc_trigger.ths_enable = 1;
         g_txdesc_trigger.txdesc_cnt = 0;
         g_txdesc_trigger.dynamic_cnt = 6;
@@ -6688,7 +6688,7 @@ int aml_cfg80211_init(struct aml_plat *aml_plat, void **platform_data)
     // init sdio/usb/pcie interface
     //aml_lp_shutdown_func_register
     aml_interface_shutdown_init(aml_hw);
-    atomic_set(&g_wifi_pm.wifi_enable, 1);
+    atomic_set(&w2_g_wifi_pm.wifi_enable, 1);
 
     return 0;
 
@@ -6741,10 +6741,10 @@ void aml_cfg80211_deinit(struct aml_hw *aml_hw)
     aml_wq_deinit(aml_hw);
 #endif
     aml_platform_off(aml_hw, NULL);
-    if (aml_bus_type != PCIE_MODE) {
+    if (w2_aml_bus_type != PCIE_MODE) {
         aml_rxdata_deinit();
 #ifdef CONFIG_AML_RX_SG
-        kfree(g_mmc_misc);
+        kfree(w2_g_mmc_misc);
 #endif
 #ifdef CONFIG_AML_DEBUGFS
         aml_trace_buf_deinit();
@@ -6755,8 +6755,8 @@ void aml_cfg80211_deinit(struct aml_hw *aml_hw)
     aml_wiphy_addresses_free(aml_hw->wiphy);
     wiphy_free(aml_hw->wiphy);
     g_cali_cfg_done = 0;
-    g_lp_shutdown_func = NULL;
-    atomic_set(&g_wifi_pm.wifi_enable, 0);
+    w2_g_lp_shutdown_func = NULL;
+    atomic_set(&w2_g_wifi_pm.wifi_enable, 0);
 }
 
 void aml_get_version(void)
@@ -6769,13 +6769,13 @@ static int __init aml_mod_init(void)
     AML_DBG(AML_FN_ENTRY_STR);
 
     aml_print_version();
-    printk("aml_bus_type = %d.\n", aml_bus_type);
+    printk("w2_aml_bus_type = %d.\n", w2_aml_bus_type);
 
-    if (aml_bus_type == USB_MODE) {
+    if (w2_aml_bus_type == USB_MODE) {
          return aml_platform_register_usb_drv();
-    } else if (aml_bus_type == SDIO_MODE) {
+    } else if (w2_aml_bus_type == SDIO_MODE) {
         return aml_platform_register_sdio_drv();
-    } else if (aml_bus_type == PCIE_MODE) {
+    } else if (w2_aml_bus_type == PCIE_MODE) {
         return aml_platform_register_pcie_drv();
     } else {
         return -1;
@@ -6789,11 +6789,11 @@ static void __exit aml_mod_exit(void)
 {
     AML_DBG(AML_FN_ENTRY_STR);
 
-    if (aml_bus_type == USB_MODE) {
+    if (w2_aml_bus_type == USB_MODE) {
          aml_platform_unregister_usb_drv();
-    } else if (aml_bus_type == SDIO_MODE) {
+    } else if (w2_aml_bus_type == SDIO_MODE) {
         aml_platform_unregister_sdio_drv();
-    } else if (aml_bus_type == PCIE_MODE) {
+    } else if (w2_aml_bus_type == PCIE_MODE) {
         aml_platform_unregister_pcie_drv();
     }
 }

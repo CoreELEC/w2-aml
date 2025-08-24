@@ -633,7 +633,7 @@ static int aml_pcie_prep_dma_tx(struct aml_hw *aml_hw, struct aml_sw_txhdr *sw_t
 int aml_prep_dma_tx(struct aml_hw *aml_hw, struct aml_sw_txhdr *sw_txhdr,
                             void *frame_start)
 {
-    if (aml_bus_type != PCIE_MODE) {
+    if (w2_aml_bus_type != PCIE_MODE) {
         return aml_sdio_prep_dma_tx(aml_hw, sw_txhdr, frame_start);
     } else {
         return aml_pcie_prep_dma_tx(aml_hw, sw_txhdr, frame_start);
@@ -742,7 +742,7 @@ static void aml_tx_retry(struct aml_hw *aml_hw, struct sk_buff *skb,
         sw_txhdr->desc.api.host.flags |= TXU_CNTRL_REUSE_SN;
         sw_txhdr->desc.api.host.sn_for_retry = status.sn;
 
-        if (aml_bus_type != PCIE_MODE)
+        if (w2_aml_bus_type != PCIE_MODE)
             printk("%s, reuse sn = %d\n", __func__, status.sn);
     }
 
@@ -901,7 +901,7 @@ static int aml_amsdu_add_subframe_header(struct aml_hw *aml_hw,
     }
 
     /* Prepare IPC buffer for DMA transfer */
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         if (aml_ipc_buf_a2e_init(aml_hw, &amsdu_txhdr->ipc_data, amsdu_start, amsdu_len)) {
             netdev_err(skb->dev, "Failed to add A-MSDU header\n");
             pos -= sizeof(*eth);
@@ -918,7 +918,7 @@ static int aml_amsdu_add_subframe_header(struct aml_hw *aml_hw,
 
     /* update aml_sw_txhdr (of the first subframe) */
     BUG_ON(amsdu->nb != sw_txhdr->desc.api.host.packet_cnt);
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         sw_txhdr->desc.api.host.packet_addr[amsdu->nb] = amsdu_txhdr->ipc_data.dma_addr;
     } else {
         sw_txhdr->desc.api.host.packet_addr[amsdu->nb] = 0;
@@ -966,7 +966,7 @@ static bool aml_amsdu_add_subframe(struct aml_hw *aml_hw, struct sk_buff *skb,
     aml_adjust_amsdu_maxnb(aml_hw);
 
 #ifdef CONFIG_AML_USB_LARGE_PAGE
-    if (aml_bus_type == USB_MODE) {
+    if (w2_aml_bus_type == USB_MODE) {
         if (aml_hw->mod_params->amsdu_maxnb > 3)
             aml_hw->mod_params->amsdu_maxnb = 3; // USB limits the number of AMSDU aggregations, which can be sent in one BUF
         //printk("%s txq->id:%d, txq->amsdu_len:%d\n", __func__, txq->idx, txq->amsdu_len);
@@ -1102,7 +1102,7 @@ static void aml_amsdu_dismantle(struct aml_hw *aml_hw, struct aml_sw_txhdr *sw_t
         size_t data_oft;
 
         list_del(&amsdu_txhdr->list);
-        if (aml_bus_type == USB_MODE) {
+        if (w2_aml_bus_type == USB_MODE) {
             tx_max_headroom = AML_USB_TX_HEADROOM;
         } else {
             tx_max_headroom = AML_SDIO_TX_HEADROOM;
@@ -1114,7 +1114,7 @@ static void aml_amsdu_dismantle(struct aml_hw *aml_hw, struct aml_sw_txhdr *sw_t
         sw_txhdr = kmem_cache_alloc(aml_hw->sw_txhdr_cache, GFP_ATOMIC);
 
 
-        if (aml_bus_type == PCIE_MODE) {
+        if (w2_aml_bus_type == PCIE_MODE) {
             if (unlikely((skb_headroom(skb) < AML_TX_HEADROOM)
                || (sw_txhdr == NULL) || (frame_len > amsdu_txhdr->ipc_data.size))) {
                 dev_err(aml_hw->dev, "Failed to dismantle A-MSDU\n");
@@ -1141,17 +1141,17 @@ static void aml_amsdu_dismantle(struct aml_hw *aml_hw, struct aml_sw_txhdr *sw_t
         memcpy(sw_txhdr, sw_txhdr_main, sizeof(*sw_txhdr));
         sw_txhdr->frame_len = frame_len;
         sw_txhdr->skb = skb;
-        if (aml_bus_type == PCIE_MODE) {
+        if (w2_aml_bus_type == PCIE_MODE) {
            sw_txhdr->ipc_data = amsdu_txhdr->ipc_data; // It's OK to re-use amsdu_txhdr ptr
            sw_txhdr->desc.api.host.packet_addr[0] = sw_txhdr->ipc_data.dma_addr + data_oft;
         }
         sw_txhdr->desc.api.host.packet_len[0] = frame_len;
         sw_txhdr->desc.api.host.packet_cnt = 1;
-        if (aml_bus_type == USB_MODE) {
+        if (w2_aml_bus_type == USB_MODE) {
             skb_pull(skb, sizeof(struct ethhdr));
             usb_txhdr = (struct aml_usb_txhdr *)skb_push(skb, AML_USB_TX_HEADROOM);
             usb_txhdr->sw_hdr = sw_txhdr;
-        } else if (aml_bus_type == SDIO_MODE) {
+        } else if (w2_aml_bus_type == SDIO_MODE) {
             skb_pull(skb, sizeof(struct ethhdr));
             sdio_txhdr = (struct aml_sdio_txhdr *)skb_push(skb, AML_SDIO_TX_HEADROOM);
             sdio_txhdr->sw_hdr = sw_txhdr;
@@ -1197,7 +1197,7 @@ static void aml_amsdu_update_len(struct aml_hw *aml_hw, struct aml_txq *txq,
     if (amsdu_len >= txq->amsdu_len) {
         txq->amsdu_len = amsdu_len;
 #ifdef CONFIG_AML_USB_LARGE_PAGE
-        if (aml_bus_type == USB_MODE)
+        if (w2_aml_bus_type == USB_MODE)
             txq->amsdu_len = MIN(txq->amsdu_len, USB_AMSDU_BUF_LEN);
 #endif
         return;
@@ -1236,7 +1236,7 @@ static void aml_amsdu_update_len(struct aml_hw *aml_hw, struct aml_txq *txq,
 
         txq->amsdu_len = amsdu_len;
 #ifdef CONFIG_AML_USB_LARGE_PAGE
-        if (aml_bus_type == USB_MODE)
+        if (w2_aml_bus_type == USB_MODE)
             txq->amsdu_len = MIN(txq->amsdu_len, USB_AMSDU_BUF_LEN);
 #endif
     }
@@ -1549,9 +1549,9 @@ netdev_tx_t aml_start_xmit(struct sk_buff *skb, struct net_device *dev)
     bool sp_frame = false;
 
     sk_pacing_shift_update(skb->sk, aml_hw->tcp_pacing_shift);
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         tx_max_headroom = AML_TX_MAX_HEADROOM;
-    } else if (aml_bus_type == USB_MODE){
+    } else if (w2_aml_bus_type == USB_MODE){
         tx_max_headroom = AML_USB_TX_MAX_HEADROOM;
     } else {
         tx_max_headroom = AML_SDIO_TX_MAX_HEADROOM;
@@ -1563,7 +1563,7 @@ netdev_tx_t aml_start_xmit(struct sk_buff *skb, struct net_device *dev)
 #endif
 
 #ifdef CONFIG_AML_POWER_SAVE_MODE
-    if (aml_bus_type == PCIE_MODE)
+    if (w2_aml_bus_type == PCIE_MODE)
     {
         aml_prevent_fw_sleep(aml_plat, PS_TX_START);
         aml_wait_fw_wake(aml_plat);
@@ -1665,12 +1665,12 @@ netdev_tx_t aml_start_xmit(struct sk_buff *skb, struct net_device *dev)
     if (sp_frame) {
         desc->host.flags |= TXU_CNTRL_SP_FRAME;
     }
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         /* store Tx info in skb headroom */
         txhdr = (struct aml_txhdr *)skb_push(skb, AML_TX_HEADROOM);
         txhdr->sw_hdr = sw_txhdr;
     } else {
-        if (aml_bus_type == USB_MODE) {
+        if (w2_aml_bus_type == USB_MODE) {
             /* store Tx info in skb headroom */
             skb_pull(skb, sizeof(struct ethhdr));
             usb_txhdr = (struct aml_usb_txhdr *)skb_push(skb, AML_USB_TX_HEADROOM);
@@ -1688,7 +1688,7 @@ netdev_tx_t aml_start_xmit(struct sk_buff *skb, struct net_device *dev)
         }
 
     }
-    if (aml_bus_type != PCIE_MODE) {
+    if (w2_aml_bus_type != PCIE_MODE) {
         AML_PRINT(AML_DBG_MODULES_TX, "ethertype:0x%04x, credits:%d, tid:%d, vif_idx:%d\n",
                 cpu_to_be16(desc->host.ethertype), txq->credits, desc->host.tid, desc->host.vif_idx);
     }
@@ -1767,9 +1767,9 @@ int aml_start_mgmt_xmit(struct aml_vif *vif, struct aml_sta *sta,
         }
     }
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         tx_headroom = AML_TX_HEADROOM;
-    } else if (aml_bus_type == USB_MODE){
+    } else if (w2_aml_bus_type == USB_MODE){
         tx_headroom = AML_USB_TX_HEADROOM;
     } else {
         tx_headroom = AML_SDIO_TX_HEADROOM;
@@ -1861,12 +1861,12 @@ int aml_start_mgmt_xmit(struct aml_vif *vif, struct aml_sta *sta,
     if (params->no_cck)
         desc->host.flags |= TXU_CNTRL_MGMT_NO_CCK;
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         /* store Tx info in skb headroom */
         txhdr = (struct aml_txhdr *)skb_push(skb, tx_headroom);
         txhdr->sw_hdr = sw_txhdr;
     } else {
-        if (aml_bus_type == USB_MODE) {
+        if (w2_aml_bus_type == USB_MODE) {
             /* store Tx info in skb headroom */
            usb_txhdr = (struct aml_usb_txhdr *)skb_push(skb, tx_headroom);
            usb_txhdr->sw_hdr = sw_txhdr;
@@ -1915,7 +1915,7 @@ cfm_log cfmlog = {0};
 #endif
 #endif
 
-extern struct aml_bus_state_detect bus_state_detect;
+extern struct aml_bus_state_detect w2_bus_state_detect;
 int aml_update_tx_cfm(void *pthis)
 {
     struct aml_hw *aml_hw = pthis;
@@ -1929,16 +1929,16 @@ int aml_update_tx_cfm(void *pthis)
     read_cfm = aml_hw->read_cfm;
 
 #ifdef CONFIG_AML_RECOVERY
-    if (bus_state_detect.bus_err) {
-        AML_INFO("bus err(%d), return\n", bus_state_detect.bus_err);
+    if (w2_bus_state_detect.bus_err) {
+        AML_INFO("bus err(%d), return\n", w2_bus_state_detect.bus_err);
         return 0;
     }
 #endif
-    if (aml_bus_type == USB_MODE) {
+    if (w2_aml_bus_type == USB_MODE) {
         ret = usb_bulk_msg(aml_hw->plat->usb_dev, usb_rcvbulkpipe(aml_hw->plat->usb_dev, USB_EP5), (void *)read_cfm, sizeof(struct tx_sdio_usb_cfm_tag) * (SRAM_TXCFM_CNT), &actual_length, 100);
         if (ret)
             printk("usb bulk failed actual len is %d\n",actual_length);
-    } else if (aml_bus_type == SDIO_MODE) {
+    } else if (w2_aml_bus_type == SDIO_MODE) {
 #ifdef CONFIG_SDIO_TX_ENH
         if (aml_hw->txcfm_param.dyn_en) {
             uint32_t pushed_occupy_blk = 0;
@@ -1995,7 +1995,7 @@ void txcfm_analyze_handler(struct aml_hw *aml_hw, uint32_t cur_tags, uint32_t pr
     uint32_t left_tag_num = TAGS_IN_SDIO_BLK - relative_idx;
     uint32_t occupy_blk = 0;
 
-    if (aml_bus_type != SDIO_MODE)
+    if (w2_aml_bus_type != SDIO_MODE)
         return;
 
     spin_lock_bh(&aml_hw->txcfm_rd_lock);
@@ -2137,7 +2137,7 @@ int aml_tx_cfm_task(void *data)
 #endif
 
 #ifdef CONFIG_SDIO_TX_ENH
-            if (aml_bus_type == SDIO_MODE)
+            if (w2_aml_bus_type == SDIO_MODE)
                 aml_hw->txcfm_param.hostid_pushed--;
 #ifdef SDIO_TX_ENH_DBG
             cfmlog.cfm_num++;
@@ -2147,7 +2147,7 @@ int aml_tx_cfm_task(void *data)
 
             sw_txhdr = ((struct aml_txhdr *)skb->data)->sw_hdr;
             txq = sw_txhdr->txq;
-            if (aml_bus_type == SDIO_MODE) {
+            if (w2_aml_bus_type == SDIO_MODE) {
                 frame_tot_len = 0;
                 txdesc_host = &sw_txhdr->desc;
                 for (i = 0; i < txdesc_host->api.host.packet_cnt; i++) {
@@ -2187,9 +2187,9 @@ int aml_tx_cfm_task(void *data)
 
                 trace_mgmt_cfm(sw_txhdr->aml_vif->vif_index,
                     (sw_txhdr->aml_sta) ? sw_txhdr->aml_sta->sta_idx : 0xFF, cfm.status.acknowledged);
-                if (aml_bus_type == USB_MODE)
+                if (w2_aml_bus_type == USB_MODE)
                     mgmt = (struct ieee80211_mgmt *)(skb->data + AML_USB_TX_HEADROOM);
-                else if (aml_bus_type == SDIO_MODE)
+                else if (w2_aml_bus_type == SDIO_MODE)
                     mgmt = (struct ieee80211_mgmt *)(skb->data + AML_SDIO_TX_HEADROOM);
                 if ((ieee80211_is_deauth(mgmt->frame_control)) && (sw_txhdr->aml_vif->is_disconnect == 1)) {
                     sw_txhdr->aml_vif->is_disconnect = 0;
@@ -2272,7 +2272,7 @@ int aml_tx_cfm_task(void *data)
                 struct aml_amsdu_txhdr *amsdu_txhdr, *tmp;
                 list_for_each_entry_safe(amsdu_txhdr, tmp, &sw_txhdr->amsdu.hdrs, list) {
                     aml_amsdu_del_subframe_header(amsdu_txhdr);
-                    if (aml_bus_type == PCIE_MODE) {
+                    if (w2_aml_bus_type == PCIE_MODE) {
                         aml_ipc_buf_a2e_release(aml_hw, &amsdu_txhdr->ipc_data);
                     }
                     aml_tx_statistic(sw_txhdr->aml_vif, txq, cfm.status, amsdu_txhdr->msdu_len);
@@ -2282,13 +2282,13 @@ int aml_tx_cfm_task(void *data)
 
 #endif /* CONFIG_AML_AMSDUS_TX */
 
-            if (aml_bus_type == PCIE_MODE) {
+            if (w2_aml_bus_type == PCIE_MODE) {
                 aml_ipc_buf_a2e_release(aml_hw, &sw_txhdr->ipc_data);
             }
             aml_tx_statistic(sw_txhdr->aml_vif, txq, cfm.status, sw_txhdr->frame_len);
 
             kmem_cache_free(aml_hw->sw_txhdr_cache, sw_txhdr);
-            if (aml_bus_type == SDIO_MODE) {
+            if (w2_aml_bus_type == SDIO_MODE) {
                 skb_pull(skb, AML_SDIO_TX_HEADROOM);
             } else {
                 skb_pull(skb, AML_USB_TX_HEADROOM);
@@ -2490,13 +2490,13 @@ void aml_txq_credit_update(struct aml_hw *aml_hw, int sta_idx, u8 tid, s8 update
             update = TX_MAX_CNT - NX_TXQ_INITIAL_CREDITS;
         }
 #else
-        if (aml_bus_type != PCIE_MODE && update > NX_TXQ_INITIAL_CREDITS) {
+        if (w2_aml_bus_type != PCIE_MODE && update > NX_TXQ_INITIAL_CREDITS) {
             update = txq->hwq->size - NX_TXQ_INITIAL_CREDITS;
         }
 #endif
 
         credits = txq->credits;
-        if (aml_bus_type != PCIE_MODE) {
+        if (w2_aml_bus_type != PCIE_MODE) {
             if (((txq->credits + update) > 0) &&
                 ((txq->credits + txq->pkt_pushed[user] + update) < txq->hwq->size )) {
                 txq->credits += update;

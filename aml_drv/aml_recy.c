@@ -38,11 +38,11 @@
 struct aml_recy *aml_recy = NULL;
 static int recy_dbg = 1;
 
-extern struct aml_bus_state_detect bus_state_detect;
-extern struct aml_pm_type g_wifi_pm;
+extern struct aml_bus_state_detect w2_bus_state_detect;
+extern struct aml_pm_type w2_g_wifi_pm;
 
 extern int g_cali_cfg_done;
-extern void aml_usb_reset(void);
+extern void w2_aml_usb_reset(void);
 
 static const char *const aml_recy_reason_code2str[RECY_REASON_CODE_MAX] = {
     [RECY_REASON_CODE_CMD_CRASH]       = "RECY_REASON_CODE_CMD_CRASH",
@@ -246,9 +246,9 @@ int aml_recy_sta_connect(struct aml_hw *aml_hw, uint8_t *status)
 extern int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config);
 extern void aml_platform_off(struct aml_hw *aml_hw, void **config);
 extern void extern_wifi_set_enable(int is_on);
-extern unsigned char g_usb_after_probe;
-extern void aml_sdio_reset(void);
-extern struct usb_device *g_udev;
+extern unsigned char w2_g_usb_after_probe;
+extern void w2_aml_sdio_reset(void);
+extern struct usb_device *w2_g_udev;
 int aml_recy_fw_reload_for_usb_sdio(struct aml_hw *aml_hw)
 {
     int ret = 0;
@@ -257,26 +257,26 @@ int aml_recy_fw_reload_for_usb_sdio(struct aml_hw *aml_hw)
     RECY_DBG("reload fw start");
 
     aml_recy_flags_set(AML_RECY_FW_ONGOING | AML_RECY_IPC_ONGOING);
-    bus_state_detect.is_recy_ongoing = 1;
+    w2_bus_state_detect.is_recy_ongoing = 1;
 Try_again:
 
     aml_platform_off(aml_hw, NULL);
-    if (aml_bus_type != PCIE_MODE) {
+    if (w2_aml_bus_type != PCIE_MODE) {
         aml_clear_reorder_list();
     }
-    if (aml_bus_type == USB_MODE) {
-        bus_state_detect.bus_reset_ongoing = 1;
-        aml_usb_reset();
+    if (w2_aml_bus_type == USB_MODE) {
+        w2_bus_state_detect.bus_reset_ongoing = 1;
+        w2_aml_usb_reset();
 
         /* realloc usb_dev in function@auc_probe when usb do reset, it need to reinit data */
-        aml_hw->plat->usb_dev = g_udev;
+        aml_hw->plat->usb_dev = w2_g_udev;
         dev_set_drvdata(&aml_hw->plat->usb_dev->dev, aml_hw);
         aml_hw->dev = aml_platform_get_dev(aml_hw->plat);
         set_wiphy_dev(aml_hw->wiphy, aml_hw->dev);
-        bus_state_detect.bus_reset_ongoing = 0;
+        w2_bus_state_detect.bus_reset_ongoing = 0;
     }
-    if ((aml_bus_type == SDIO_MODE) && ((bus_state_detect.bus_err == 1) || (try_cnt > 1))) {
-       aml_sdio_reset();
+    if ((w2_aml_bus_type == SDIO_MODE) && ((w2_bus_state_detect.bus_err == 1) || (try_cnt > 1))) {
+       w2_aml_sdio_reset();
     }
     if (aml_sdio_platform_on(aml_hw, NULL)) {
         RECY_DBG("reload fw platform on failed");
@@ -313,7 +313,7 @@ out:
         goto Try_again;
     }
 #endif
-    bus_state_detect.is_recy_ongoing = 0;
+    w2_bus_state_detect.is_recy_ongoing = 0;
     aml_recy_flags_clr(AML_RECY_FW_ONGOING);
     return ret;
 }
@@ -400,7 +400,7 @@ static int aml_recy_fw_reload(struct aml_hw *aml_hw)
 {
     int ret = 0;
 
-    if (aml_bus_type != PCIE_MODE) {
+    if (w2_aml_bus_type != PCIE_MODE) {
         ret = aml_recy_fw_reload_for_usb_sdio(aml_hw);
     } else {
         ret = aml_recy_fw_reload_for_pcie(aml_hw);
@@ -586,15 +586,15 @@ int aml_recy_doit(struct aml_hw *aml_hw)
 
     scnprintf(fbuf, sizeof(fbuf), "recovery reason: 0x%02x(%s)\n", aml_recy->reason, aml_recy_reason_code2str[aml_recy->reason]);
     AML_INFO("%s", fbuf);
-    if (aml_bus_type != PCIE_MODE)
+    if (w2_aml_bus_type != PCIE_MODE)
 #ifdef CONFIG_AML_DEBUGFS
         aml_send_err_info_to_diag(fbuf, strlen(fbuf));
 #endif
 
     if (aml_recy_flags_chk(flags)) {
         RECY_DBG("recy delay by flags: 0x%x\n", aml_recy->flags);
-        if ((aml_bus_type != PCIE_MODE) && (bus_state_detect.bus_err == 1)) {
-            bus_state_detect.bus_reset_ongoing = 0;
+        if ((w2_aml_bus_type != PCIE_MODE) && (w2_bus_state_detect.bus_err == 1)) {
+            w2_bus_state_detect.bus_reset_ongoing = 0;
         }
         return 0;
     }
@@ -626,9 +626,9 @@ out:
     // recovery ps mode
     aml_send_me_set_ps_mode(aml_hw, aml_recy->ps_state);
     /* clear suspend state flag */
-    atomic_set(&g_wifi_pm.bus_suspend_cnt, 0);
-    atomic_set(&g_wifi_pm.drv_suspend_cnt, 0);
-    atomic_set(&g_wifi_pm.is_shut_down, 0);
+    atomic_set(&w2_g_wifi_pm.bus_suspend_cnt, 0);
+    atomic_set(&w2_g_wifi_pm.drv_suspend_cnt, 0);
+    atomic_set(&w2_g_wifi_pm.is_shut_down, 0);
     aml_hw->state = WIFI_SUSPEND_STATE_NONE;
     spin_lock_bh(&aml_recy->aml_hw->cmd_mgr.lock);
     aml_recy->reason = 0;
@@ -659,7 +659,7 @@ static int aml_recy_detection(void)
 
 #ifdef CONFIG_LINUXPC_VERSION
     // mutex_lock can't run in timer_cb, so pcie does only
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         // channel is exception when pc pointer is 0xffffffff, and it can not recover now
         if (AML_REG_READ(aml_recy->aml_hw->plat, AML_ADDR_MAC_PHY, AML_FW_PC_POINTER) == 0xffffffff) {
             return 0;
@@ -682,10 +682,10 @@ static int aml_recy_detection(void)
         }
         ret = true;
     }
-    if (aml_bus_type != PCIE_MODE) {
-        if (!bus_state_detect.bus_reset_ongoing &&
-            (bus_state_detect.bus_err == 1)) {
-            bus_state_detect.bus_reset_ongoing = 1;
+    if (w2_aml_bus_type != PCIE_MODE) {
+        if (!w2_bus_state_detect.bus_reset_ongoing &&
+            (w2_bus_state_detect.bus_err == 1)) {
+            w2_bus_state_detect.bus_reset_ongoing = 1;
             aml_recy->reason = RECY_REASON_CODE_BUS_ERR;
             ret = true;
         }

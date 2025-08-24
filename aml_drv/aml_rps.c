@@ -100,16 +100,16 @@ static int aml_rps_map_set(struct netdev_rx_queue *queue, uint32_t cpu_mask)
     return 0;
 }
 
-extern unsigned int aml_bus_type;
+extern unsigned int w2_aml_bus_type;
 
 int aml_rps_cpus_enable(struct net_device *net)
 {
     int rx_idx = 0;
     uint32_t cpu_mask = BIT_FIELD_MASK(0, num_online_cpus() - 1);
 
-    if (aml_bus_type == PCIE_MODE)
+    if (w2_aml_bus_type == PCIE_MODE)
         cpu_mask = BIT_FIELD_MASK(0, num_online_cpus() - 1);
-    else if (aml_bus_type == SDIO_MODE)
+    else if (w2_aml_bus_type == SDIO_MODE)
         cpu_mask = 1 << (num_online_cpus() - 1); //bind cpu for s905l3a
     if (net && net->_rx) {
         for (rx_idx = 0; rx_idx < net->num_rx_queues; rx_idx++)

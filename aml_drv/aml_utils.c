@@ -32,7 +32,7 @@
 #ifdef CONFIG_AML_DEBUGFS
 extern struct log_file_info trace_log_file_info;
 #endif
-extern struct aml_pm_type g_wifi_pm;
+extern struct aml_pm_type w2_g_wifi_pm;
 
 /**
  * aml_ipc_buf_pool_alloc() - Allocate and push to fw a pool of IPC buffer.
@@ -164,7 +164,7 @@ int aml_ipc_buf_alloc(struct aml_hw *aml_hw, struct aml_ipc_buf *buf,
         memcpy(buf->addr, init, buf_size);
     }
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         buf->dma_addr = dma_map_single(aml_hw->dev, buf->addr, buf_size, dir);
         if (dma_mapping_error(aml_hw->dev, buf->dma_addr)) {
             kfree(buf->addr);
@@ -208,7 +208,7 @@ int aml_ipc_buf_prealloc(struct aml_hw *aml_hw, struct aml_ipc_buf *buf,
         memcpy(buf->addr, init, buf->size);
     }
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         buf->dma_addr = dma_map_single(aml_hw->dev, buf->addr, buf->size, dir);
         if (dma_mapping_error(aml_hw->dev, buf->dma_addr)) {
             buf->addr = NULL;
@@ -233,7 +233,7 @@ void aml_ipc_buf_dealloc(struct aml_hw *aml_hw, struct aml_ipc_buf *buf)
 {
     if (!buf->addr)
         return;
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         dma_unmap_single(aml_hw->dev, buf->dma_addr, buf->size, DMA_TO_DEVICE);
         kfree(buf->addr);
         buf->addr = NULL;
@@ -261,7 +261,7 @@ int aml_ipc_buf_a2e_init(struct aml_hw *aml_hw, struct aml_ipc_buf *buf,
 {
     buf->addr = data;
     buf->size = buf_size;
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         buf->dma_addr = dma_map_single(aml_hw->dev, buf->addr, buf_size,
                                        DMA_TO_DEVICE);
         if (dma_mapping_error(aml_hw->dev, buf->dma_addr)) {
@@ -288,7 +288,7 @@ void aml_ipc_buf_release(struct aml_hw *aml_hw, struct aml_ipc_buf *buf,
 {
     if (!buf->addr)
         return;
-   if (aml_bus_type == PCIE_MODE) {
+   if (w2_aml_bus_type == PCIE_MODE) {
         dma_unmap_single(aml_hw->dev, buf->dma_addr, buf->size, dir);
         buf->addr = NULL;
     }
@@ -739,7 +739,7 @@ struct aml_ipc_buf *aml_ipc_rxbuf_from_hostid(struct aml_hw *aml_hw, u32 hostid)
  */
 static void aml_elems_deallocs(struct aml_hw *aml_hw)
 {
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
 #ifdef CONFIG_AML_PREALLOC_BUF_SKB
         aml_prealloc_rxbuf_deinit(aml_hw);
 #endif
@@ -772,7 +772,7 @@ static int aml_elems_allocs(struct aml_hw *aml_hw)
 {
     AML_DBG(AML_FN_ENTRY_STR);
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         if (dma_set_coherent_mask(aml_hw->dev, DMA_BIT_MASK(32)))
             goto err_alloc;
 #ifdef CONFIG_AML_SOFTMAC
@@ -848,7 +848,7 @@ static int aml_elems_allocs(struct aml_hw *aml_hw)
             goto err_alloc;
 #endif
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         ipc_host_dbginfo_push(aml_hw->ipc_env, &aml_hw->dbgdump.buf);
     }
 
@@ -1145,9 +1145,9 @@ void aml_tx_lock_timer_cancel(struct aml_hw *aml_hw)
 
 void aml_scatter_req_init(struct aml_hw *aml_hw)
 {
-    if (aml_bus_type == SDIO_MODE) {
-       aml_hw->g_tx_param.scat_req = aml_hw->plat->hif_sdio_ops->hi_get_scatreq(&g_hwif_sdio);
-    } else if (aml_bus_type == USB_MODE) {
+    if (w2_aml_bus_type == SDIO_MODE) {
+       aml_hw->g_tx_param.scat_req = aml_hw->plat->hif_sdio_ops->hi_get_scatreq(&w2_g_hwif_sdio);
+    } else if (w2_aml_bus_type == USB_MODE) {
        aml_hw->g_tx_param.scat_req = aml_hw->plat->hif_ops->hi_get_scatreq();
     }
     if (aml_hw->g_tx_param.scat_req != NULL) {
@@ -1164,9 +1164,9 @@ void aml_host_send_stop_tx_to_fw(struct aml_hw *aml_hw)
 
     cmd_buf[0] = DYNAMIC_BUF_NOTIFY_FW_TX_STOP;
     cmd_buf[1] = 1;
-    if (aml_bus_type == USB_MODE) {
+    if (w2_aml_bus_type == USB_MODE) {
         aml_hw->plat->hif_ops->hi_write_sram((unsigned char*)(cmd_buf), (unsigned char *)(SYS_TYPE)(SDIO_USB_EXTEND_E2A_IRQ_STATUS), 8, USB_EP4);
-    } else if (aml_bus_type == SDIO_MODE) {
+    } else if (w2_aml_bus_type == SDIO_MODE) {
         aml_hw->plat->hif_sdio_ops->hi_sram_write((unsigned char*)(cmd_buf), (unsigned char *)(SYS_TYPE)(SDIO_USB_EXTEND_E2A_IRQ_STATUS), 8);
     }
 }
@@ -1243,7 +1243,7 @@ int aml_tx_task(void *data)
         spin_lock_bh(&aml_hw->tx_desc_lock);
         list_for_each_entry_safe(sw_txhdr, next, &aml_hw->tx_desc_save, list) {
             txdesc_host = &sw_txhdr->desc;
-            if (aml_bus_type == USB_MODE) {
+            if (w2_aml_bus_type == USB_MODE) {
                 #ifdef CONFIG_AML_USB_LARGE_PAGE
                 frame_tot_len = 0;
                 for (i = 0; i < txdesc_host->api.host.packet_cnt; i++) {
@@ -1289,7 +1289,7 @@ int aml_tx_task(void *data)
 #endif
 #endif
 
-                if (aml_bus_type == SDIO_MODE) {
+                if (w2_aml_bus_type == SDIO_MODE) {
 
                     if (sw_txhdr->desc.api.host.flags & TXU_CNTRL_AMSDU) {
                         struct aml_amsdu_txhdr *amsdu_txhdr, *tmp;
@@ -1427,7 +1427,7 @@ int aml_tx_task(void *data)
                             msdu_len = amsdu_txhdr->msdu_len + 14 + amsdu_txhdr->pad;
                             frm = (unsigned char *)amsdu_txhdr->skb->data + sizeof(*amsdu_txhdr) + sizeof(struct ethhdr);
 
-                            if (aml_bus_type == SDIO_MODE) {
+                            if (w2_aml_bus_type == SDIO_MODE) {
                                 page_num = howmanypage(msdu_len, SDIO_PAGE_LEN);
                                 aml_hw->g_tx_param.tot_page_num += page_num;
                                 spin_lock_bh(&aml_hw->tx_buf_lock);
@@ -1482,7 +1482,7 @@ int aml_tx_task(void *data)
 #endif
 #endif
 
-            if (aml_bus_type == SDIO_MODE) {
+            if (w2_aml_bus_type == SDIO_MODE) {
                 aml_hw->plat->hif_sdio_ops->hi_send_frame(aml_hw->g_tx_param.scat_req);
                 for (i = 0; i < dynabuf_id; i++) {
                     if (amsdu_dynabuf[i]) {
@@ -1530,7 +1530,7 @@ int aml_tx_task(void *data)
 void aml_ipc_msg_push(struct aml_hw *aml_hw, void *msg_buf, uint16_t len)
 {
 #ifdef CONFIG_AML_POWER_SAVE_MODE
-    if (aml_bus_type == PCIE_MODE)
+    if (w2_aml_bus_type == PCIE_MODE)
     {
         aml_prevent_fw_sleep(aml_hw->plat, PS_MSG_PUSH);
         aml_wait_fw_wake(aml_hw->plat);
@@ -1599,11 +1599,11 @@ void aml_pci_ipc_txdesc_push(struct aml_hw *aml_hw, struct aml_sw_txhdr *sw_txhd
 void aml_ipc_txdesc_push(struct aml_hw *aml_hw, struct aml_sw_txhdr *sw_txhdr,
                           struct sk_buff *skb, int hw_queue)
 {
-    if (aml_bus_type != PCIE_MODE) {
+    if (w2_aml_bus_type != PCIE_MODE) {
         aml_sdio_ipc_txdesc_push(aml_hw, sw_txhdr, skb, hw_queue);
     } else {
-        if (atomic_read(&g_wifi_pm.bus_suspend_cnt) || g_pci_shutdown) {
-            AML_INFO("aml_ipc_txdesc_push,bus_suspend_cnt = %x, g_pci_shutdown = %x \n", g_wifi_pm.bus_suspend_cnt, g_pci_shutdown);
+        if (atomic_read(&w2_g_wifi_pm.bus_suspend_cnt) || w2_g_pci_shutdown) {
+            AML_INFO("aml_ipc_txdesc_push,bus_suspend_cnt = %x, w2_g_pci_shutdown = %x \n", w2_g_wifi_pm.bus_suspend_cnt, w2_g_pci_shutdown);
         }
         else
             aml_pci_ipc_txdesc_push(aml_hw, sw_txhdr, skb, hw_queue);
@@ -1677,9 +1677,9 @@ void *aml_pci_ipc_fw_trace_desc_get(struct aml_hw *aml_hw)
 
 void *aml_ipc_fw_trace_desc_get(struct aml_hw *aml_hw)
 {
-    if (aml_bus_type == USB_MODE) {
+    if (w2_aml_bus_type == USB_MODE) {
         return (void *)aml_usb_ipc_fw_trace_desc_get(aml_hw);
-    } else if (aml_bus_type == SDIO_MODE) {
+    } else if (w2_aml_bus_type == SDIO_MODE) {
         return (void *)aml_sdio_ipc_fw_trace_desc_get(aml_hw);
     } else {
         return (void *)aml_pci_ipc_fw_trace_desc_get(aml_hw);
@@ -1725,10 +1725,10 @@ void aml_get_noparammsg_info(struct aml_hw *aml_hw, struct ipc_e2a_msg *msg)
     if (msg->id == DBG_ERROR_IND) {
         struct aml_ipc_buf *dbgdump_buf = &aml_hw->dbgdump.buf;
 
-        if (aml_bus_type == USB_MODE) {
+        if (w2_aml_bus_type == USB_MODE) {
             aml_hw->plat->hif_ops->hi_read_sram((unsigned char *)dbgdump_buf->addr,
                 (unsigned char *)(unsigned long)DEBUG_INFO, sizeof(struct dbg_debug_info_tag) + DGB_INFO_OFFSET, USB_EP4);
-        } else if (aml_bus_type == SDIO_MODE) {
+        } else if (w2_aml_bus_type == SDIO_MODE) {
             aml_hw->plat->hif_sdio_ops->hi_random_ram_read((unsigned char *)dbgdump_buf->addr,
                 (unsigned char *)(unsigned long)DEBUG_INFO, sizeof(struct dbg_debug_info_tag) + DGB_INFO_OFFSET);
         }
@@ -1776,14 +1776,14 @@ static u8 aml_msg_process(struct aml_hw *aml_hw, struct ipc_e2a_msg *msg, struct
     u8 ret = 0;
     u32 msgcnt = 0;
 
-    if (aml_bus_type != PCIE_MODE) {
+    if (w2_aml_bus_type != PCIE_MODE) {
         /*get info for msg no param*/
 #ifndef CONFIG_PT_MODE
         aml_get_noparammsg_info(aml_hw, msg);
 #endif
     }
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         /* check msg cnt */
         msgcnt = ((msg->dummy_src_id << 16) | msg->dummy_dest_id);
         if (msgcnt != aml_hw->ipc_env->msgbuf_cnt + 1) {
@@ -1792,7 +1792,7 @@ static u8 aml_msg_process(struct aml_hw *aml_hw, struct ipc_e2a_msg *msg, struct
         }
     }
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         record_proc_msg_buf(aml_hw->ipc_env, buf,msg);
     }
     /* Relay further actions to the msg parser */
@@ -1802,7 +1802,7 @@ static u8 aml_msg_process(struct aml_hw *aml_hw, struct ipc_e2a_msg *msg, struct
     msg->pattern = 0;
     wmb();
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         /* Push back the buffer to the LMAC */
         ipc_host_msgbuf_push(aml_hw->ipc_env, buf);
         aml_hw->ipc_env->msgbuf_cnt = msgcnt;
@@ -1819,7 +1819,7 @@ void aml_traffic_busy_msg(struct aml_hw *aml_hw,struct ipc_e2a_msg *msg1,struct 
     u32 msgcnt = 0;
     struct aml_vif *aml_vif;
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         if (msg1->pattern == IPC_MSGE2A_VALID_PATTERN) {
             msgcnt = ((msg1->dummy_src_id << 16) | msg1->dummy_dest_id);
             if (msgcnt != aml_hw->ipc_env->msgbuf_cnt + 1) {
@@ -1933,7 +1933,7 @@ static u8 aml_msgind(void *pthis, void *arg)
         return 0;
     }
 
-    if (aml_bus_type == USB_MODE) {
+    if (w2_aml_bus_type == USB_MODE) {
         msg1 = &aml_hw->g_msg1;
         msg2 = &aml_hw->g_msg2;
 
@@ -1945,7 +1945,7 @@ static u8 aml_msgind(void *pthis, void *arg)
 
         ipc_app2emb_trigger_set(aml_hw, IPC_A2E_MSG_IND);
 
-    } else if (aml_bus_type == SDIO_MODE) {
+    } else if (w2_aml_bus_type == SDIO_MODE) {
         msg1 = &aml_hw->g_msg1;
         msg2 = &aml_hw->g_msg2;
 
@@ -2005,7 +2005,7 @@ static u8 aml_msgind(void *pthis, void *arg)
         ret = -1;
     }
 
-    if (aml_bus_type != PCIE_MODE) {
+    if (w2_aml_bus_type != PCIE_MODE) {
         if (msg2->pattern == IPC_MSGE2A_VALID_PATTERN) {
             if (msg2->id != 0)
                 ret = aml_msg_process(aml_hw, msg2, buf);
@@ -2056,7 +2056,7 @@ static u8 aml_radarind(void *pthis, void *arg)
     struct radar_pulse_array_desc *pulses = NULL;
     u8 ret = 0;
     int i;
-    if (aml_bus_type != PCIE_MODE) {
+    if (w2_aml_bus_type != PCIE_MODE) {
         pulses = &aml_hw->g_pulses;
         aml_hw->radar_pulse_index = (aml_hw->radar_pulse_index + 1) % RADAR_EVENT_MAX;
     } else {
@@ -2065,7 +2065,7 @@ static u8 aml_radarind(void *pthis, void *arg)
 
     /* Look for pulse count meaning that this hostbuf contains RADAR pulses */
     if (pulses->cnt == 0) {
-        if (aml_bus_type != PCIE_MODE) {
+        if (w2_aml_bus_type != PCIE_MODE) {
             if (aml_hw->radar_pulse_index > 0) {
                 aml_hw->radar_pulse_index = (aml_hw->radar_pulse_index - 1) % RADAR_EVENT_MAX;
             } else {
@@ -2100,7 +2100,7 @@ static u8 aml_radarind(void *pthis, void *arg)
     pulses->cnt = 0;
     wmb();
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         /* Push back the buffer to the LMAC */
         ipc_host_radar_push(aml_hw->ipc_env, buf);
     }
@@ -2130,12 +2130,12 @@ static u8 aml_dbgind(void *pthis, void *arg)
     u8 i = 0;
     char debug_string[60] = "ASSERT (***** assert_err *****: ) at patch_ipc_emb.c";
 
-    if (aml_bus_type == USB_MODE) {
+    if (w2_aml_bus_type == USB_MODE) {
         dbg_msg = &aml_hw->g_dbg_msg;
         aml_hw->plat->hif_ops->hi_read_sram((unsigned char *)dbg_msg, (unsigned char *)&(aml_hw->ipc_env->shared->dbg_buf), sizeof(struct ipc_dbg_msg), USB_EP4);
 
         ipc_app2emb_trigger_set(aml_hw, IPC_IRQ_A2E_DBG);
-    } else if (aml_bus_type == SDIO_MODE) {
+    } else if (w2_aml_bus_type == SDIO_MODE) {
         dbg_msg = &aml_hw->g_dbg_msg;
         aml_hw->plat->hif_sdio_ops->hi_random_ram_read((unsigned char *)dbg_msg, (unsigned char *)&(aml_hw->ipc_env->shared->dbg_buf),  sizeof(struct ipc_dbg_msg));
 
@@ -2159,7 +2159,7 @@ static u8 aml_dbgind(void *pthis, void *arg)
     if (0 == strncmp((const char *)dbg_msg->string,(const char *)debug_string,strlen((const char *)debug_string))) {
         is_assert = 1;
     }
-    if ((aml_bus_type == PCIE_MODE) && (is_assert == 1)) {
+    if ((w2_aml_bus_type == PCIE_MODE) && (is_assert == 1)) {
         printk("debug_push_idx=%d,msgbuf_idx=%d,debug_proc_idx=%d\n",debug_push_idx,aml_hw->ipc_env->msgbuf_idx,debug_proc_idx);
         while (i < DEBUG_MSGE2A_BUF_CNT) {
             printk("push msgbuf idx=%d,addr=0x%x,next_addr=0x%x,time=%u\n",debug_push_msgbug[i].idx,debug_push_msgbug[i].addr,debug_push_msgbug[i].next_addr,debug_push_msgbug[i].time);
@@ -2175,7 +2175,7 @@ static u8 aml_dbgind(void *pthis, void *arg)
     dbg_msg->pattern = 0;
     wmb();
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         /* Push back the buffer to the LMAC */
         ipc_host_dbgbuf_push(aml_hw->ipc_env, buf);
     }
@@ -2289,11 +2289,11 @@ int aml_traceind(void *pthis, int mode)
     ptr_flag = trace_log_file_info.ptr;
 #endif
 
-    if (aml_bus_type == USB_MODE) {
+    if (w2_aml_bus_type == USB_MODE) {
         aml_hw->plat->hif_ops->hi_read_sram((unsigned char *)ptr_flag, (unsigned char *)(SYS_TYPE)USB_TRACE_START_ADDR, USB_TRACE_TOTAL_SIZE, USB_EP4);
         end = aml_hw->plat->hif_ops->hi_read_word((unsigned long)&(aml_hw->ipc_env->shared->trace_end), USB_EP4);
         trace_max_size = USB_TRACE_MAX_SIZE;
-    } else if (aml_bus_type == SDIO_MODE) {
+    } else if (w2_aml_bus_type == SDIO_MODE) {
         aml_hw->plat->hif_sdio_ops->hi_random_ram_read((unsigned char *)ptr_flag, (unsigned char *)(SYS_TYPE)SDIO_TRACE_START_ADDR, SDIO_TRACE_TOTAL_SIZE);
         end = aml_hw->plat->hif_sdio_ops->hi_random_word_read((unsigned long)&(aml_hw->ipc_env->shared->trace_end));
         trace_max_size = SDIO_TRACE_MAX_SIZE;
@@ -2488,9 +2488,9 @@ void aml_ipc_tx_drain(struct aml_hw *aml_hw)
         skb_pull(skb, sw_txhdr->headroom);
         ieee80211_free_txskb(aml_hw->hw, skb);
 #else
-        if (aml_bus_type == SDIO_MODE) {
+        if (w2_aml_bus_type == SDIO_MODE) {
             skb_pull(skb, AML_SDIO_TX_HEADROOM);
-        } else if (aml_bus_type == USB_MODE) {
+        } else if (w2_aml_bus_type == USB_MODE) {
             skb_pull(skb, AML_USB_TX_HEADROOM);
         } else {
             skb_pull(skb, AML_TX_HEADROOM);
@@ -2524,7 +2524,7 @@ void aml_error_ind(struct aml_hw *aml_hw)
     struct aml_ipc_buf *buf = &aml_hw->dbgdump.buf;
     struct dbg_debug_dump_tag *dump = buf->addr;
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         aml_ipc_buf_e2a_sync(aml_hw, buf, 0);
     } else {
         dump = (struct dbg_debug_dump_tag *)((char*)buf->addr + DGB_INFO_OFFSET);
@@ -2552,7 +2552,7 @@ void aml_umh_done(struct aml_hw *aml_hw)
 #ifdef CONFIG_AML_DEBUGFS
     aml_hw->debugfs.trace_prst = false;
 #endif
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         ipc_host_dbginfo_push(aml_hw->ipc_env, &aml_hw->dbgdump.buf);
     }
 }
@@ -2606,10 +2606,10 @@ u8 aml_ieee80211_freq_to_chan(u32 freq, u32 band)
 uint32_t aml_read_reg(struct net_device *dev,uint32_t reg_addr)
 {
     unsigned char *map_address = NULL;
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         map_address = aml_pci_get_map_address(dev, reg_addr);
         if (map_address) {
-            return aml_pci_readl(map_address);
+            return w2_aml_pci_readl(map_address);
         }
     } else {
         struct aml_vif *aml_vif = netdev_priv(dev);

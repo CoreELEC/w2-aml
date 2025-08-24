@@ -41,7 +41,7 @@ void *aml_prealloc_get(int type, size_t size, size_t *out_size)
                 printk("not enough pre-alloc buffer size(%ld) for dump\n", size);
                 return NULL;
             }
-            prealloc_buf = aml_mem_prealloc(AML_PREALLOC_BUF_TYPE_DUMP, size);
+            prealloc_buf = w2_aml_mem_prealloc(AML_PREALLOC_BUF_TYPE_DUMP, size);
             *out_size = PREALLOC_BUF_DUMP_SIZE;
             break;
         case PREALLOC_BUF_TYPE_RX:
@@ -49,7 +49,7 @@ void *aml_prealloc_get(int type, size_t size, size_t *out_size)
                 printk("not enough pre-alloc buffer size(%ld) for rx\n", size);
                 return NULL;
             }
-            prealloc_buf = aml_mem_prealloc(AML_PREALLOC_HW_RX, size);
+            prealloc_buf = w2_aml_mem_prealloc(AML_PREALLOC_HW_RX, size);
             *out_size = WLAN_AML_HW_RX_SIZE;
             break;
         case PREALLOC_BUF_TYPE_TXQ:
@@ -57,7 +57,7 @@ void *aml_prealloc_get(int type, size_t size, size_t *out_size)
                 printk("not enough pre-alloc buffer size(%ld) for txq\n", size);
                 return NULL;
             }
-            prealloc_buf = aml_mem_prealloc(AML_PREALLOC_BUF_TYPE_TXQ, size);
+            prealloc_buf = w2_aml_mem_prealloc(AML_PREALLOC_BUF_TYPE_TXQ, size);
             *out_size = PREALLOC_BUF_INFO_SIZE;
             break;
         case PREALLOC_BUF_TYPE_AMSDU:
@@ -65,7 +65,7 @@ void *aml_prealloc_get(int type, size_t size, size_t *out_size)
                 printk("not enough pre-alloc buffer size(%ld) for amsdu\n", size);
                 return NULL;
             }
-            prealloc_buf = aml_mem_prealloc(AML_PREALLOC_AMSDU, size);
+            prealloc_buf = w2_aml_mem_prealloc(AML_PREALLOC_AMSDU, size);
             *out_size = WLAN_AML_AMSDU_SIZE;
             break;
         default:

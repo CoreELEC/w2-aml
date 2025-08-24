@@ -128,7 +128,7 @@ int aml_task_rxdesc(void *data)
 
 void aml_task_init(struct aml_hw *aml_hw)
 {
-    if (aml_bus_type != PCIE_MODE)
+    if (w2_aml_bus_type != PCIE_MODE)
         return;
 
     AML_INFO("aml task init");
@@ -141,7 +141,7 @@ void aml_task_init(struct aml_hw *aml_hw)
 
 void aml_task_deinit(struct aml_hw *aml_hw)
 {
-    if (aml_bus_type != PCIE_MODE)
+    if (w2_aml_bus_type != PCIE_MODE)
         return;
 
     AML_INFO("aml task deinit");

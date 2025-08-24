@@ -236,7 +236,7 @@ static int aml_rx_data_skb(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
 
     __skb_queue_head_init(&list);
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         if (amsdu) {
             u32 mpdu_len = le32_to_cpu(rxhdr->hwvect.len);
             if (mpdu_len > NORMAL_AMSDU_MAX_LEN) {
@@ -510,7 +510,7 @@ static void aml_rx_mgmt(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
     struct rx_vector_1 *rxvect = &hw_rxhdr->hwvect.rx_vect1;
     uint32_t sp_ret = 0;
 
-    if (aml_bus_type != PCIE_MODE) {
+    if (w2_aml_bus_type != PCIE_MODE) {
         aml_scan_rx(aml_hw, hw_rxhdr, skb);
     }
 
@@ -1248,7 +1248,7 @@ u8 aml_unsup_rx_vec_ind(void *pthis, void *arg) {
     struct rx_vector_desc rx_vect_desc;
     u8 rtap_len, vend_rtap_len = sizeof(*rtap);
 
-    if (aml_bus_type != PCIE_MODE) {
+    if (w2_aml_bus_type != PCIE_MODE) {
         return -1;
     }
 
@@ -1518,13 +1518,13 @@ void aml_scan_rx(struct aml_hw *aml_hw, struct hw_rxhdr *hw_rxhdr, struct sk_buf
 void aml_sdio_get_rxdata(struct aml_hw *p_this, struct drv_stat_desc *arg1, struct drv_rxdesc *arg2)
 {
     uint32_t func_num = SDIO_FUNC6;
-    struct sdio_func *func = aml_priv_to_func(func_num);
+    struct sdio_func *func = w2_aml_priv_to_func(func_num);
     uint32_t blk_size = func->cur_blksize;
 
     struct drv_stat_desc *rx_stat_desc = arg1;
     struct drv_rxdesc *drv_rxdesc = arg2;
     struct aml_hw *aml_hw = p_this;
-    struct amlw_hif_scatter_req *scat_req = aml_hw->plat->hif_sdio_ops->hi_get_scatreq(&g_hwif_rx_sdio);
+    struct amlw_hif_scatter_req *scat_req = aml_hw->plat->hif_sdio_ops->hi_get_scatreq(&w2_g_hwif_rx_sdio);
     uint32_t i = 0, sg_count = 0, upload_len = 0, host_id = 0, buffer_len = 0;
 
     ASSERT_ERR(scat_req);
@@ -1904,15 +1904,15 @@ void aml_dynamic_update_tx_page(struct aml_hw *aml_hw)
 {
     spin_lock_bh(&aml_hw->tx_buf_lock);
     if (aml_hw->rx_buf_state & BUFFER_EXPAND) {
-        aml_hw->g_tx_param.tx_page_free_num = (aml_bus_type == SDIO_MODE) ? SDIO_TX_PAGE_NUM_SMALL : USB_TX_PAGE_NUM_SMALL;
+        aml_hw->g_tx_param.tx_page_free_num = (w2_aml_bus_type == SDIO_MODE) ? SDIO_TX_PAGE_NUM_SMALL : USB_TX_PAGE_NUM_SMALL;
     } else if (aml_hw->rx_buf_state & BUFFER_NARROW) {
-        if (aml_bus_type == SDIO_MODE) {
+        if (w2_aml_bus_type == SDIO_MODE) {
             if (aml_hw->la_enable) {
                 aml_hw->g_tx_param.tx_page_free_num = (SDIO_TX_PAGE_NUM_LARGE - SDIO_LA_PAGE_NUM);
             } else {
                 aml_hw->g_tx_param.tx_page_free_num = SDIO_TX_PAGE_NUM_LARGE;
             }
-        } else if (aml_bus_type == USB_MODE) {
+        } else if (w2_aml_bus_type == USB_MODE) {
             if (aml_hw->la_enable) {
                 aml_hw->g_tx_param.tx_page_free_num = (USB_TX_PAGE_NUM_LARGE - USB_LA_PAGE_NUM);
             } else if (aml_hw->trace_enable) {
@@ -1926,8 +1926,8 @@ void aml_dynamic_update_tx_page(struct aml_hw *aml_hw)
     spin_unlock_bh(&aml_hw->tx_buf_lock);
 }
 
-extern uint8_t rx_need_update;
-extern struct crg_msc_cbw *g_cmd_buf;
+extern uint8_t w2_rx_need_update;
+extern struct crg_msc_cbw *w2_g_cmd_buf;
 
 void aml_trigger_rst_rxd(struct aml_hw *aml_hw, uint32_t addr_rst)
 {
@@ -1938,13 +1938,13 @@ void aml_trigger_rst_rxd(struct aml_hw *aml_hw, uint32_t addr_rst)
     uint32_t rxbuf_end_small_addr = 0;
 
     if ((aml_hw->rx_buf_state & BUFFER_STATUS) && (aml_hw->rx_buf_state & BUFFER_NARROW)) {
-        rxbuf_end_small_addr = (aml_bus_type == SDIO_MODE) ? RXBUF_END_ADDR_SMALL : USB_RXBUF_END_ADDR_SMALL;
+        rxbuf_end_small_addr = (w2_aml_bus_type == SDIO_MODE) ? RXBUF_END_ADDR_SMALL : USB_RXBUF_END_ADDR_SMALL;
         /* Host had read away all the data before hw_wr addr, if fw_new_pos is in contention space,
           update the host rxbuf pointer and address to the starting position */
         if ((aml_hw->fw_new_pos & ~AML_WRAP) >= rxbuf_end_small_addr) {
             addr_rst = RXBUF_START_ADDR;
             aml_hw->fw_new_pos = RXBUF_START_ADDR;
-            if (aml_bus_type == SDIO_MODE)
+            if (w2_aml_bus_type == SDIO_MODE)
                 AML_REG_WRITE(RXBUF_START_ADDR & 0x1FFFF, aml_hw->plat, 0, RG_WIFI_IF_FW2HST_IRQ_CFG);
         }
         aml_dynamic_update_tx_page(aml_hw);
@@ -1977,25 +1977,25 @@ void aml_trigger_rst_rxd(struct aml_hw *aml_hw, uint32_t addr_rst)
     cmd_buf[1] = addr_rst;
 
     if (last_addr != addr_rst) {
-        if (aml_bus_type == USB_MODE) {
-            rx_need_update++;
+        if (w2_aml_bus_type == USB_MODE) {
+            w2_rx_need_update++;
             if (!(aml_hw->rx_buf_state & BUFFER_STATUS) && !(addr_rst & (0x1e000000)) &&
                 (aml_hw->rx_buf_state & FW_BUFFER_NARROW) &&
-                (rx_need_update < 2) &&
+                (w2_rx_need_update < 2) &&
                 (aml_hw->recv_pkt_len < aml_hw->rx_buf_len / 4)) { // tx buf 256K
-                g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX]     = UPDATE_FLAG & 0xff;
-                g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 1] = (UPDATE_FLAG >> 8) & 0xff;
-                g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 2] = (UPDATE_FLAG >> 16) & 0xff;
-                g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 3] = (UPDATE_FLAG >> 24) & 0xff;
+                w2_g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX]     = UPDATE_FLAG & 0xff;
+                w2_g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 1] = (UPDATE_FLAG >> 8) & 0xff;
+                w2_g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 2] = (UPDATE_FLAG >> 16) & 0xff;
+                w2_g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 3] = (UPDATE_FLAG >> 24) & 0xff;
 
-                g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 4] = cmd_buf[1] & 0xff;
-                g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 5] = (cmd_buf[1] >> 8) & 0xff;
-                g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 6] = (cmd_buf[1] >> 16) & 0xff;
-                g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 7] = (cmd_buf[1] >> 24) & 0xff;
+                w2_g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 4] = cmd_buf[1] & 0xff;
+                w2_g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 5] = (cmd_buf[1] >> 8) & 0xff;
+                w2_g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 6] = (cmd_buf[1] >> 16) & 0xff;
+                w2_g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 7] = (cmd_buf[1] >> 24) & 0xff;
             } else {
                 aml_hw->plat->hif_ops->hi_write_sram((unsigned char *)cmd_buf, (unsigned char *)(SYS_TYPE)(CMD_DOWN_FIFO_FDH_ADDR), 8, USB_EP4);
             }
-        } else if ((aml_bus_type == SDIO_MODE) && (aml_hw->state == WIFI_SUSPEND_STATE_NONE)) {
+        } else if ((w2_aml_bus_type == SDIO_MODE) && (aml_hw->state == WIFI_SUSPEND_STATE_NONE)) {
             aml_hw->plat->hif_sdio_ops->hi_sram_write((unsigned char*)cmd_buf, (unsigned char *)(SYS_TYPE)(CMD_DOWN_FIFO_FDH_ADDR), 8);
         }
         last_addr = addr_rst;
@@ -2015,7 +2015,7 @@ void aml_sdio_dynamic_buffer_check(struct aml_hw *aml_hw, struct rxbuf_list *rxb
                 rxbuf_list->rx_buf_len = aml_hw->rx_buf_len;
                 return;
             }
-            if (aml_bus_type == SDIO_MODE) {
+            if (w2_aml_bus_type == SDIO_MODE) {
                 aml_hw->rx_buf_end = RXBUF_END_ADDR_SMALL;
                 aml_hw->rx_buf_len = RX_BUFFER_LEN_SMALL;
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0) // template solution for S905L3A
@@ -2039,7 +2039,7 @@ void aml_sdio_dynamic_buffer_check(struct aml_hw *aml_hw, struct rxbuf_list *rxb
                 return;
             }
 
-            if (aml_bus_type == SDIO_MODE) {
+            if (w2_aml_bus_type == SDIO_MODE) {
                 aml_hw->rx_buf_end = (aml_hw->la_enable) ? RXBUF_END_ADDR_LA_LARGE : RXBUF_END_ADDR_LARGE;
                 aml_hw->rx_buf_len = (aml_hw->la_enable) ? RX_BUFFER_LEN_LA_LARGE : RX_BUFFER_LEN_LARGE;
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0) // template solution for S905L3A
@@ -2137,7 +2137,7 @@ s8 aml_sdio_rxdataind(void *pthis, void *arg)
             need_len = CIRCLE_Subtract(fw_new_pos, fw_buf_pos, temp_list->rx_buf_len);
             temp_list->rxbuf_data_start = fw_buf_pos;
             temp_list->rxbuf_data_end = fw_new_pos;
-            if (aml_bus_type == SDIO_MODE) {
+            if (w2_aml_bus_type == SDIO_MODE) {
                 if (fw_new_pos > fw_buf_pos) {
                     aml_hw->plat->hif_sdio_ops->hi_rx_buffer_read((unsigned char *)temp_list->rxbuf,
                         (unsigned char *)(unsigned long)fw_buf_pos, need_len, 0);
@@ -2601,7 +2601,7 @@ int aml_last_rx_info(struct aml_hw *priv, struct aml_sta *sta)
  * This function is called for each buffer received by the fw
  *
  */
- extern bool g_pcie_suspend;
+ extern bool w2_g_pcie_suspend;
 u8 aml_pci_rxdataind(void *pthis, void *arg)
 {
     struct aml_hw *aml_hw = pthis;
@@ -2629,7 +2629,7 @@ u8 aml_pci_rxdataind(void *pthis, void *arg)
     rxdesc = ipc_desc->addr;
     status = rxdesc->status;
 #ifdef DEBUG_CODE
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         record_proc_rx_buf(status, ipc_desc->dma_addr, rxdesc->host_id, aml_hw);
     }
 #endif
@@ -2860,7 +2860,7 @@ check_alloc:
         }
 
         while (nb_buff--) {
-            if (g_pcie_suspend == 1) {
+            if (w2_g_pcie_suspend == 1) {
                 aml_hw->repush_rxbuff_cnt++;
             } else {
                 aml_ipc_rxbuf_alloc(aml_hw);
@@ -2872,7 +2872,7 @@ end:
     REG_SW_CLEAR_PROFILING(aml_hw, SW_PROF_AMLDATAIND);
 
     /*if suspend,repush when resume*/
-    if (g_pcie_suspend == 1) {
+    if (w2_g_pcie_suspend == 1) {
         struct rxdesc_tag *rxdesc = ipc_desc->addr;
         rxdesc->status = 0;
         dma_sync_single_for_device(aml_hw->dev, ipc_desc->dma_addr,
@@ -2894,7 +2894,7 @@ u8 aml_rxdataind(void *pthis, void *arg)
 {
     s8 ret;
 
-    if (aml_bus_type != PCIE_MODE) {
+    if (w2_aml_bus_type != PCIE_MODE) {
         ret = aml_sdio_rxdataind(pthis, arg);
 
     } else {

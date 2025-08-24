@@ -31,7 +31,7 @@ enum aml_prealloc_index {
     AML_PREALLOC_MAX
 };
 
-extern void* aml_mem_prealloc(int section, unsigned long size);
+extern void* w2_aml_mem_prealloc(int section, unsigned long size);
 int aml_init_wlan_mem(void);
 void aml_deinit_wlan_mem(void);
 

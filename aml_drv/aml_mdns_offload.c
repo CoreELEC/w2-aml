@@ -19,8 +19,8 @@
 #define MDNS_INDEX_MAX              (3)
 #define MDNS_RAW_DATA_LENGTH_MAX    (492)
 
-extern struct auc_hif_ops g_auc_hif_ops;
-extern void aml_pci_writel(u32 data, u8* addr);
+extern struct auc_hif_ops w2_g_auc_hif_ops;
+extern void w2_aml_pci_writel(u32 data, u8* addr);
 
 int g_mdns_offload_debug = 0;
 

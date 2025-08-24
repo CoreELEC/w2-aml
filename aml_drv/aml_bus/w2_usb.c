@@ -26,7 +26,7 @@
 
 #define ICCM_ROM
 #define USB_TXCMD_CARRY_RXRD_START_INDEX 401
-uint8_t rx_need_update = 0;
+uint8_t w2_rx_need_update = 0;
 
 #define WIFI_TOP (0xa07000)
 #define RG_WIFI_RST_CTRL (WIFI_TOP + 0x00)
@@ -34,14 +34,14 @@ uint8_t rx_need_update = 0;
 #define WIFI_READ_CMD   0
 #define BT_READ_CMD     1
 #define WRITE_SRAM_DATA_LEN 477
-extern struct auc_hif_ops g_auc_hif_ops;
+extern struct auc_hif_ops w2_g_auc_hif_ops;
 extern struct aml_hwif_usb g_hwif_usb;
-extern struct usb_device *g_udev;
-extern unsigned char auc_driver_insmoded;
-extern struct crg_msc_cbw *g_cmd_buf;
+extern struct usb_device *w2_g_udev;
+extern unsigned char w2_auc_driver_insmoded;
+extern struct crg_msc_cbw *w2_g_cmd_buf;
 extern unsigned char *g_kmalloc_buf;
-extern struct aml_bus_state_detect bus_state_detect;
-extern struct aml_pm_type g_wifi_pm;
+extern struct aml_bus_state_detect w2_bus_state_detect;
+extern struct aml_pm_type w2_g_wifi_pm;
 unsigned char *g_auc_kmalloc_buf = NULL;
 
 
@@ -95,30 +95,30 @@ int auc_bulk_msg(struct usb_device *usb_dev, unsigned int pipe,
 {
     int ret = 0;
 #ifdef CONFIG_PM
-    if (atomic_read(&g_wifi_pm.bus_suspend_cnt)) {
+    if (atomic_read(&w2_g_wifi_pm.bus_suspend_cnt)) {
         ERROR_DEBUG_OUT("bus suspend (%d) ongoing, do not read/write now!\n",
-            atomic_read(&g_wifi_pm.bus_suspend_cnt));
+            atomic_read(&w2_g_wifi_pm.bus_suspend_cnt));
         return -ENOMEM;
     }
 #endif
-    if (atomic_read(&g_wifi_pm.is_shut_down) == 1) {
+    if (atomic_read(&w2_g_wifi_pm.is_shut_down) == 1) {
         ERROR_DEBUG_OUT("fw shut down(%d) , do not read/write now!\n",
-            atomic_read(&g_wifi_pm.is_shut_down));
+            atomic_read(&w2_g_wifi_pm.is_shut_down));
         return -ENOMEM;
     }
 
 #ifdef CONFIG_AML_RECOVERY
-    if (bus_state_detect.bus_err || bus_state_detect.bus_reset_ongoing) {
+    if (w2_bus_state_detect.bus_err || w2_bus_state_detect.bus_reset_ongoing) {
         ERROR_DEBUG_OUT("bus reset is ongoing(bus err:%d, reset on going: %d:), do not read/write now!\n",
-            bus_state_detect.bus_err, bus_state_detect.bus_reset_ongoing);
+            w2_bus_state_detect.bus_err, w2_bus_state_detect.bus_reset_ongoing);
         return -ENOMEM;
     }
 #endif
     ret = usb_bulk_msg(usb_dev, pipe, data, len, actual_length, timeout);
 #ifdef CONFIG_AML_RECOVERY
-    if (ret && !bus_state_detect.bus_err) {
-        if ((bus_state_detect.is_drv_load_finished) && (!bus_state_detect.is_recy_ongoing)) {
-            bus_state_detect.bus_err = 1;
+    if (ret && !w2_bus_state_detect.bus_err) {
+        if ((w2_bus_state_detect.is_drv_load_finished) && (!w2_bus_state_detect.is_recy_ongoing)) {
+            w2_bus_state_detect.bus_err = 1;
             ERROR_DEBUG_OUT("bus error(%d), will do reovery later\n", ret);
         }
     }
@@ -131,12 +131,12 @@ int auc_send_cmd_ep1(unsigned int addr, unsigned int len)
 {
     int ret = 0;
     int actual_length = 0;
-    struct usb_device *udev = g_udev;
+    struct usb_device *udev = w2_g_udev;
 
     USB_BEGIN_LOCK();
-    auc_build_cbw(g_cmd_buf, AML_XFER_TO_DEVICE, len, CMD_DOWNLOAD_BT, addr, 0, len);
+    auc_build_cbw(w2_g_cmd_buf, AML_XFER_TO_DEVICE, len, CMD_DOWNLOAD_BT, addr, 0, len);
     /* cmd stage */
-    ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, USB_EP2), g_cmd_buf, sizeof(*g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
+    ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, USB_EP2), w2_g_cmd_buf, sizeof(*w2_g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
     if (ret) {
         ERROR_DEBUG_OUT("Failed to usb_bulk_msg, ret %d, addr: 0x%x, len: %d\n", ret, addr, len);
         USB_END_LOCK();
@@ -152,7 +152,7 @@ unsigned int auc_read_reg_ep1(unsigned int addr, unsigned int len)
     int ret = 0;
     int actual_length = 0;
     unsigned int reg_data;
-    struct usb_device *udev = g_udev;
+    struct usb_device *udev = w2_g_udev;
     unsigned char *data = NULL;
 
     USB_BEGIN_LOCK();
@@ -164,10 +164,10 @@ unsigned int auc_read_reg_ep1(unsigned int addr, unsigned int len)
         return -ENOMEM;
     }
 
-    auc_build_cbw(g_cmd_buf, AML_XFER_TO_HOST, len, CMD_READ_REG, addr, BT_INTR_TRANS_FLAG, len);
+    auc_build_cbw(w2_g_cmd_buf, AML_XFER_TO_HOST, len, CMD_READ_REG, addr, BT_INTR_TRANS_FLAG, len);
 
     /* cmd stage */
-    ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, USB_EP2),(void *)g_cmd_buf, sizeof(*g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
+    ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, USB_EP2),(void *)w2_g_cmd_buf, sizeof(*w2_g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
     if (ret) {
         ERROR_DEBUG_OUT("Failed to usb_bulk_msg, ret %d, addr: 0x%x, len: %d\n", ret, addr, len);
         FREE(data,"reg tmp");
@@ -194,14 +194,14 @@ void auc_read_sram_ep1(unsigned char *pdata, unsigned int addr, unsigned int len
 {
     int ret = 0;
     int actual_length = 0;
-    struct usb_device *udev = g_udev;
+    struct usb_device *udev = w2_g_udev;
     unsigned char *kmalloc_buf = NULL;
 
     USB_BEGIN_LOCK();
 
-    auc_build_cbw(g_cmd_buf,  AML_XFER_TO_HOST, len, CMD_READ_SRAM, addr, BT_INTR_TRANS_FLAG, len);
+    auc_build_cbw(w2_g_cmd_buf,  AML_XFER_TO_HOST, len, CMD_READ_SRAM, addr, BT_INTR_TRANS_FLAG, len);
     /* cmd stage */
-    ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, USB_EP2), (void *)g_cmd_buf, sizeof(*g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
+    ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, USB_EP2), (void *)w2_g_cmd_buf, sizeof(*w2_g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
     if (ret) {
         ERROR_DEBUG_OUT("Failed to usb_bulk_msg, ret %d, addr: 0x%x, len: %d\n", ret, addr, len);
         USB_END_LOCK();
@@ -239,7 +239,7 @@ void usb_isoc_callback(struct urb * urb)
 int auc_write_reg_ep3(unsigned int addr, unsigned int value, unsigned int len)
 {
     int ret = 0;
-    struct usb_device *udev = g_udev;
+    struct usb_device *udev = w2_g_udev;
     struct urb *urb;
 
     USB_BEGIN_LOCK();
@@ -252,20 +252,20 @@ int auc_write_reg_ep3(unsigned int addr, unsigned int value, unsigned int len)
         return -ENOMEM;
     }
 
-    auc_build_cbw(g_cmd_buf, AML_XFER_TO_DEVICE, 0, CMD_WRITE_REG, addr, value, len);
+    auc_build_cbw(w2_g_cmd_buf, AML_XFER_TO_DEVICE, 0, CMD_WRITE_REG, addr, value, len);
 
     urb->dev = udev;
     urb->pipe = usb_sndisocpipe(udev, USB_EP3);
     urb->transfer_flags = URB_ISO_ASAP;
-    urb->transfer_buffer = g_cmd_buf;
-    urb->transfer_buffer_length = sizeof(*g_cmd_buf);
+    urb->transfer_buffer = w2_g_cmd_buf;
+    urb->transfer_buffer_length = sizeof(*w2_g_cmd_buf);
 
     urb->complete = usb_isoc_callback;
     urb->number_of_packets = 1;
     urb->interval = 8;
 
     urb->iso_frame_desc[0].offset = 0;
-    urb->iso_frame_desc[0].length = sizeof(*g_cmd_buf);
+    urb->iso_frame_desc[0].length = sizeof(*w2_g_cmd_buf);
 
     /* cmd stage */
     ret = usb_submit_urb(urb, GFP_ATOMIC);//GFP_KERNEL
@@ -285,7 +285,7 @@ unsigned int auc_read_reg_ep3(unsigned int addr, unsigned int len)
 {
     unsigned int reg_data;
     int ret = 0;
-    struct usb_device *udev = g_udev;
+    struct usb_device *udev = w2_g_udev;
     unsigned char *kmalloc_buf = NULL;
     struct urb *urb;
 
@@ -308,20 +308,20 @@ unsigned int auc_read_reg_ep3(unsigned int addr, unsigned int len)
         return -1;
     }
 
-    auc_build_cbw(g_cmd_buf, AML_XFER_TO_HOST, len, CMD_READ_REG, addr, 0, len);
+    auc_build_cbw(w2_g_cmd_buf, AML_XFER_TO_HOST, len, CMD_READ_REG, addr, 0, len);
 
     urb->dev = udev;
     urb->pipe = usb_sndisocpipe(udev, USB_EP3);
     urb->transfer_flags = URB_ISO_ASAP;
-    urb->transfer_buffer = g_cmd_buf;
-    urb->transfer_buffer_length = sizeof(*g_cmd_buf);
+    urb->transfer_buffer = w2_g_cmd_buf;
+    urb->transfer_buffer_length = sizeof(*w2_g_cmd_buf);
 
     urb->complete = usb_isoc_callback;
     urb->number_of_packets = 1;
     urb->interval = 8;
 
     urb->iso_frame_desc[0].offset = 0;
-    urb->iso_frame_desc[0].length = sizeof(*g_cmd_buf);
+    urb->iso_frame_desc[0].length = sizeof(*w2_g_cmd_buf);
 
     ret = usb_submit_urb(urb, GFP_ATOMIC); //GFP_KERNEL
     if (ret) {
@@ -376,7 +376,7 @@ unsigned int auc_read_reg_ep3(unsigned int addr, unsigned int len)
 void auc_write_sram_ep3(unsigned char *pdata, unsigned int addr, unsigned int len)
 {
     int ret = 0;
-    struct usb_device *udev = g_udev;
+    struct usb_device *udev = w2_g_udev;
     unsigned char *kmalloc_buf = NULL;
     struct urb *urb;
 
@@ -400,20 +400,20 @@ void auc_write_sram_ep3(unsigned char *pdata, unsigned int addr, unsigned int le
 
     memcpy(kmalloc_buf, pdata, len);
 
-    auc_build_cbw(g_cmd_buf, AML_XFER_TO_DEVICE, len + 4, CMD_WRITE_SRAM, addr, 0, len + 4);
+    auc_build_cbw(w2_g_cmd_buf, AML_XFER_TO_DEVICE, len + 4, CMD_WRITE_SRAM, addr, 0, len + 4);
 
     urb->dev = udev;
     urb->pipe = usb_sndisocpipe(udev, USB_EP3);
     urb->transfer_flags = URB_ISO_ASAP;
-    urb->transfer_buffer = g_cmd_buf;
-    urb->transfer_buffer_length = sizeof(*g_cmd_buf);
+    urb->transfer_buffer = w2_g_cmd_buf;
+    urb->transfer_buffer_length = sizeof(*w2_g_cmd_buf);
 
     urb->complete = usb_isoc_callback;
     urb->number_of_packets = 1;
     urb->interval = 8;
 
     urb->iso_frame_desc[0].offset = 0;
-    urb->iso_frame_desc[0].length = sizeof(*g_cmd_buf);
+    urb->iso_frame_desc[0].length = sizeof(*w2_g_cmd_buf);
 
     /* cmd stage */
     ret = usb_submit_urb(urb, GFP_ATOMIC);
@@ -467,7 +467,7 @@ void auc_write_sram_ep3(unsigned char *pdata, unsigned int addr, unsigned int le
 void auc_read_sram_ep3(unsigned char *pdata, unsigned int addr, unsigned int len)
 {
     int ret = 0;
-    struct usb_device *udev = g_udev;
+    struct usb_device *udev = w2_g_udev;
     unsigned char *kmalloc_buf = NULL;
     struct urb *urb;
 
@@ -489,21 +489,21 @@ void auc_read_sram_ep3(unsigned char *pdata, unsigned int addr, unsigned int len
         return;
     }
 
-    auc_build_cbw(g_cmd_buf,  AML_XFER_TO_HOST, len, CMD_READ_SRAM, addr, 0, len);
+    auc_build_cbw(w2_g_cmd_buf,  AML_XFER_TO_HOST, len, CMD_READ_SRAM, addr, 0, len);
 
     urb->dev = udev;
     urb->pipe = usb_sndisocpipe(udev, USB_EP3);
     urb->transfer_flags = URB_ISO_ASAP;
 
-    urb->transfer_buffer = g_cmd_buf;
-    urb->transfer_buffer_length = sizeof(*g_cmd_buf);
+    urb->transfer_buffer = w2_g_cmd_buf;
+    urb->transfer_buffer_length = sizeof(*w2_g_cmd_buf);
 
     urb->complete = usb_isoc_callback;
     urb->number_of_packets = 1;
     urb->interval = 8;
 
     urb->iso_frame_desc[0].offset = 0;
-    urb->iso_frame_desc[0].length = sizeof(*g_cmd_buf);
+    urb->iso_frame_desc[0].length = sizeof(*w2_g_cmd_buf);
 
     /* cmd stage */
     ret = usb_submit_urb(urb, GFP_ATOMIC);
@@ -563,12 +563,12 @@ int auc_write_reg_by_ep(unsigned int addr, unsigned int value, unsigned int len,
 {
     int ret = 0;
     int actual_length = 0;
-    struct usb_device *udev = g_udev;
+    struct usb_device *udev = w2_g_udev;
 
     USB_BEGIN_LOCK();
-    auc_build_cbw(g_cmd_buf, AML_XFER_TO_DEVICE, 0, CMD_WRITE_REG, addr, value, len);
+    auc_build_cbw(w2_g_cmd_buf, AML_XFER_TO_DEVICE, 0, CMD_WRITE_REG, addr, value, len);
     /* cmd stage */
-    ret = auc_bulk_msg(udev, (unsigned int)usb_sndbulkpipe(udev, ep),(void *) g_cmd_buf, sizeof(*g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
+    ret = auc_bulk_msg(udev, (unsigned int)usb_sndbulkpipe(udev, ep),(void *) w2_g_cmd_buf, sizeof(*w2_g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
     if (ret) {
         ERROR_DEBUG_OUT("Failed to usb_bulk_msg, ret %d, ep: %d, addr: 0x%x, len: %d, value: 0x%x\n", ret, ep, addr, len, value);
         USB_END_LOCK();
@@ -584,7 +584,7 @@ unsigned int auc_read_reg_by_ep(unsigned int addr, unsigned int len, unsigned in
     int ret = 0;
     int actual_length = 0;
     unsigned int reg_data;
-    struct usb_device *udev = g_udev;
+    struct usb_device *udev = w2_g_udev;
     unsigned char *data = NULL;
 
     USB_BEGIN_LOCK();
@@ -597,10 +597,10 @@ unsigned int auc_read_reg_by_ep(unsigned int addr, unsigned int len, unsigned in
         return -ENOMEM;
     }
 
-    auc_build_cbw(g_cmd_buf, AML_XFER_TO_HOST, len, CMD_READ_REG, addr, 0, len);
+    auc_build_cbw(w2_g_cmd_buf, AML_XFER_TO_HOST, len, CMD_READ_REG, addr, 0, len);
 
     /* cmd stage */
-    ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, ep),(void *)g_cmd_buf, sizeof(*g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
+    ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, ep),(void *)w2_g_cmd_buf, sizeof(*w2_g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
     if (ret) {
         ERROR_DEBUG_OUT("Failed to usb_bulk_msg, ret %d, ep: %d, addr: 0x%x, len: %d, mode: %d\n", ret, ep, addr, len, mode);
         FREE(data,"reg tmp");
@@ -627,33 +627,33 @@ unsigned int auc_read_reg_by_ep(unsigned int addr, unsigned int len, unsigned in
     return reg_data;
 }
 
-extern int coex_flag;
+extern int w2_coex_flag;
 void auc_write_sram_by_ep(unsigned char *pdata, unsigned int addr, unsigned int len, unsigned int ep)
 {
     int ret = 0;
     int actual_length = 0;
-    struct usb_device *udev = g_udev;
+    struct usb_device *udev = w2_g_udev;
     unsigned char *kmalloc_buf = NULL;
 
     USB_BEGIN_LOCK();
-    if (coex_flag && len < WRITE_SRAM_DATA_LEN) {
-        auc_build_cbw_add_data(g_cmd_buf, AML_XFER_TO_DEVICE, len, CMD_WRITE_SRAM, addr, 0, len,pdata);
+    if (w2_coex_flag && len < WRITE_SRAM_DATA_LEN) {
+        auc_build_cbw_add_data(w2_g_cmd_buf, AML_XFER_TO_DEVICE, len, CMD_WRITE_SRAM, addr, 0, len,pdata);
         /* cmd stage */
-        ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, ep), (void*)g_cmd_buf, sizeof(*g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
+        ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, ep), (void*)w2_g_cmd_buf, sizeof(*w2_g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
         if (ret) {
             ERROR_DEBUG_OUT("Failed to usb_bulk_msg, ret %d, ep: %d, addr: 0x%x, len: %d\n", ret, ep, addr, len);
-            ERROR_DEBUG_OUT("usb command transmit fail,g_cmd_buf->add is %d,len is %d\n", addr, len);
+            ERROR_DEBUG_OUT("usb command transmit fail,w2_g_cmd_buf->add is %d,len is %d\n", addr, len);
             USB_END_LOCK();
             return;
         }
-        g_cmd_buf->resv[479] = g_cmd_buf->resv[480] = 0;
+        w2_g_cmd_buf->resv[479] = w2_g_cmd_buf->resv[480] = 0;
     } else {
-        auc_build_cbw(g_cmd_buf, AML_XFER_TO_DEVICE, len, CMD_WRITE_SRAM, addr, 0, len);
+        auc_build_cbw(w2_g_cmd_buf, AML_XFER_TO_DEVICE, len, CMD_WRITE_SRAM, addr, 0, len);
         /* cmd stage */
-        ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, ep), (void*)g_cmd_buf, sizeof(*g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
+        ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, ep), (void*)w2_g_cmd_buf, sizeof(*w2_g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
         if (ret) {
             ERROR_DEBUG_OUT("Failed to usb_bulk_msg, ret %d, ep: %d, addr: 0x%x, len: %d\n", ret, ep, addr, len);
-            ERROR_DEBUG_OUT("usb command transmit fail,g_cmd_buf->add is %d,len is %d\n", addr, len);
+            ERROR_DEBUG_OUT("usb command transmit fail,w2_g_cmd_buf->add is %d,len is %d\n", addr, len);
             USB_END_LOCK();
             return;
         }
@@ -679,9 +679,9 @@ void auc_write_sram_by_ep(unsigned char *pdata, unsigned int addr, unsigned int 
     }
 
     if (addr == CMD_DOWN_FIFO_FDH_ADDR) {
-        rx_need_update = 0;
-        g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX] = g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 1] = g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 2] = g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 3] = 0;
-        g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 4] = g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 5] = g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 6] = g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 7] = 0;
+        w2_rx_need_update = 0;
+        w2_g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX] = w2_g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 1] = w2_g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 2] = w2_g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 3] = 0;
+        w2_g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 4] = w2_g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 5] = w2_g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 6] = w2_g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 7] = 0;
     }
     USB_END_LOCK();
 }
@@ -690,17 +690,17 @@ void auc_read_sram_by_ep(unsigned char *pdata, unsigned int addr, unsigned int l
 {
     int ret = 0;
     int actual_length = 0;
-    struct usb_device *udev = g_udev;
+    struct usb_device *udev = w2_g_udev;
     unsigned char *kmalloc_buf = NULL;
 
     USB_BEGIN_LOCK();
 
-    auc_build_cbw(g_cmd_buf,  AML_XFER_TO_HOST, len, CMD_READ_SRAM, addr, 0, len);
+    auc_build_cbw(w2_g_cmd_buf,  AML_XFER_TO_HOST, len, CMD_READ_SRAM, addr, 0, len);
     /* cmd stage */
-    ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, ep), (void *)g_cmd_buf, sizeof(*g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
+    ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, ep), (void *)w2_g_cmd_buf, sizeof(*w2_g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
     if (ret) {
         ERROR_DEBUG_OUT("Failed to usb_bulk_msg, ret %d, ep: %d, addr: 0x%x, len: %d, mode: %d\n", ret, ep, addr, len, mode);
-        ERROR_DEBUG_OUT("usb command transmit fail,g_cmd_buf->add is %d,len is %d\n",addr,len);
+        ERROR_DEBUG_OUT("usb command transmit fail,w2_g_cmd_buf->add is %d,len is %d\n",addr,len);
         USB_END_LOCK();
         return;
     }
@@ -743,12 +743,12 @@ void rx_read(unsigned char *pdata, unsigned int addr, unsigned int len, unsigned
 {
     int ret = 0;
     int actual_length = 0;
-    struct usb_device *udev = g_udev;
+    struct usb_device *udev = w2_g_udev;
 
     USB_BEGIN_LOCK();
-    auc_build_cbw(g_cmd_buf,  AML_XFER_TO_HOST, len, CMD_READ_SRAM, addr, 0, len);
+    auc_build_cbw(w2_g_cmd_buf,  AML_XFER_TO_HOST, len, CMD_READ_SRAM, addr, 0, len);
     /* cmd stage */
-    ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, ep), (void *)g_cmd_buf, sizeof(*g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
+    ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, ep), (void *)w2_g_cmd_buf, sizeof(*w2_g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
     if (ret) {
         ERROR_DEBUG_OUT("Failed to usb_bulk_msg, ret %d, ep: %d,  addr: 0x%x, len: %d, mode: %d\n", ret, ep, addr, len, mode);
         USB_END_LOCK();
@@ -773,9 +773,9 @@ void auc_write_word_by_ep_for_wifi(unsigned int addr,unsigned int data, unsigned
     int len = 4;
 
 #ifdef CONFIG_AML_RECOVERY
-    if (bus_state_detect.bus_err || bus_state_detect.bus_reset_ongoing) {
+    if (w2_bus_state_detect.bus_err || w2_bus_state_detect.bus_reset_ongoing) {
         ERROR_DEBUG_OUT("EP-%d bus reset is ongoing(bus err:%d, reset on going: %d:), do not read/write now!\n",
-            ep, bus_state_detect.bus_err, bus_state_detect.bus_reset_ongoing);
+            ep, w2_bus_state_detect.bus_err, w2_bus_state_detect.bus_reset_ongoing);
         return;
     }
 #endif
@@ -795,10 +795,10 @@ unsigned int auc_read_word_by_ep_for_wifi(unsigned int addr, unsigned int ep)
     static int cnt = 0;
 
 #ifdef CONFIG_AML_RECOVERY
-    if (bus_state_detect.bus_err || bus_state_detect.bus_reset_ongoing) {
+    if (w2_bus_state_detect.bus_err || w2_bus_state_detect.bus_reset_ongoing) {
         if (cnt++ < 3)
             ERROR_DEBUG_OUT("EP-%d bus reset is ongoing(bus err:%d, reset on going: %d:), do not read/write now!\n",
-                ep, bus_state_detect.bus_err, bus_state_detect.bus_reset_ongoing);
+                ep, w2_bus_state_detect.bus_err, w2_bus_state_detect.bus_reset_ongoing);
         return 0;
     }
 #endif
@@ -820,9 +820,9 @@ void auc_write_sram_by_ep_for_wifi(unsigned char *buf, unsigned char *sram_addr,
         return;
     }
 #ifdef CONFIG_AML_RECOVERY
-    if (bus_state_detect.bus_err || bus_state_detect.bus_reset_ongoing) {
+    if (w2_bus_state_detect.bus_err || w2_bus_state_detect.bus_reset_ongoing) {
         ERROR_DEBUG_OUT("EP-%d bus reset is ongoing(bus err:%d, reset on going: %d:), do not read/write now!\n",
-            ep, bus_state_detect.bus_err, bus_state_detect.bus_reset_ongoing);
+            ep, w2_bus_state_detect.bus_err, w2_bus_state_detect.bus_reset_ongoing);
         return;
     }
 #endif
@@ -841,9 +841,9 @@ void auc_read_sram_by_ep_for_wifi(unsigned char *buf,unsigned char *sram_addr, u
         return;
     }
 #ifdef CONFIG_AML_RECOVERY
-    if (bus_state_detect.bus_err || bus_state_detect.bus_reset_ongoing) {
+    if (w2_bus_state_detect.bus_err || w2_bus_state_detect.bus_reset_ongoing) {
         ERROR_DEBUG_OUT("EP-%d bus reset is ongoing(bus err:%d, reset on going: %d:), do not read/write now!\n",
-            ep, bus_state_detect.bus_err, bus_state_detect.bus_reset_ongoing);
+            ep, w2_bus_state_detect.bus_err, w2_bus_state_detect.bus_reset_ongoing);
         return;
     }
 #endif
@@ -870,9 +870,9 @@ void auc_write_word_by_ep_for_bt(unsigned int addr,unsigned int data, unsigned i
     int len = 4;
 
 #ifdef CONFIG_AML_RECOVERY
-    if (bus_state_detect.bus_err || bus_state_detect.bus_reset_ongoing) {
+    if (w2_bus_state_detect.bus_err || w2_bus_state_detect.bus_reset_ongoing) {
         ERROR_DEBUG_OUT("EP-%d bus reset is ongoing(bus err:%d, reset on going: %d:), do not read/write now!\n",
-            ep, bus_state_detect.bus_err, bus_state_detect.bus_reset_ongoing);
+            ep, w2_bus_state_detect.bus_err, w2_bus_state_detect.bus_reset_ongoing);
         return;
     }
 #endif
@@ -895,9 +895,9 @@ unsigned int auc_read_word_by_ep_for_bt(unsigned int addr, unsigned int ep)
     unsigned int value = 0;
 
 #ifdef CONFIG_AML_RECOVERY
-    if (bus_state_detect.bus_err || bus_state_detect.bus_reset_ongoing) {
+    if (w2_bus_state_detect.bus_err || w2_bus_state_detect.bus_reset_ongoing) {
         ERROR_DEBUG_OUT("EP-%d bus reset is ongoing(bus err:%d, reset on going: %d:), do not read/write now!\n",
-            ep, bus_state_detect.bus_err, bus_state_detect.bus_reset_ongoing);
+            ep, w2_bus_state_detect.bus_err, w2_bus_state_detect.bus_reset_ongoing);
         return 0;
     }
 #endif
@@ -925,9 +925,9 @@ void auc_write_sram_by_ep_for_bt(unsigned char *buf, unsigned char *sram_addr, u
         return;
     }
 #ifdef CONFIG_AML_RECOVERY
-    if (bus_state_detect.bus_err || bus_state_detect.bus_reset_ongoing) {
+    if (w2_bus_state_detect.bus_err || w2_bus_state_detect.bus_reset_ongoing) {
         ERROR_DEBUG_OUT("EP-%d bus reset is ongoing(bus err:%d, reset on going: %d:), do not read/write now!\n",
-            ep, bus_state_detect.bus_err, bus_state_detect.bus_reset_ongoing);
+            ep, w2_bus_state_detect.bus_err, w2_bus_state_detect.bus_reset_ongoing);
         return;
     }
 #endif
@@ -950,9 +950,9 @@ void auc_read_sram_by_ep_for_bt(unsigned char *buf,unsigned char *sram_addr, uns
         return;
     }
 #ifdef CONFIG_AML_RECOVERY
-    if (bus_state_detect.bus_err || bus_state_detect.bus_reset_ongoing) {
+    if (w2_bus_state_detect.bus_err || w2_bus_state_detect.bus_reset_ongoing) {
         ERROR_DEBUG_OUT("EP-%d bus reset is ongoing(bus err:%d, reset on going: %d:), do not read/write now!\n",
-            ep, bus_state_detect.bus_err, bus_state_detect.bus_reset_ongoing);
+            ep, w2_bus_state_detect.bus_err, w2_bus_state_detect.bus_reset_ongoing);
         return;
     }
 #endif
@@ -1093,12 +1093,12 @@ void aml_usb_build_tx_packet_info(struct crg_msc_cbw *cbw_buf, unsigned char cdb
         }
     }
 
-    if (rx_need_update != 0)
-        rx_need_update = 0;
+    if (w2_rx_need_update != 0)
+        w2_rx_need_update = 0;
 }
 int w2_usb_send_packet(struct amlw_hif_scatter_req * scat_req)
 {
-    struct usb_device *udev = g_udev;
+    struct usb_device *udev = w2_g_udev;
     struct scatterlist *sg;
     struct usb_sg_request sgr;
     int sg_count, sgitem_count;
@@ -1177,14 +1177,14 @@ int w2_usb_send_frame(struct amlw_hif_scatter_req * pframe)
     int ret;
     int i;
     unsigned int actual_length;
-    struct usb_device *udev = g_udev;
+    struct usb_device *udev = w2_g_udev;
 
 
     memset(&pframe->page, 0, sizeof(struct tx_trb_info_ex));
 #ifdef CONFIG_AML_RECOVERY
-    if (bus_state_detect.bus_err || bus_state_detect.bus_reset_ongoing) {
+    if (w2_bus_state_detect.bus_err || w2_bus_state_detect.bus_reset_ongoing) {
         ERROR_DEBUG_OUT("bus err or reset is on going(bus err %d, bus reset ongoing: %d)\n",
-            bus_state_detect.bus_err, bus_state_detect.bus_reset_ongoing);
+            w2_bus_state_detect.bus_err, w2_bus_state_detect.bus_reset_ongoing);
         w2_usb_scat_complete(pframe);
         return 0;
     }
@@ -1197,18 +1197,18 @@ int w2_usb_send_frame(struct amlw_hif_scatter_req * pframe)
     {
         pframe->page.buffer_size[i] = pframe->scat_list[i].len;
     }
-    aml_usb_build_tx_packet_info(g_cmd_buf, CMD_WRITE_PACKET, &(pframe->page));
+    aml_usb_build_tx_packet_info(w2_g_cmd_buf, CMD_WRITE_PACKET, &(pframe->page));
     /* cmd stage */
     ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, USB_EP1),
-        g_cmd_buf, sizeof(*g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
+        w2_g_cmd_buf, sizeof(*w2_g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
     if (ret) {
         ERROR_DEBUG_OUT("Failed to usb_bulk_msg, ret %d\n",ret);
         USB_END_LOCK();
         return 1;
     }
 
-    g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX] = g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX + 1] = g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX + 2] = g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX + 3] = 0;
-    g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX + 4] = g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX + 5] = g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX + 6] = g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX + 7] = 0;
+    w2_g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX] = w2_g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX + 1] = w2_g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX + 2] = w2_g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX + 3] = 0;
+    w2_g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX + 4] = w2_g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX + 5] = w2_g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX + 6] = w2_g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX + 7] = 0;
     w2_usb_send_packet(pframe);
 
     w2_usb_scat_complete(pframe);
@@ -1219,8 +1219,8 @@ int w2_usb_send_frame(struct amlw_hif_scatter_req * pframe)
 
 void auc_w2_ops_init(void)
 {
-    struct auc_hif_ops *ops = &g_auc_hif_ops;
-    g_auc_kmalloc_buf = (unsigned char *)aml_mem_prealloc(AML_PREALLOC_SDIO, WLAN_AML_SDIO_SIZE);
+    struct auc_hif_ops *ops = &w2_g_auc_hif_ops;
+    g_auc_kmalloc_buf = (unsigned char *)w2_aml_mem_prealloc(AML_PREALLOC_SDIO, WLAN_AML_SDIO_SIZE);
     if (!g_auc_kmalloc_buf) {
          printk(">>>usb kmalloc failed!");
     }
@@ -1239,7 +1239,7 @@ void auc_w2_ops_init(void)
     ops->hi_write_sram_for_bt = auc_write_sram_by_ep_for_bt;
     ops->hi_read_sram_for_bt = auc_read_sram_by_ep_for_bt;
     ops->hi_send_frame = w2_usb_send_frame;
-    auc_driver_insmoded = 1;
+    w2_auc_driver_insmoded = 1;
 }
 #ifdef ICCM_CHECK
 extern unsigned char buf_iccm_rd[ICCM_BUFFER_RD_LEN];
@@ -1256,18 +1256,18 @@ int wifi_iccm_download(unsigned char* addr, unsigned int len)
     unsigned int trans_len = 0;
     int ret = 0;
     int actual_length = 0;
-    struct usb_device *udev = g_udev;
+    struct usb_device *udev = w2_g_udev;
 #ifdef ICCM_CHECK
-    struct auc_hif_ops *hif_ops = &g_auc_hif_ops;
+    struct auc_hif_ops *hif_ops = &w2_g_auc_hif_ops;
     unsigned char *buf_tmp = buf_iccm_rd;
     memset(buf_iccm_rd, 0, ICCM_BUFFER_RD_LEN);
 #endif
 
     USB_BEGIN_LOCK();
-    auc_build_cbw(g_cmd_buf, AML_XFER_TO_DEVICE, len, CMD_DOWNLOAD_WIFI, base_addr, 0, len);
+    auc_build_cbw(w2_g_cmd_buf, AML_XFER_TO_DEVICE, len, CMD_DOWNLOAD_WIFI, base_addr, 0, len);
 
     /* cmd stage */
-    ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, USB_EP1), (void *)g_cmd_buf, sizeof(*g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
+    ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, USB_EP1), (void *)w2_g_cmd_buf, sizeof(*w2_g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
     if (ret) {
         ERROR_DEBUG_OUT("Failed to usb_bulk_msg, ret %d\n", ret);
         USB_END_LOCK();
@@ -1314,8 +1314,8 @@ int wifi_dccm_download(unsigned char* addr, unsigned int len, unsigned int start
     unsigned int trans_len = 0;
     int ret = 0;
     int actual_length = 0;
-    struct usb_device *udev = g_udev;
-    struct auc_hif_ops *hif_ops = &g_auc_hif_ops;
+    struct usb_device *udev = w2_g_udev;
+    struct auc_hif_ops *hif_ops = &w2_g_auc_hif_ops;
 #ifdef ICCM_CHECK
     unsigned char *buf_tmp = buf_iccm_rd;
     memset(buf_iccm_rd, 0, ICCM_BUFFER_RD_LEN);
@@ -1323,9 +1323,9 @@ int wifi_dccm_download(unsigned char* addr, unsigned int len, unsigned int start
 
     PRINT("dccm_downed, addr 0x%p, len %d \n", addr, len);
     USB_BEGIN_LOCK();
-    auc_build_cbw(g_cmd_buf, AML_XFER_TO_DEVICE, len, CMD_DOWNLOAD_WIFI, base_addr, 0, len);
+    auc_build_cbw(w2_g_cmd_buf, AML_XFER_TO_DEVICE, len, CMD_DOWNLOAD_WIFI, base_addr, 0, len);
     /* cmd stage */
-    ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, USB_EP1), (void*)g_cmd_buf,sizeof(*g_cmd_buf),&actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
+    ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, USB_EP1), (void*)w2_g_cmd_buf,sizeof(*w2_g_cmd_buf),&actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
     if (ret) {
         ERROR_DEBUG_OUT("Failed to usb_bulk_msg, ret %d\n", ret);
         USB_END_LOCK();
@@ -1365,7 +1365,7 @@ int wifi_dccm_download(unsigned char* addr, unsigned int len, unsigned int start
     return 0;
 }
 
-int wifi_fw_download(char * firmware_filename)
+int w2_wifi_fw_download(char * firmware_filename)
 {
     int i = 0, err = 0;
     unsigned int tmp_val = 0;
@@ -1382,7 +1382,7 @@ int wifi_fw_download(char * firmware_filename)
 #endif
 
     printk("%s: %d\n", __func__, __LINE__);
-    err =request_firmware(&fw, firmware_filename, &g_udev->dev);
+    err =request_firmware(&fw, firmware_filename, &w2_g_udev->dev);
     if (err) {
         ERROR_DEBUG_OUT("request firmware fail!\n");
         return err;
@@ -1398,7 +1398,7 @@ int wifi_fw_download(char * firmware_filename)
     }
 #endif
 
-    kmalloc_buf = (unsigned char *)aml_mem_prealloc(AML_PREALLOC_DOWNLOAD_FW, len);
+    kmalloc_buf = (unsigned char *)w2_aml_mem_prealloc(AML_PREALLOC_DOWNLOAD_FW, len);
     if (kmalloc_buf == NULL) {
         ERROR_DEBUG_OUT("kmalloc buf fail\n");
         release_firmware(fw);
@@ -1473,28 +1473,28 @@ int wifi_fw_download(char * firmware_filename)
     return 0;
 }
 
-int start_wifi(void)
+int w2_start_wifi(void)
 {
     int ret = 0;
     int actual_length = 0;
-    struct usb_device *udev = g_udev;
+    struct usb_device *udev = w2_g_udev;
 
     USB_BEGIN_LOCK();
-    auc_build_cbw(g_cmd_buf, AML_XFER_TO_DEVICE, 0, CMD_START_WIFI, 0, 0, 0);
+    auc_build_cbw(w2_g_cmd_buf, AML_XFER_TO_DEVICE, 0, CMD_START_WIFI, 0, 0, 0);
     /* cmd stage */
-    ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, USB_EP1),(void *) g_cmd_buf, sizeof(*g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
+    ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, USB_EP1),(void *) w2_g_cmd_buf, sizeof(*w2_g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
     USB_END_LOCK();
     if (ret) {
         ERROR_DEBUG_OUT("Failed to usb_bulk_msg, ret %d\n", ret);
         return 1;
     }
 
-    printk("start_wifi finished!\n");
+    printk("w2_start_wifi finished!\n");
 
     return 0;
 }
 
-EXPORT_SYMBOL(wifi_fw_download);
-EXPORT_SYMBOL(start_wifi);
-EXPORT_SYMBOL(rx_need_update);
+EXPORT_SYMBOL(w2_wifi_fw_download);
+EXPORT_SYMBOL(w2_start_wifi);
+EXPORT_SYMBOL(w2_rx_need_update);
 

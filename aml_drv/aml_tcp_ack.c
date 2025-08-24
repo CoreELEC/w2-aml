@@ -69,7 +69,7 @@ static int aml_get_tcp_window_scaling(struct net_device *dev)
     struct aml_hw *aml_hw = aml_vif->aml_hw;
     struct aml_tcp_sess_mgr *ack_mgr = &aml_hw->ack_mgr;
 
-    if (aml_bus_type != USB_MODE)
+    if (w2_aml_bus_type != USB_MODE)
         return 0;
     if (atomic_read(&ack_mgr->enable) == 1)
         return 0;
@@ -148,12 +148,12 @@ static void aml_send_tcp_ack(struct aml_tcp_ack_tx *tx_info)
         desc->host.flags |= TXU_CNTRL_MESH_FWD;
     }
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         /* store Tx info in skb headroom */
         txhdr = (struct aml_txhdr *)skb_push(skb, AML_TX_HEADROOM);
         txhdr->sw_hdr = sw_txhdr;
     } else {
-        if (aml_bus_type == USB_MODE) {
+        if (w2_aml_bus_type == USB_MODE) {
             /* store Tx info in skb headroom */
             skb_pull(skb, sizeof(struct ethhdr));
             usb_txhdr = (struct aml_usb_txhdr *)skb_push(skb, AML_USB_TX_HEADROOM);
@@ -171,7 +171,7 @@ static void aml_send_tcp_ack(struct aml_tcp_ack_tx *tx_info)
         }
 
     }
-    if (aml_bus_type != PCIE_MODE) {
+    if (w2_aml_bus_type != PCIE_MODE) {
         AML_PRINT(AML_DBG_MODULES_TX, "ethertype:0x%04x, credits:%d, tid:%d, vif_idx:%d\n",
                   cpu_to_be16(desc->host.ethertype), txq->credits, desc->host.tid, desc->host.vif_idx);
     }
@@ -226,14 +226,14 @@ static void aml_tcp_sess_ageout(struct aml_tcp_sess_mgr *ack_mgr)
             write_sequnlock_bh(&tcp_info->seqlock);
         }
 
-        if (aml_bus_type == USB_MODE)
+        if (w2_aml_bus_type == USB_MODE)
             drop_cnt = MAX_DROP_TCP_ACK_CNT_USB;
         else
             drop_cnt = MAX_DROP_TCP_ACK_CNT;
 
         /* need enable dynamic adjust drop number when do rx throughput test with less than 10 pair */
         if (atomic_read(&ack_mgr->dynamic_adjust)) {
-            if (aml_bus_type == USB_MODE) {
+            if (w2_aml_bus_type == USB_MODE) {
                 /*usb is not use dynamic drop ack num*/
                 #if 0
                 if (ack_mgr->used_num < MAX_TCP_SESS_LEVEL2)
@@ -461,7 +461,7 @@ void aml_tcp_delay_ack_init(struct aml_hw *aml_hw)
     ack_mgr->aml_hw = aml_hw;
     spin_lock_init(&ack_mgr->lock);
     atomic_set(&ack_mgr->max_timeout, MAX_TCP_ACK_TIMEOUT);
-    if (aml_bus_type == USB_MODE) {
+    if (w2_aml_bus_type == USB_MODE) {
         atomic_set(&ack_mgr->max_drop_cnt, MAX_DROP_TCP_ACK_CNT_USB);
         atomic_set(&ack_mgr->dynamic_adjust, 0);
     } else {
@@ -601,7 +601,7 @@ int aml_set_tcp_ack_accord_to_rssi(struct aml_sta *sta, struct aml_hw *aml_hw, s
     struct aml_tcp_sess_mgr *ack_mgr = &aml_hw->ack_mgr;
     bool enable = false;
 
-    if (aml_bus_type != USB_MODE)   /* only effect on USB device */
+    if (w2_aml_bus_type != USB_MODE)   /* only effect on USB device */
         return 0;
 
     if (aml_work_on_5g_band(aml_hw))
@@ -673,7 +673,7 @@ int aml_filter_tx_tcp_ack(struct net_device *dev,
     if (index >= 0) {
         u8 drop_cnt;
 
-        if (aml_bus_type == USB_MODE)
+        if (w2_aml_bus_type == USB_MODE)
             drop_cnt = MAX_DROP_TCP_ACK_CNT_USB;
         else
             drop_cnt = MAX_DROP_TCP_ACK_CNT;
@@ -681,7 +681,7 @@ int aml_filter_tx_tcp_ack(struct net_device *dev,
         tcp_info = ack_mgr->tcp_info + index;
         /* need enable dynamic adjust drop number when do rx throughput test with less than 10 pair */
         if (atomic_read(&ack_mgr->dynamic_adjust)) {
-            if (aml_bus_type == USB_MODE) {
+            if (w2_aml_bus_type == USB_MODE) {
               /*usb is not use dynamic drop ack num*/
               #if 0
                 if (ack_mgr->used_num < MAX_TCP_SESS_LEVEL2)

@@ -899,7 +899,7 @@ static ssize_t aml_dbgfs_fw_trace_read(struct file *file,
     bool dont_wait = ((file->f_flags & O_NONBLOCK) ||
                       ltrace->aml_hw->debugfs.unregistering);
 
-    if (aml_bus_type != PCIE_MODE) {
+    if (w2_aml_bus_type != PCIE_MODE) {
         struct net_device *dev = ltrace->aml_hw->vif_table[0]->ndev;
         printk("please disable the firewall(setenforce 0),sdio and usb trace_log are saved in /data/trace_log.txt\n");
         return aml_set_fwlog_cmd(dev, 1);
