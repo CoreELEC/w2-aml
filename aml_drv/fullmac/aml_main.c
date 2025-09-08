@@ -1264,9 +1264,27 @@ static int aml_close(struct net_device *dev)
 
     spin_lock_bh(&aml_hw->roc_lock);
     if (aml_hw->roc && (aml_hw->roc->vif == aml_vif)) {
+        int count = 0;
         aml_tx_cfm_wait_rsp(aml_hw, false, (u8 *)__func__, __LINE__);
-        kfree(aml_hw->roc);
-        aml_hw->roc = NULL;
+        spin_unlock_bh(&aml_hw->roc_lock);
+        if (aml_send_cancel_roc(aml_hw)) {
+            return -EBUSY;
+        }
+        spin_lock_bh(&aml_hw->roc_lock);
+        //wait for cancel roc suc
+        while (aml_hw->roc) {
+            spin_unlock_bh(&aml_hw->roc_lock);
+            msleep(10);
+            spin_lock_bh(&aml_hw->roc_lock);
+            if (count++ > 100) {
+                AML_INFO("wait cancel roc fail\n");
+                break;
+            }
+        }
+        if (aml_hw->roc) {
+            kfree(aml_hw->roc);
+            aml_hw->roc = NULL;
+        }
     }
     spin_unlock_bh(&aml_hw->roc_lock);
 

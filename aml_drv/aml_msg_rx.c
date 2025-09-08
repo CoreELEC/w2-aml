@@ -318,7 +318,9 @@ static inline int aml_rx_remain_on_channel_exp_ind(struct aml_hw *aml_hw,
     u8 vif_index = ((struct mm_remain_on_channel_exp_ind *)msg->param)->vif_index;
 
     aml_vif = aml_hw->vif_table[vif_index];
-    aml_txq_offchan_deinit(aml_vif);
+    if (aml_vif) {
+        aml_txq_offchan_deinit(aml_vif);
+    }
 
     spin_lock_bh(&aml_hw->roc_lock);
     if (!aml_hw->roc) {
