@@ -79,7 +79,7 @@
 // WIFI_CALI_VERSION must be consistent with the version field in "/vendor/firmware/"
 // After updating the parameters, it must be modified at the same time.
 #define WIFI_CALI_VERSION   (19)
-#define WIFI_CALI_FILENAME  "aml_wifi_rf.txt"
+#define WIFI_CALI_FILENAME  "aml/aml_wifi_rf.txt"
 
 #define WIFI_COUNTRY_PWR_LIMIT_VERSION  (1)
 #define WIFI_COUNTRY_PWR_LIMIT  "aml_country_pwr_limit.txt"

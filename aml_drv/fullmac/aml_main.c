@@ -6285,15 +6285,15 @@ static int aml_get_cali_param(struct aml_hw *aml_hw, struct Cali_Param *cali_par
     vendor_sn = vendor_sn & 0xffff;
 
     if (calib_path != 0) {
-        sprintf(vendor_rf, "aml_w2_rf_%04x_%04x_%d.txt", product_id, vendor_sn, calib_path);
+        sprintf(vendor_rf, "aml/aml_w2_rf_%04x_%04x_%d.txt", product_id, vendor_sn, calib_path);
     } else {
-        sprintf(vendor_rf, "aml_w2_rf_%04x_%04x.txt", product_id, vendor_sn);
+        sprintf(vendor_rf, "aml/aml_w2_rf_%04x_%04x.txt", product_id, vendor_sn);
     }
     ret = request_firmware(&cfg_fw, vendor_rf, aml_hw->dev);
 
     if (ret != 0) {
         if (calib_path != 0) {
-            sprintf(vendor_rf, "aml_w2_rf_%04x_%04x.txt", product_id, vendor_sn);
+            sprintf(vendor_rf, "aml/aml_w2_rf_%04x_%04x.txt", product_id, vendor_sn);
             ret = request_firmware(&cfg_fw, vendor_rf, aml_hw->dev);
         }
 
