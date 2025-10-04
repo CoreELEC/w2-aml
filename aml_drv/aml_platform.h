@@ -25,13 +25,13 @@
 
 #define AML_PHY_CONFIG_TRD_NAME        "aml_trident.ini"
 
-#define AML_MAC_FW_SDIO "wifi_w2_fw_sdio.bin"
-#define AML_MAC_FW_USB "wifi_w2_fw_usb.bin"
-#define AML_MAC_FW_PCIE "wifi_w2_fw_pcie.bin"
+#define AML_MAC_FW_SDIO "aml/wifi_w2_fw_sdio.bin"
+#define AML_MAC_FW_USB "aml/wifi_w2_fw_usb.bin"
+#define AML_MAC_FW_PCIE "aml/wifi_w2_fw_pcie.bin"
 
-#define AML_MAC_REVC_FW_SDIO "wifi_w2_revC_fw_sdio.bin"
-#define AML_MAC_REVC_FW_USB "wifi_w2_revC_fw_usb.bin"
-#define AML_MAC_REVC_FW_PCIE "wifi_w2_revC_fw_pcie.bin"
+#define AML_MAC_REVC_FW_SDIO "aml/wifi_w2_revC_fw_sdio.bin"
+#define AML_MAC_REVC_FW_USB "aml/wifi_w2_revC_fw_usb.bin"
+#define AML_MAC_REVC_FW_PCIE "aml/wifi_w2_revC_fw_pcie.bin"
 
 
 #define MAC_SRAM_BASE 0x00a10000
