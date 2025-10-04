@@ -5852,7 +5852,7 @@ static int aml_get_cali_param(struct aml_hw *aml_hw, struct Cali_Param *cali_par
     second_calibrationed = (second_calibrationed & 0x80000000) >> 31;
 
     if (second_calibrationed == 0) {
-        sprintf(vendor_rf, "aml_w2_rf_%04x_%04x.txt", product_id, vendor_sn);
+        sprintf(vendor_rf, "aml/aml_w2_rf_%04x_%04x.txt", product_id, vendor_sn);
     } else {
         /* if secondary calibration is performed, use the default txt directly */
         sprintf(vendor_rf, WIFI_CALI_FILENAME);

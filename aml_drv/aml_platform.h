@@ -45,9 +45,9 @@
 #else
 #define AML_MAC_FW_NAME  AML_MAC_FW_BASE_NAME".ihex"
 #define AML_MAC_FW_NAME2 AML_MAC_FW_BASE_NAME".bin"
-#define AML_MAC_FW_SDIO "wifi_w2_fw_sdio.bin"
-#define AML_MAC_FW_USB "wifi_w2_fw_usb.bin"
-#define AML_MAC_FW_PCIE "wifi_w2_fw_pcie.bin"
+#define AML_MAC_FW_SDIO "aml/wifi_w2_fw_sdio.bin"
+#define AML_MAC_FW_USB "aml/wifi_w2_fw_usb.bin"
+#define AML_MAC_FW_PCIE "aml/wifi_w2_fw_pcie.bin"
 #endif
 
 #define AML_FCU_FW_NAME                "fcuram.bin"

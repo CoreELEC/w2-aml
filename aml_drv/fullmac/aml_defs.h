@@ -73,7 +73,7 @@
 // WIFI_CALI_VERSION must be consistent with the version field in "/vendor/firmware/"
 // After updating the parameters, it must be modified at the same time.
 #define WIFI_CALI_VERSION   (18)
-#define WIFI_CALI_FILENAME  "aml_wifi_rf.txt"
+#define WIFI_CALI_FILENAME  "aml/aml_wifi_rf.txt"
 
 #define STRUCT_BUFF_LEN   252
 #define MAX_HEAD_LEN      92
