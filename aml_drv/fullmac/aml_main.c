@@ -62,6 +62,8 @@
 #include "aml_rate.h"
 #include "aml_cfgvendor.h"
 
+MODULE_IMPORT_NS(W2-AML);
+
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 14, 0))
 #include <linux/panic_notifier.h>
 #endif

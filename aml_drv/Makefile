@@ -165,6 +165,8 @@ subdir-ccflags-$(CONFIG_LIGHT_WEIGHT_MEM) += -DLIGHT_WEIGHT_MEM
 subdir-ccflags-$(CONFIG_TCP_WIN_SCALE) += -DCONFIG_TCP_WIN_SCALE
 subdir-ccflags-$(CONFIG_ND_RANDOM_MAC_ADDR) += -DCONFIG_ND_RANDOM_MAC_ADDR
 
+subdir-ccflags-y += -DDEFAULT_SYMBOL_NAMESPACE="W2-AML"
+
 # FW VARS
 subdir-ccflags-y += -DNX_VIRT_DEV_MAX=4
 subdir-ccflags-y += -DNX_REMOTE_STA_MAX=10
