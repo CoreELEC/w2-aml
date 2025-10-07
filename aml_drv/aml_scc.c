@@ -161,17 +161,17 @@ int aml_scc_change_beacon(struct aml_hw *aml_hw, struct aml_vif *vif)
         }
 
         // Sync buffer for FW
-        if (aml_bus_type == PCIE_MODE) {
+        if (w2_aml_bus_type == PCIE_MODE) {
             if ((error = aml_ipc_buf_a2e_init(aml_hw, &buf, scc_bcn_buf, bcn->len))) {
                 netdev_err(dev, "Failed to allocate IPC buf for new beacon\n");
                 return error;
             }
         }
-        else if (aml_bus_type == USB_MODE) {
+        else if (w2_aml_bus_type == USB_MODE) {
             addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
             aml_hw->plat->hif_ops->hi_write_sram((unsigned char *)scc_bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len, USB_EP4);
         }
-        else if (aml_bus_type == SDIO_MODE) {
+        else if (w2_aml_bus_type == SDIO_MODE) {
             addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
             aml_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)scc_bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len);
         }
@@ -180,7 +180,7 @@ int aml_scc_change_beacon(struct aml_hw *aml_hw, struct aml_vif *vif)
         error = aml_send_bcn_change(aml_hw, vif->vif_index, buf.dma_addr,
                                     bcn->len, bcn->head_len, bcn->tim_len, NULL);
 
-        if (aml_bus_type == PCIE_MODE) {
+        if (w2_aml_bus_type == PCIE_MODE) {
             if (buf.addr) {
                 dma_unmap_single(aml_hw->dev, buf.dma_addr, buf.size, DMA_TO_DEVICE);
             }
@@ -308,17 +308,17 @@ static int aml_scc_change_beacon_ht_ie(struct wiphy *wiphy, struct net_device *d
     aml_save_bcn_buf(scc_bcn_buf, bcn->len);
 
     // Sync buffer for FW
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         if ((error = aml_ipc_buf_a2e_init(aml_hw, &buf, scc_bcn_buf, bcn->len))) {
             netdev_err(dev, "Failed to allocate IPC buf for new beacon\n");
             return error;
         }
     }
-    else if (aml_bus_type == USB_MODE) {
+    else if (w2_aml_bus_type == USB_MODE) {
         addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
         aml_hw->plat->hif_ops->hi_write_sram((unsigned char *)scc_bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len, USB_EP4);
     }
-    else if (aml_bus_type == SDIO_MODE) {
+    else if (w2_aml_bus_type == SDIO_MODE) {
         addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
         aml_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)scc_bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len);
     }
@@ -327,7 +327,7 @@ static int aml_scc_change_beacon_ht_ie(struct wiphy *wiphy, struct net_device *d
     error = aml_send_bcn_change(aml_hw, vif->vif_index, buf.dma_addr,
                                 bcn->len, bcn->head_len, bcn->tim_len, NULL);
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         if (buf.addr) {
             dma_unmap_single(aml_hw->dev, buf.dma_addr, buf.size, DMA_TO_DEVICE);
         }
@@ -591,17 +591,17 @@ static int aml_scc_channel_switch(struct aml_hw *aml_hw, struct aml_vif *vif, st
     AML_INFO("vif_type:%d, bcn_len:%d, tim_len:%d, idx:%d, csa_oft[0]:%d, csa_oft[1]:%d",
              AML_VIF_TYPE(vif), (int)bcn->len, (int)bcn->tim_len, idx, csa_oft[0], csa_oft[1]);
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         if ((error = aml_ipc_buf_a2e_init(aml_hw, &buf, bcn_buf, bcn->len + idx))) {
             AML_INFO("ipc init fail");
             return error;
         }
     }
-    else if (aml_bus_type == USB_MODE) {
+    else if (w2_aml_bus_type == USB_MODE) {
         addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
         aml_hw->plat->hif_ops->hi_write_sram((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len + idx, USB_EP4);
     }
-    else if (aml_bus_type == SDIO_MODE) {
+    else if (w2_aml_bus_type == SDIO_MODE) {
         addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
         aml_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len + idx);
     }
@@ -632,7 +632,7 @@ static int aml_scc_channel_switch(struct aml_hw *aml_hw, struct aml_vif *vif, st
 #endif
     }
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         if (buf.addr) {
             dma_unmap_single(aml_hw->dev, buf.dma_addr, buf.size, DMA_TO_DEVICE);
         }

@@ -60,9 +60,9 @@ static void dini_dma_on(struct aml_dini *aml_dini)
 
     for (i = 0; i < ARRAY_SIZE(mv_cfg_fpga_dma_ctrl_regs); i++) {
         reg = aml_dini->pci_bar0_vaddr + mv_cfg_fpga_dma_ctrl_regs[i];
-        reread_time = aml_pci_readl(reg) & CFPGA_DMA_CTRL_REREAD_TIME_MASK;
-        aml_pci_writel(CFPGA_DMA_CTRL_CLEAR | reread_time, reg);
-        aml_pci_writel(CFPGA_DMA_CTRL_ENABLE | reread_time, reg);
+        reread_time = w2_aml_pci_readl(reg) & CFPGA_DMA_CTRL_REREAD_TIME_MASK;
+        w2_aml_pci_writel(CFPGA_DMA_CTRL_CLEAR | reread_time, reg);
+        w2_aml_pci_writel(CFPGA_DMA_CTRL_ENABLE | reread_time, reg);
     }
 }
 
@@ -75,10 +75,10 @@ static void dini_dma_off(struct aml_dini *aml_dini)
 
     for (i = 0; i < ARRAY_SIZE(mv_cfg_fpga_dma_ctrl_regs); i++) {
         reg = aml_dini->pci_bar0_vaddr + mv_cfg_fpga_dma_ctrl_regs[i];
-        reread_time = aml_pci_readl(reg) & CFPGA_DMA_CTRL_REREAD_TIME_MASK;
+        reread_time = w2_aml_pci_readl(reg) & CFPGA_DMA_CTRL_REREAD_TIME_MASK;
 
-        aml_pci_writel(CFPGA_DMA_CTRL_DISABLE | reread_time, reg);
-        aml_pci_writel(CFPGA_DMA_CTRL_CLEAR   | reread_time, reg);
+        w2_aml_pci_writel(CFPGA_DMA_CTRL_DISABLE | reread_time, reg);
+        w2_aml_pci_writel(CFPGA_DMA_CTRL_CLEAR   | reread_time, reg);
     }
 }
 
@@ -89,9 +89,9 @@ static void dini_dma_off(struct aml_dini *aml_dini)
  */
 static void dini_set_bar4_win(u32 low, u32 high, struct aml_dini *aml_dini)
 {
-    aml_pci_writel(low, aml_dini->pci_bar0_vaddr + CFPGA_BAR4_LOADDR_REG);
-    aml_pci_writel(high, aml_dini->pci_bar0_vaddr + CFPGA_BAR4_HIADDR_REG);
-    aml_pci_writel(CFPGA_BAR4_LOADDR_MASK_MAX,
+    w2_aml_pci_writel(low, aml_dini->pci_bar0_vaddr + CFPGA_BAR4_LOADDR_REG);
+    w2_aml_pci_writel(high, aml_dini->pci_bar0_vaddr + CFPGA_BAR4_HIADDR_REG);
+    w2_aml_pci_writel(CFPGA_BAR4_LOADDR_MASK_MAX,
            aml_dini->pci_bar0_vaddr + CFPGA_BAR4_LOADDR_MASK_REG);
 }
 
@@ -113,8 +113,8 @@ int aml_cfpga_irq_enable(struct aml_hw *aml_hw)
             return ret;
 
     reg = aml_dini->pci_bar0_vaddr + CFPGA_UINTR_MASK_REG;
-    cfpga_uintr_mask = aml_pci_readl(reg);
-    aml_pci_writel(cfpga_uintr_mask | CFPGA_PCIEX_IT, reg);
+    cfpga_uintr_mask = w2_aml_pci_readl(reg);
+    w2_aml_pci_writel(cfpga_uintr_mask | CFPGA_PCIEX_IT, reg);
 
     return ret;
 }
@@ -131,8 +131,8 @@ int aml_cfpga_irq_disable(struct aml_hw *aml_hw)
     volatile void *reg;
 
     reg = aml_dini->pci_bar0_vaddr + CFPGA_UINTR_MASK_REG;
-    cfpga_uintr_mask = aml_pci_readl(reg);
-    aml_pci_writel(cfpga_uintr_mask & ~CFPGA_PCIEX_IT, reg);
+    cfpga_uintr_mask = w2_aml_pci_readl(reg);
+    w2_aml_pci_writel(cfpga_uintr_mask & ~CFPGA_PCIEX_IT, reg);
 
     free_irq(aml_hw->plat->pci_dev->irq, aml_hw);
 
@@ -145,7 +145,7 @@ static int aml_dini_platform_enable(struct aml_hw *aml_hw)
     struct aml_dini *aml_dini = (struct aml_dini *)aml_plat->priv;
 
 #ifdef CONFIG_AML_SDM
-    aml_pci_writel(0x0000FFFF, aml_dini->pci_bar0_vaddr + CFPGA_BAR_TOUT);
+    w2_aml_pci_writel(0x0000FFFF, aml_dini->pci_bar0_vaddr + CFPGA_BAR_TOUT);
 #endif
 
     dini_dma_on(aml_dini);
@@ -194,7 +194,7 @@ static u8* aml_dini_get_address(struct aml_plat *aml_plat, int addr_name,
 static u32 aml_dini_ack_irq(struct aml_hw *aml_hw)
 {
     struct aml_dini *aml_dini = (struct aml_dini *)aml_hw->plat->priv;
-    aml_pci_writel(CFPGA_ALL_ITS, aml_dini->pci_bar0_vaddr + CFPGA_UINTR_SRC_REG);
+    w2_aml_pci_writel(CFPGA_ALL_ITS, aml_dini->pci_bar0_vaddr + CFPGA_UINTR_SRC_REG);
     return 0;
 }
 
@@ -274,7 +274,7 @@ int aml_dini_platform_init(struct pci_dev *pci_dev, struct aml_plat **aml_plat)
     (*aml_plat)->get_config_reg = aml_dini_get_config_reg;
 
 #ifdef CONFIG_AML_SDM
-    aml_pci_writel(0x0000FFFF, aml_dini->pci_bar0_vaddr + CFPGA_BAR_TOUT);
+    w2_aml_pci_writel(0x0000FFFF, aml_dini->pci_bar0_vaddr + CFPGA_BAR_TOUT);
 #endif
 
     return 0;

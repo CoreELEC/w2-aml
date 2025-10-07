@@ -18,8 +18,8 @@
 
 #define AML_SYNC_TRACE_MON_INTERVAL    (60 * HZ)
 
-extern unsigned char g_pci_shutdown;
-extern unsigned char g_pci_msg_suspend;
+extern unsigned char w2_g_pci_shutdown;
+extern unsigned char w2_g_pci_msg_suspend;
 int aml_send_reset(struct aml_hw *aml_hw);
 int aml_send_start(struct aml_hw *aml_hw);
 int aml_send_version_req(struct aml_hw *aml_hw, struct mm_version_cfm *cfm);

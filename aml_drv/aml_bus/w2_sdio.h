@@ -103,10 +103,10 @@ struct aml_hif_sdio_ops {
 };
 
 
-extern struct aml_hif_sdio_ops g_hif_sdio_ops;
-extern unsigned char g_sdio_driver_insmoded;
+extern struct aml_hif_sdio_ops w2_g_hif_sdio_ops;
+extern unsigned char w2_g_sdio_driver_insmoded;
 
-unsigned char aml_download_wifi_fw_img(char *firmware_filename);
+unsigned char w2_aml_download_wifi_fw_img(char *firmware_filename);
 int aml_sdio_scat_req_rw(struct amlw_hif_scatter_req *scat_req);
 void aml_sdio_init_base_addr(void);
 void aml_sdio_init_w2_ops(void);
