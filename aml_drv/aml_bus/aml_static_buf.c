@@ -25,7 +25,7 @@ static struct {
     size_t actual_size;
 } pre_bufs[PREALLOC_BUF_TYPE_MAX];
 
-void *__aml_mem_prealloc(enum prealloc_buf_type buf_type, size_t req_size, size_t *actual_size)
+void *w2___aml_mem_prealloc(enum prealloc_buf_type buf_type, size_t req_size, size_t *actual_size)
 {
     void *buf = NULL;
     const char *name;
@@ -51,7 +51,7 @@ void *__aml_mem_prealloc(enum prealloc_buf_type buf_type, size_t req_size, size_
         AML_ERR("PREALLOC_%s req size %d: no memory!\n", name, (int)req_size);
     return buf;
 }
-EXPORT_SYMBOL(__aml_mem_prealloc);
+EXPORT_SYMBOL(w2___aml_mem_prealloc);
 
 void aml_deinit_wlan_mem(void)
 {

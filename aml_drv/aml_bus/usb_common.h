@@ -21,18 +21,18 @@
 
 #define OS_LOCK spinlock_t
 
-extern struct mutex auc_usb_mutex;
+extern struct mutex w2_auc_usb_mutex;
 
 #define USB_BEGIN_LOCK() do {\
-    mutex_lock(&auc_usb_mutex);\
+    mutex_lock(&w2_auc_usb_mutex);\
 } while (0)
 
 #define USB_END_LOCK() do {\
-    mutex_unlock(&auc_usb_mutex);\
+    mutex_unlock(&w2_auc_usb_mutex);\
 } while (0)
 
-#define USB_LOCK_INIT()  mutex_init(&auc_usb_mutex)
-#define USB_LOCK_DESTROY() mutex_destroy(&auc_usb_mutex);
+#define USB_LOCK_INIT()  mutex_init(&w2_auc_usb_mutex)
+#define USB_LOCK_DESTROY() mutex_destroy(&w2_auc_usb_mutex);
 
 #define ZMALLOC(size, name, gfp) kzalloc(size, gfp)
 #define FREE(a, name) kfree(a)
@@ -96,10 +96,10 @@ struct usb_hub {
     struct usb_device   *hdev;
 };
 
-void aml_usb_set_bus_err(unsigned char bus_err);
+void w2_aml_usb_set_bus_err(unsigned char bus_err);
 
-int aml_usb_insmod(void);
-void aml_usb_rmmod(void);
-void aml_usb_reset(void);
+int w2_aml_usb_insmod(void);
+void w2_aml_usb_rmmod(void);
+void w2_aml_usb_reset(void);
 
 #endif

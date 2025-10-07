@@ -39,8 +39,8 @@
 #include "aml_recy.h"
 
 extern bool pt_mode;
-extern struct aml_pm_type g_wifi_pm;
-extern int coex_flag;
+extern struct aml_pm_type w2_g_wifi_pm;
+extern int w2_coex_flag;
 extern struct agg_req_t g_agg_parse;
 
 int aml_freq_to_idx(struct aml_hw *aml_hw, int freq)
@@ -672,7 +672,7 @@ static inline int aml_rx_scanu_start_cfm(struct aml_hw *aml_hw,
     if (aml_hw->scan_request) {
         // sdio and usb flush list@aml_hw->scan_res_list in scan-end
         // because event@SCANU_RESULT_IND and payload are out-sync
-        if (aml_bus_type != PCIE_MODE)
+        if (w2_aml_bus_type != PCIE_MODE)
             aml_sdio_rx_scanu_result_ind(aml_hw);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 8, 0)
@@ -903,7 +903,7 @@ static inline int aml_rx_scanu_result_ind(struct aml_hw *aml_hw,
                                            struct aml_cmd *cmd,
                                            struct ipc_e2a_msg *msg)
 {
-    if (aml_bus_type == PCIE_MODE)
+    if (w2_aml_bus_type == PCIE_MODE)
         aml_pcie_rx_scanu_result_ind(aml_hw, cmd, msg);
     else
         aml_sdio_rx_scanu_result_ind(aml_hw);
@@ -1207,9 +1207,9 @@ static inline int aml_rx_sm_connect_ind(struct aml_hw *aml_hw,
             aml_set_scan_hang(aml_vif, 1, __func__, __LINE__);
 
         if (sta->band == NL80211_BAND_2GHZ)
-            coex_flag |= (1U << 30);
+            w2_coex_flag |= (1U << 30);
         else
-            coex_flag &= ~(1U << 30);
+            w2_coex_flag &= ~(1U << 30);
     } else {
         aml_external_auth_disable(aml_vif);
     }
@@ -1954,7 +1954,7 @@ static inline int aml_scanu_cancel_cfm(struct aml_hw *aml_hw,
     aml_ipc_buf_dealloc(aml_hw, &aml_hw->scan_ie);
     spin_lock_bh(&aml_hw->scan_req_lock);
     if (aml_hw->scan_request) {
-        if (aml_bus_type != PCIE_MODE)
+        if (w2_aml_bus_type != PCIE_MODE)
             aml_sdio_rx_scanu_result_ind(aml_hw);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 8, 0)
@@ -2000,7 +2000,7 @@ static inline int aml_sched_scan_cfm(struct aml_hw *aml_hw,
             cfm->status, cfm->vif_idx, cfm->result_cnt, aml_hw->pno_scan_reqid);
 
     if (cfm->result_cnt) {
-        if (aml_bus_type != PCIE_MODE)
+        if (w2_aml_bus_type != PCIE_MODE)
             aml_sdio_rx_scanu_result_ind(aml_hw);
         aml_cfg80211_sched_scan_results(aml_hw->wiphy, aml_hw->pno_scan_reqid);
     }
@@ -2008,15 +2008,15 @@ static inline int aml_sched_scan_cfm(struct aml_hw *aml_hw,
     return 0;
 }
 
-extern struct aml_pm_type g_wifi_pm;
+extern struct aml_pm_type w2_g_wifi_pm;
 static inline int aml_suspend_ind(struct aml_hw *aml_hw,
                                   struct aml_cmd *cmd,
                                   struct ipc_e2a_msg *msg)
 {
     aml_hw->suspend_ind = SUSPEND_IND_RECV;
-    if (aml_bus_type == USB_MODE)
+    if (w2_aml_bus_type == USB_MODE)
     {
-        atomic_set(&g_wifi_pm.drv_suspend_cnt, 1);
+        atomic_set(&w2_g_wifi_pm.drv_suspend_cnt, 1);
     }
     AML_FN_EXIT();
     return 0;
@@ -2095,12 +2095,12 @@ static inline int aml_traffic_busy_ind(struct aml_hw *aml_hw,
         if (traffic->traffic_busy_flag) {
             aml_hw->scan_abort_flag = 1;
             aml_hw->trb_wait_time = (USB_SEND_URB_DEFAULT_WAIT_TIME / 50);
-            coex_flag |= BIT(31);
+            w2_coex_flag |= BIT(31);
             AML_INFO("traffic busy!!\n");
         } else {
             aml_hw->scan_abort_flag = 0;
             aml_hw->trb_wait_time = USB_SEND_URB_DEFAULT_WAIT_TIME;
-            coex_flag &= ~BIT(31);
+            w2_coex_flag &= ~BIT(31);
             AML_INFO("traffic idle!!\n");
         }
         break;

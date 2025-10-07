@@ -43,7 +43,7 @@ struct aml_bus_state_detect {
 #endif
 };
 
-extern struct aml_bus_state_detect bus_state_detect;
+extern struct aml_bus_state_detect w2_bus_state_detect;
 
 struct aml_pm_type {
     atomic_t bus_suspend_cnt;
@@ -53,14 +53,14 @@ struct aml_pm_type {
     atomic_t wifi_suspend_state;
 };
 
-extern struct aml_pm_type g_wifi_pm;
+extern struct aml_pm_type w2_g_wifi_pm;
 
-extern unsigned int g_aml_device_id;
+extern unsigned int w2_g_aml_device_id;
 typedef void (*bt_shutdown_func)(void);
 typedef void (*lp_shutdown_func)(void);
 typedef void (*bt_pm_func)(void);
-void aml_wifi_power_on(int on);
+void w2_aml_wifi_power_on(int on);
 
-void aml_bus_state_detect_deinit(void);
+void w2_aml_bus_state_detect_deinit(void);
 
 #endif

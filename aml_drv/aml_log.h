@@ -71,11 +71,11 @@ enum aml_log_module {
     AML_LOG_MODULE_MAX,
 };
 
-extern s8 aml_log_m_levels[AML_LOG_MODULE_MAX]; /* e.g. LOGLEVEL_ERR ... */
+extern s8 w2_aml_log_m_levels[AML_LOG_MODULE_MAX]; /* e.g. LOGLEVEL_ERR ... */
 
-extern const char *aml_log_level_names[];
-extern const char *aml_log_module_names[];
-int aml_name_index(const char *names[], const char *name);
+extern const char *w2_aml_log_level_names[];
+extern const char *w2_aml_log_module_names[];
+int w2_aml_name_index(const char *names[], const char *name);
 
 /* each C file at its beginning may declare a default module that it belongs to */
 #ifndef AML_MODULE
@@ -132,7 +132,7 @@ int aml_name_index(const char *names[], const char *name);
  * the following log APIs should not be used directly.
  */
 #define _AML_LOG(_level, _m, _rlmt, fmt, ...)  do { \
-            if (LOGLEVEL_##_level <= aml_log_m_levels[AML_LOG_MODULE_##_m] && _rlmt) { \
+            if (LOGLEVEL_##_level <= w2_aml_log_m_levels[AML_LOG_MODULE_##_m] && _rlmt) { \
                 printk(AML_FMT(_level, _m, fmt), ##__VA_ARGS__); \
             } \
         } while (0)

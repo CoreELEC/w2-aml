@@ -212,19 +212,19 @@
 
 #endif
 
-extern u8 * ipc_basic_address;
-extern unsigned char g_pci_shutdown;
+extern u8 * w2_ipc_basic_address;
+extern unsigned char w2_g_pci_shutdown;
 
 __INLINE u32 reg_ipc_app_rd(void *env, unsigned int INDEX)
 {
     struct aml_hw *aml_hw = (struct aml_hw *)env;
 
-    if (aml_bus_type == USB_MODE) {
-        return (((struct aml_hw *)env)->plat->hif_ops->hi_read_word((unsigned long)ipc_basic_address + 4 * (INDEX), USB_EP4));
-    } else if (aml_bus_type == SDIO_MODE) {
+    if (w2_aml_bus_type == USB_MODE) {
+        return (((struct aml_hw *)env)->plat->hif_ops->hi_read_word((unsigned long)w2_ipc_basic_address + 4 * (INDEX), USB_EP4));
+    } else if (w2_aml_bus_type == SDIO_MODE) {
         return aml_hw->plat->hif_sdio_ops->hi_random_word_read((unsigned long)(IPC_BASIC_ADDRESS + 4 * INDEX));
     } else {
-        return aml_pci_readl(ipc_basic_address + 4*(INDEX));
+        return w2_aml_pci_readl(w2_ipc_basic_address + 4*(INDEX));
     }
 }
 
@@ -232,12 +232,12 @@ __INLINE void reg_ipc_app_wr(void *env, unsigned int INDEX, u32 value)
 {
     struct aml_hw *aml_hw = (struct aml_hw *)env;
 
-    if (aml_bus_type == USB_MODE) {
-        (((struct aml_hw *)env)->plat->hif_ops->hi_write_word((unsigned long)ipc_basic_address + 4 * (INDEX), value, USB_EP4));
-    } else if (aml_bus_type == SDIO_MODE) {
+    if (w2_aml_bus_type == USB_MODE) {
+        (((struct aml_hw *)env)->plat->hif_ops->hi_write_word((unsigned long)w2_ipc_basic_address + 4 * (INDEX), value, USB_EP4));
+    } else if (w2_aml_bus_type == SDIO_MODE) {
         aml_hw->plat->hif_sdio_ops->hi_random_word_write((unsigned long)(IPC_BASIC_ADDRESS + 4 * INDEX), value);
     } else {
-        aml_pci_writel(value, ipc_basic_address + 4*(INDEX));
+        w2_aml_pci_writel(value, w2_ipc_basic_address + 4*(INDEX));
     }
 }
 

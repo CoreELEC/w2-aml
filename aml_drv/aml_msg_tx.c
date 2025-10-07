@@ -338,7 +338,7 @@ static inline void *aml_msg_zalloc(lmac_msg_id_t const id,
     else
         flags = GFP_KERNEL;
 
-    if (aml_bus_type != PCIE_MODE) {
+    if (w2_aml_bus_type != PCIE_MODE) {
         if (id == ME_TRAFFIC_IND_REQ) {
             flags = GFP_ATOMIC;
         }
@@ -445,7 +445,7 @@ bool aml_check_suspend_resume_msg(struct aml_hw *aml_hw, struct lmac_msg *msg)
     }
 }
 
-extern struct aml_bus_state_detect bus_state_detect;
+extern struct aml_bus_state_detect w2_bus_state_detect;
 static int aml_send_msg(struct aml_hw *aml_hw, const void *msg_params,
                          int reqcfm, lmac_msg_id_t reqid, void *cfm)
 {
@@ -463,7 +463,7 @@ static int aml_send_msg(struct aml_hw *aml_hw, const void *msg_params,
         MDNS_OFFLOAD_DEBUG(AML_FN_ENTRY_STR);
 
 #ifdef CONFIG_AML_RECOVERY
-    if ((aml_bus_type != PCIE_MODE) && (bus_state_detect.bus_err)) {
+    if ((w2_aml_bus_type != PCIE_MODE) && (w2_bus_state_detect.bus_err)) {
         kfree(msg);
         return 0;
     }
@@ -472,13 +472,13 @@ static int aml_send_msg(struct aml_hw *aml_hw, const void *msg_params,
     //msg allow send when state=wow
     is_suspend_resume_msg = aml_check_suspend_resume_msg(aml_hw, msg);
 
-    if (((g_pci_msg_suspend) || (!is_suspend_resume_msg)) && ((msg->param_len != 0) && (*(msg->param) != MM_SUB_SHUTDOWN))
+    if (((w2_g_pci_msg_suspend) || (!is_suspend_resume_msg)) && ((msg->param_len != 0) && (*(msg->param) != MM_SUB_SHUTDOWN))
 #ifdef CONFIG_AML_RECOVERY
         && (!aml_recy_flags_chk(AML_RECY_STATE_ONGOING))
 #endif
     ) {
-        AML_INFO("driver in suspend, cmd not allow to send,aml_hw->state:%d g_pci_msg_suspend:%d"MSG2STR_FORMANT"\n",
-            aml_hw->state, g_pci_msg_suspend, AML_MSG2STR(msg));
+        AML_INFO("driver in suspend, cmd not allow to send,aml_hw->state:%d w2_g_pci_msg_suspend:%d"MSG2STR_FORMANT"\n",
+            aml_hw->state, w2_g_pci_msg_suspend, AML_MSG2STR(msg));
         kfree(msg);
         return -EBUSY;
     }
@@ -601,7 +601,7 @@ int aml_send_start(struct aml_hw *aml_hw)
     AML_DBG(AML_FN_ENTRY_STR);
 
 #ifdef CONFIG_AML_RECOVERY
-    if ((aml_bus_type != PCIE_MODE) && (bus_state_detect.bus_err)) {
+    if ((w2_aml_bus_type != PCIE_MODE) && (w2_bus_state_detect.bus_err)) {
         return -EBUSY;
     }
 #endif
@@ -2722,7 +2722,7 @@ int aml_send_scanu_req(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
     }
 
     if (param->ie) {
-        if (aml_bus_type == PCIE_MODE) {
+        if (w2_aml_bus_type == PCIE_MODE) {
             if (aml_ipc_buf_a2e_alloc(aml_hw, &aml_hw->scan_ie,
                                       param->ie_len, param->ie)) {
                 netdev_err(aml_vif->ndev, "Failed to allocate IPC buf for SCAN IEs\n");
@@ -2733,10 +2733,10 @@ int aml_send_scanu_req(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
         req->add_ie_len = param->ie_len;
         req->add_ies = aml_hw->scan_ie.dma_addr;
 
-        if (aml_bus_type == USB_MODE) {
+        if (w2_aml_bus_type == USB_MODE) {
             aml_hw->plat->hif_ops->hi_write_sram((unsigned char *)param->ie, (unsigned char *)SCANU_ADD_IE + SCANU_ADD_IE_OFFSET, param->ie_len, USB_EP4);
         }
-        if (aml_bus_type == SDIO_MODE) {
+        if (w2_aml_bus_type == SDIO_MODE) {
             aml_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)param->ie, (unsigned char *)SCANU_ADD_IE + SCANU_ADD_IE_OFFSET, param->ie_len);
         }
 
@@ -3591,7 +3591,7 @@ int aml_send_me_shutdown(struct aml_hw *aml_hw)
         }
     }while (!msg_recv);
 
-    if (aml_bus_type == SDIO_MODE)
+    if (w2_aml_bus_type == SDIO_MODE)
         while (aml_sdio_ack_irq(aml_hw));
 
     AML_INFO(" shutdown_msg_send_ok! \n");
@@ -5303,10 +5303,10 @@ int aml_apf_add_filter(struct aml_hw *aml_hw, u8_l * program, uint32_t program_l
     struct aml_plat * aml_plat = aml_hw->plat;
     uint32_t align_size = 0;
     // Download program to firmware
-    if (aml_bus_type == USB_MODE) {
+    if (w2_aml_bus_type == USB_MODE) {
             aml_plat->hif_ops->hi_write_sram((unsigned char *)program,
                 (unsigned char *)(uintptr_t)(aml_hw->apf_params.apf_cap.apf_mem_addr), program_len, USB_EP4);
-        } else if (aml_bus_type == SDIO_MODE) {
+        } else if (w2_aml_bus_type == SDIO_MODE) {
             align_size = program_len / 512 * 512;
             if (align_size != 0)
             {
@@ -5333,7 +5333,7 @@ int aml_apf_add_filter(struct aml_hw *aml_hw, u8_l * program, uint32_t program_l
 
     apf_add_filter_req->program_len = program_len;
     apf_add_filter_req->need_fw_copy = false;
-    if (aml_bus_type == SDIO_MODE) {
+    if (w2_aml_bus_type == SDIO_MODE) {
         apf_add_filter_req->need_fw_copy = (program_len % 512 == 0) ? false :true;
         if (apf_add_filter_req->need_fw_copy)
         {
@@ -5385,11 +5385,11 @@ void aml_apf_read_filter_data(struct aml_hw *aml_hw, u8_l * buf, uint32_t buf_le
     int i;
     u8_l * src_addr;
 
-    if (aml_bus_type == USB_MODE) {
+    if (w2_aml_bus_type == USB_MODE) {
         aml_hw->plat->hif_ops->hi_read_sram((unsigned char *)buf,
             (unsigned char *)(SYS_TYPE)aml_hw->apf_params.apf_cap.apf_mem_addr,
             buf_len, USB_EP4);
-    } else if (aml_bus_type == SDIO_MODE) {
+    } else if (w2_aml_bus_type == SDIO_MODE) {
         aml_hw->plat->hif_sdio_ops->hi_random_ram_read((unsigned char *)buf,
             (unsigned char *)(SYS_TYPE)aml_hw->apf_params.apf_cap.apf_mem_addr, buf_len);
     } else{

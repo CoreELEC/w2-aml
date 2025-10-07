@@ -400,7 +400,7 @@ static inline int __mdnsOffload_addProtocolResponses(struct wiphy *wiphy,
     MDNS_OFFLOAD_DEBUG("mdnsOffload: addProtocolResponses: pkt_len:%u\n", pkt_len);
     MDNS_OFFLOAD_DEBUG("mdnsOffload: addProtocolResponses: criteriaListNum:%u\n",
         criteriaListNum);
-    if (aml_log_m_levels[AML_LOG_MODULE_MDNS] >= LOGLEVEL_DEBUG) {
+    if (w2_aml_log_m_levels[AML_LOG_MODULE_MDNS] >= LOGLEVEL_DEBUG) {
         MDNS_OFFLOAD_DEBUG("criteria list:\n");
         for (i = 0; i < criteriaListNum; i++) {
             qname = __mdnsOffload_decode_qname(pkt_data, pkt_len, criteriaList[i].nameOffset);

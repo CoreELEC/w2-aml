@@ -63,7 +63,7 @@ static int saved_filters_cnt = 0;
 
 struct log_file_info trace_log_file_info;
 
-extern struct auc_hif_ops g_auc_hif_ops;
+extern struct auc_hif_ops w2_g_auc_hif_ops;
 extern struct pci_dev *g_pci_dev;
 extern struct aml_hw *g_aml_hw;
 
@@ -654,7 +654,7 @@ void _aml_fw_trace_dump(struct aml_fw_trace_buf *trace_buf)
 
     aml_fw_trace_buf_lock(trace_buf);
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         ptr_flag = trace_buf->data;
         ptr = trace_buf->data + *trace_buf->start;
     } else {
@@ -666,9 +666,9 @@ void _aml_fw_trace_dump(struct aml_fw_trace_buf *trace_buf)
         }
         ptr_flag = ptr;
         aml_trace_buf_init();
-        if (aml_bus_type == USB_MODE) {
+        if (w2_aml_bus_type == USB_MODE) {
             aml_hw->plat->hif_ops->hi_read_sram((unsigned char *)ptr, (unsigned char *)(SYS_TYPE)trace_log_file_info.trace_buf, TRACE_TOTAL_SIZE, USB_EP4);
-        } else if (aml_bus_type == SDIO_MODE) {
+        } else if (w2_aml_bus_type == SDIO_MODE) {
             aml_hw->plat->hif_sdio_ops->hi_random_ram_read((unsigned char *)ptr, (unsigned char *)(SYS_TYPE)trace_log_file_info.trace_buf, TRACE_TOTAL_SIZE);
         }
         ptr += *trace_buf->start;
@@ -680,7 +680,7 @@ void _aml_fw_trace_dump(struct aml_fw_trace_buf *trace_buf)
     ptr_end = ptr_flag + *trace_buf->end;
     ptr_limit = ptr_flag + limit;
 
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         while (1) {
             size = buf_size;
             next_ptr = aml_fw_trace_to_str(ptr, buf, &size);
@@ -746,25 +746,25 @@ int _aml_fw_trace_reset(struct aml_fw_trace *trace, bool lock)
 static uint32_t aml_fw_trace_level_for_read_or_write(struct aml_fw_trace_buf *trace_buf,
                                             unsigned int compo_id, uint32_t level, int mode)
 {
-    struct aml_hif_sdio_ops *hif_ops = &g_hif_sdio_ops;
-    struct auc_hif_ops *hif_ops_usb = &g_auc_hif_ops;
+    struct aml_hif_sdio_ops *hif_ops = &w2_g_hif_sdio_ops;
+    struct auc_hif_ops *hif_ops_usb = &w2_g_auc_hif_ops;
     struct aml_hw *aml_hw;
     struct aml_plat *aml_plat;
 
     if (mode == TRACE_LEVEL_WRITE) {
         if (compo_id < 14) {
-            if (aml_bus_type == USB_MODE) {
+            if (w2_aml_bus_type == USB_MODE) {
                 hif_ops_usb->hi_write_word((TRACE_COMPO_LEVEL + compo_id * 4), level, USB_EP4);
-            } else if (aml_bus_type == SDIO_MODE) {
+            } else if (w2_aml_bus_type == SDIO_MODE) {
                 hif_ops->hi_random_word_write((TRACE_COMPO_LEVEL + compo_id * 4), level);
             } else {
                 trace_buf->compo_table[compo_id] = level;
             }
         }
         else {
-            if (aml_bus_type == USB_MODE) {
+            if (w2_aml_bus_type == USB_MODE) {
                 hif_ops_usb->hi_write_word((TRACE_LEVEL + (compo_id - 14) * 4), level, USB_EP4);
-            } else if (aml_bus_type == SDIO_MODE) {
+            } else if (w2_aml_bus_type == SDIO_MODE) {
                 hif_ops->hi_random_word_write((TRACE_LEVEL + (compo_id - 14) * 4), level);
             } else {
                 aml_hw = pci_get_drvdata(g_pci_dev);
@@ -775,18 +775,18 @@ static uint32_t aml_fw_trace_level_for_read_or_write(struct aml_fw_trace_buf *tr
     }
     else if (mode == TRACE_LEVEL_READ) {
         if (compo_id < 14) {
-            if (aml_bus_type == USB_MODE) {
+            if (w2_aml_bus_type == USB_MODE) {
                 level = hif_ops_usb->hi_read_word(TRACE_COMPO_LEVEL + compo_id * 4, USB_EP4);
-            } else if (aml_bus_type == SDIO_MODE) {
+            } else if (w2_aml_bus_type == SDIO_MODE) {
                 level = hif_ops->hi_random_word_read(TRACE_COMPO_LEVEL + compo_id * 4);
             } else {
                 level = trace_buf->compo_table[compo_id];
             }
         }
         else {
-            if (aml_bus_type == USB_MODE) {
+            if (w2_aml_bus_type == USB_MODE) {
                 level = hif_ops_usb->hi_read_word(TRACE_LEVEL + (compo_id - 14) * 4, USB_EP4);
-            } else if (aml_bus_type == SDIO_MODE) {
+            } else if (w2_aml_bus_type == SDIO_MODE) {
                 level = hif_ops->hi_random_word_read(TRACE_LEVEL + (compo_id - 14) * 4);
             } else {
                 aml_hw = pci_get_drvdata(g_pci_dev);
@@ -1054,7 +1054,7 @@ int aml_trace_buf_init(void)
     int ret = 0;
     static int isInit = 0;
 
-    if (aml_bus_type != PCIE_MODE) {
+    if (w2_aml_bus_type != PCIE_MODE) {
         trace_log_file_info.trace_type = LOG_TO_UART;
         trace_log_file_info.net_switch = 0;
         if (!isInit) {

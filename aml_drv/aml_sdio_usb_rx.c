@@ -1134,7 +1134,7 @@ static void aml_sdio_usb_rx_confirm(struct aml_rx *rx, uint32_t received)
         if ((rx->fw.head & ~AML_RX_WRAP_FLAG) >= end) {
             rx->fw.head = rx->fw.tail = RXBUF_START_ADDR;
             /* FIXME: let firmware reset it as RXBUF_START_ADDR, just like USB */
-            if (aml_bus_type == SDIO_MODE)
+            if (w2_aml_bus_type == SDIO_MODE)
                 AML_REG_WRITE(RXBUF_START_ADDR & SDIO_ADDR_MASK, aml_hw->plat, 0, RG_WIFI_IF_FW2HST_IRQ_CFG);
         }
         aml_shared_mem_layout_appy(rx, AML_RX_BUF_NARROW);
@@ -1179,11 +1179,11 @@ static void aml_sdio_usb_rx_confirm(struct aml_rx *rx, uint32_t received)
     if ((rx->fw.confirm.last ^ confirm) & (AML_RX_BUF_FW_FLAGS | AML_RX_BUF_HOST_FLAGS))
         AML_NOTICE("RX confirm %x last %x\n", confirm, rx->fw.confirm.last);
     rx->fw.confirm.last = confirm;
-    if (aml_bus_type == USB_MODE) {
+    if (w2_aml_bus_type == USB_MODE) {
         if (state || flags || received >= ((rx->fw.end - RXBUF_START_ADDR) / 4)
-            || auc_cmd_rxrd_set(confirm) != 0)
+            || w2_auc_cmd_rxrd_set(confirm) != 0)
             __aml_sdio_usb_rx_confirm(rx, confirm);
-    } else if (aml_bus_type == SDIO_MODE) {
+    } else if (w2_aml_bus_type == SDIO_MODE) {
         if (aml_hw->state == WIFI_SUSPEND_STATE_NONE)
             __aml_sdio_usb_rx_confirm(rx, confirm);
     }
@@ -1457,7 +1457,7 @@ int aml_sdio_usb_rxdataind(struct aml_rx *rx)
 
     rx->irq_pending = 0;
 
-    if (bus_state_detect.bus_err
+    if (w2_bus_state_detect.bus_err
 #ifdef CONFIG_AML_RECOVERY
         || aml_recy_flags_chk(AML_RECY_FW_ONGOING)  /* recovering, do nothing */
 #endif
@@ -1594,7 +1594,7 @@ void aml_shared_mem_layout_update(struct aml_rx *rx)
     struct aml_sharedmem_layout narrow;
     struct aml_sharedmem_layout expand;
 
-    if (aml_bus_type == SDIO_MODE) {
+    if (w2_aml_bus_type == SDIO_MODE) {
         narrow.tx_page = SDIO_TX_PAGE_NUM_LARGE;
         expand.tx_page = SDIO_TX_PAGE_NUM_SMALL;
 
@@ -1606,7 +1606,7 @@ void aml_shared_mem_layout_update(struct aml_rx *rx)
             expand.rx_end = RXBUF_END_ADDR_LA_LARGE;
         }
     } else {
-        BUG_ON(aml_bus_type != USB_MODE);
+        BUG_ON(w2_aml_bus_type != USB_MODE);
         /* tx_page is different if CONFIG_AML_USB_LARGE_PAGE is defined or not */
         narrow.tx_page = USB_TX_PAGE_NUM_LARGE;
         expand.tx_page = USB_TX_PAGE_NUM_SMALL;
@@ -1719,7 +1719,7 @@ void aml_sdio_usb_rx_restart(struct aml_rx *rx)
 int aml_sdio_usb_rx_init(struct aml_rx *rx)
 {
     size_t buf_sz = PREALLOC_BUF_TYPE_RXBUF_SIZE;
-    int head_room = (aml_bus_type == USB_MODE) ? AML_USB_TX_MAX_HEADROOM : AML_SDIO_TX_MAX_HEADROOM;
+    int head_room = (w2_aml_bus_type == USB_MODE) ? AML_USB_TX_MAX_HEADROOM : AML_SDIO_TX_MAX_HEADROOM;
 
     if (head_room < sizeof(struct aml_rx_amsdu))
         head_room = sizeof(struct aml_rx_amsdu);
