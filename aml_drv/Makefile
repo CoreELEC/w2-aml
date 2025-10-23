@@ -75,6 +75,8 @@ CONFIG_AML_FPGA_PCIE ?= n
 # Product test mode
 CONFIG_PT_MODE ?= n
 
+CONFIG_AML_USB_HOTPLUG ?= n
+
 # Amlogic specified android(/w Kernel) platform depends
 CONFIG_AML_PLATFORM_ANDROID ?= y
 
@@ -144,6 +146,9 @@ ifeq ($(CONFIG_MAGIC_PACKET_EN),y)
 CONFIG_AML_WOW_MAGIC_PACKET_EN = y
 endif
 
+# active powersave mode on
+CONFIG_AML_ACTIVE_PS ?=y
+
 subdir-ccflags-$(CONFIG_PT_MODE) += -DCONFIG_PT_MODE
 subdir-ccflags-$(CONFIG_AML_PLATFORM_ANDROID) += -DCONFIG_AML_PLATFORM_ANDROID
 subdir-ccflags-$(CONFIG_DEBUG_FS) += -DCONFIG_AML_DEBUGFS
@@ -164,6 +169,8 @@ subdir-ccflags-$(CONFIG_AML_WOW_MAGIC_PACKET_EN) += -DAML_WOW_MAGIC_PACKET_EN
 subdir-ccflags-$(CONFIG_LIGHT_WEIGHT_MEM) += -DLIGHT_WEIGHT_MEM
 subdir-ccflags-$(CONFIG_TCP_WIN_SCALE) += -DCONFIG_TCP_WIN_SCALE
 subdir-ccflags-$(CONFIG_ND_RANDOM_MAC_ADDR) += -DCONFIG_ND_RANDOM_MAC_ADDR
+subdir-ccflags-$(CONFIG_AML_USB_HOTPLUG) += -DCONFIG_AML_USB_HOTPLUG
+subdir-ccflags-$(CONFIG_AML_ACTIVE_PS) += -DCONFIG_ACTIVE_PS
 
 # FW VARS
 subdir-ccflags-y += -DNX_VIRT_DEV_MAX=4

@@ -12,14 +12,12 @@
 
 #include "aml_interface.h"
 #include "sdio_common.h"
-#include "sg_common.h"
 #include "w2_sdio.h"
 #include "chip_ana_reg.h"
 #include "chip_pmu_reg.h"
 #include "chip_intf_reg.h"
 #include "wifi_intf_addr.h"
 #include "wifi_top_addr.h"
-#include "wifi_sdio_cfg_addr.h"
 #include "fi_w2_sdio.h"
 #include "wifi_w2_shared_mem_cfg.h"
 #include "aml_static_buf.h"
@@ -110,7 +108,7 @@ int aml_sdio_self_define_domain_func0_write8(int addr, unsigned char data)
     int ret = 0;
     bool sdio_bus_block = false;
 
-    sdio_bus_block = aml_sdio_block_bus_opt();
+    sdio_bus_block = aml_sdio_block_bus_opt(SDIO_FUNC0, addr);
     if (sdio_bus_block)
     {
        return 0;
@@ -126,7 +124,7 @@ unsigned char aml_sdio_self_define_domain_func0_read8(int addr)
     unsigned char sramdata = 0;
     bool sdio_bus_block = false;
 
-    sdio_bus_block = aml_sdio_block_bus_opt();
+    sdio_bus_block = aml_sdio_block_bus_opt(SDIO_FUNC0, addr);
     if (sdio_bus_block)
     {
        return 0;
@@ -142,7 +140,7 @@ int aml_sdio_self_define_domain_write8(int addr, unsigned char data)
     int ret = 0;
     bool sdio_bus_block = false;
 
-    sdio_bus_block = aml_sdio_block_bus_opt();
+    sdio_bus_block = aml_sdio_block_bus_opt(SDIO_FUNC1, addr);
     if (sdio_bus_block)
     {
        return 0;
@@ -158,7 +156,7 @@ unsigned char aml_sdio_self_define_domain_read8(int addr)
     unsigned char sramdata = 0;
     bool sdio_bus_block = false;
 
-    sdio_bus_block = aml_sdio_block_bus_opt();
+    sdio_bus_block = aml_sdio_block_bus_opt(SDIO_FUNC1, addr);
     if (sdio_bus_block)
     {
        return 0;
@@ -176,7 +174,7 @@ int aml_sdio_bottom_write(unsigned char func_num, unsigned int addr, void *buf, 
     int result;
     bool sdio_bus_block = false;
 
-    sdio_bus_block = aml_sdio_block_bus_opt();
+    sdio_bus_block = aml_sdio_block_bus_opt(func_num, addr);
     if (sdio_bus_block)
     {
        return 0;
@@ -218,7 +216,7 @@ int aml_sdio_bottom_read(unsigned char func_num, int addr, void *buf, size_t len
     int align_len = 0;
     bool sdio_bus_block = false;
 
-    sdio_bus_block = aml_sdio_block_bus_opt();
+    sdio_bus_block = aml_sdio_block_bus_opt(func_num, addr);
     if (sdio_bus_block)
     {
        return 0;
@@ -555,184 +553,133 @@ void aml_bt_hi_write_word(unsigned int addr,unsigned int data)
         (unsigned char*)(SYS_TYPE)(addr & 0x1ffff), sizeof(unsigned int));
 }
 
-void aml_sdio_scat_complete (struct amlw_hif_scatter_req * scat_req)
+static inline struct sdio_func *aml_hif_sdio_func(struct aml_hwif_sdio *h_sdio, int func_num)
 {
-    BUG_ON(!scat_req);
-
-    if (!scat_req) {
-        AML_ERR("scar_req is NULL!\n");
-        return;
-    }
-
-    scat_req->free = true;
-    scat_req->scat_count = 0;
-    scat_req->len = 0;
-    scat_req->addr = 0;
-    memset(scat_req->sgentries, 0, MAX_SG_ENTRIES * sizeof(struct scatterlist));
+    return h_sdio->sdio_func_if[func_num];
 }
 
-int aml_sdio_scat_req_rw(struct amlw_hif_scatter_req *scat_req)
+static int aml_sdio_cmd53_sg_blk_size(struct aml_hwif_sdio *h_sdio, int *max_req_size)
 {
-    struct aml_hwif_sdio *hif_sdio = &g_hwif_sdio;
-    struct sdio_func *func = NULL;
-    struct mmc_host *host = NULL;
+    struct sdio_func *func = aml_hif_sdio_func(h_sdio, SDIO_FUNC4);
+    int blk_size = func->cur_blksize;
 
-    unsigned int blk_size, blk_num;
-    unsigned int max_blk_count, max_req_size;
-    unsigned int func_num;
+    if (max_req_size) {
+        struct mmc_host *host = func->card->host;
+        int max_blk = min(host->max_blk_count, (unsigned int)SDIO_MAX_BLK_CNT);
 
+        *max_req_size = min(max_blk * blk_size, (int)host->max_req_size);
+    }
+    return blk_size;
+}
+
+static int aml_sdio_sg_blocks(struct aml_hwif_sdio *h_sdio,
+                              struct scatterlist *sglist, unsigned int sg_len)
+{
+    int max_req_size;
+    int blk_size = aml_sdio_cmd53_sg_blk_size(h_sdio, &max_req_size);
     struct scatterlist *sg;
-    int sg_count, sgitem_count;
-    int ttl_len, pkt_offset, ttl_page_num;
+    int i;
+    int len = 0;
 
-    struct mmc_request mmc_req;
-    struct mmc_command mmc_cmd = {0};
-    struct mmc_data mmc_dat = {0};
-    //unsigned int reg_data = 0;
+    if (blk_size < 0)
+        return -EINVAL;
 
-    int result = SDIOH_API_RC_FAIL;
-    bool sdio_bus_block = false;
-
-    sdio_bus_block = aml_sdio_block_bus_opt();
-    if (sdio_bus_block)
-    {
-       return 0;
-    }
-
-    BUG_ON(!scat_req);
-    func_num = SDIO_FUNC4;
-#ifdef CONFIG_AML_RECOVERY
-    if (bus_state_detect.bus_err) {
-        aml_sdio_scat_complete(scat_req);
-        return 0;
-    }
-#endif
-
-    func = hif_sdio->sdio_func_if[func_num];
-    host = func->card->host;
-
-    blk_size = func->cur_blksize;
-    max_blk_count = MIN(host->max_blk_count, SDIO_MAX_BLK_CNT); //host->max_blk_count: 511
-    max_req_size = MIN(max_blk_count * blk_size, host->max_req_size); //host->max_req_size: 0x20000
-
-    /* fill SG entries */
-    sg = scat_req->sgentries;
-    pkt_offset = 0;	    // reminder
-    sgitem_count = 0; // count of scatterlist
-
-    while (sgitem_count < scat_req->scat_count)
-    {
-        ttl_len = 0;
-        sg_count = 0;
-        ttl_page_num = 0;
-
-        sg_init_table(sg, MAXSG_SIZE);
-
-        /* assemble SG list */
-        while ((sgitem_count < scat_req->scat_count) && (ttl_len < max_req_size))
-        {
-            int packet_len = 0;
-            int sg_data_size = 0;
-            unsigned char *pdata = NULL;
-
-            if (sg_count >= MAXSG_SIZE)
-                break;
-
-            /* coverity[MISSING_LOCK] --miss aml_hw.tx_desc_lock*/
-            packet_len = scat_req->scat_list[sgitem_count].len;
-            /* coverity[MISSING_LOCK] --miss aml_hw.tx_desc_lock*/
-            pdata = scat_req->scat_list[sgitem_count].packet;
-
-            // sg len must be aligned with block size
-            sg_data_size = ALIGN(packet_len, blk_size);
-            if (sg_data_size > (max_req_size - ttl_len))
-            {
-                AML_ERR(" setup scat-data:  sg_data_size %d, remain %d \n",
-                     sg_data_size, max_req_size - ttl_len);
-                break;
-            }
-
-            sg_set_buf(&scat_req->sgentries[sg_count], pdata, sg_data_size);
-            sg_count++;
-            ttl_len += sg_data_size;
-            /* coverity[MISSING_LOCK] --miss aml_hw.tx_desc_lock*/
-            ttl_page_num += scat_req->scat_list[sgitem_count].page_num;
-            sgitem_count++;
-
-            //AML_INFO("setup scat-data: offset: %d: ttl: %d, datalen:%d\n",
-            //pkt_offset, ttl_len, sg_data_size);
-
+    for_each_sg(sglist, sg, sg_len, i) {
+        /* SG limitations for most SDIO host controller */
+        if (sg->length & 3) {
+            AML_WARN("sg length %u should be 4-byte alignment\n", sg->length);
+            return -EINVAL;
         }
-
-        if ((ttl_len == 0) || (ttl_len % blk_size != 0))
-        {
-            AML_INFO(" setup scat-data:  ttl_len %d \n",
-                 ttl_len);
-            return result;
+        if (sg_len > 1 && (sg->length & (blk_size -1))) {
+            AML_WARN("sg length %u should be multiple of block size %d\n", sg->length, blk_size);
+            return -EINVAL;
         }
+        /* FIXME: dma address of each SG should be 64-bit alignment */
+        len += sg->length;
+        if (len > max_req_size) {
+            AML_WARN("total length %u > %d\n", len, max_req_size);
+            return -EINVAL;
+        }
+    }
+    return len / blk_size;
+}
 
-        memset(&mmc_req, 0, sizeof(struct mmc_request));
-        memset(&mmc_cmd, 0, sizeof(struct mmc_command));
-        memset(&mmc_dat, 0, sizeof(struct mmc_data));
-
-        /* set scatter-gather table for request */
-        blk_num = ttl_len / blk_size;
-        mmc_dat.flags = MMC_DATA_WRITE;
-        mmc_dat.sg = scat_req->sgentries;
-        mmc_dat.sg_len = sg_count;
-        mmc_dat.blksz = blk_size;
-        mmc_dat.blocks = blk_num;
-
-        mmc_cmd.opcode = SD_IO_RW_EXTENDED;
-        mmc_cmd.arg = BIT(31);
-        mmc_cmd.arg |= (func_num & 0x7) << 28;
-        /* block basic */
-        mmc_cmd.arg |= 1 << 27;
+static int aml_sdio_cmd53_sg(struct aml_hwif_sdio *h_sdio, int write,
+                             uint32_t addr, struct scatterlist *sglist, int sg_len)
+{
+    struct sdio_func *func = aml_hif_sdio_func(h_sdio, SDIO_FUNC4);
+    int blocks = aml_sdio_sg_blocks(h_sdio, sglist, sg_len);
+    struct mmc_data mmc_dat = {
+        .flags = MMC_DATA_WRITE,
+        .sg = sglist,
+        .sg_len = sg_len,
+        .blocks = blocks,
+        .blksz = func->cur_blksize,
+    };
+    struct mmc_command mmc_cmd = {
+        .opcode = SD_IO_RW_EXTENDED,
+        .arg = (write ? BIT(31) : 0)
+             | (SDIO_FUNC4 << 28)
+             | BIT(27)
+             | (addr << 9)
+             | (blocks & 0x1ff),
         /* 0, fix address */
-        mmc_cmd.arg |= SDIO_OPMODE_FIXED << 26;
-        mmc_cmd.arg |= (scat_req->addr & 0x1ffff)<< 9;
-        mmc_cmd.arg |= mmc_dat.blocks & 0x1ff;
-        mmc_cmd.flags = MMC_RSP_SPI_R5 | MMC_RSP_R5 | MMC_CMD_ADTC;
+        .flags = MMC_RSP_SPI_R5 | MMC_RSP_R5 | MMC_CMD_ADTC,
+    };
+    struct mmc_request mmc_req = {
+        .cmd = &mmc_cmd,
+        .data = &mmc_dat,
+    };
 
-        mmc_req.cmd = &mmc_cmd;
-        mmc_req.data = &mmc_dat;
+    int result;
 
-        AML_PROF_CNT(cmd53_tx, blk_num);
-        sdio_claim_host(func);
-        mmc_set_data_timeout(&mmc_dat, func->card);
-        mmc_wait_for_req(func->card->host, &mmc_req);
-        sdio_release_host(func);
-        AML_PROF_CNT(cmd53_tx, 0);
-
-       // AML_INFO("setup scat-data: ====addr: 0x%X, (blksz: %d, blocks: %d) , (ttl:%d,sg:%d,scat_count:%d,ttl_page:%d)====\n",
-           // scat_req->addr,
-           // mmc_dat.blksz, mmc_dat.blocks, ttl_len,
-           // sg_count, scat_req->scat_count, ttl_page_num);
-
-        if (mmc_cmd.error || mmc_dat.error)
-        {
-            ERROR_DEBUG_OUT("ERROR CMD53 write cmd_error = %d data_error=%d\n",
-                mmc_cmd.error, mmc_dat.error);
-#ifdef CONFIG_AML_RECOVERY
-            if (!bus_state_detect.bus_err) {
-               bus_state_detect.bus_err = 1;
-            }
-            break;
-#endif
-        }
-
+    if (addr & ~SDIO_ADDR_MASK) {
+        AML_ERR("SDIO address %x is out of range!\n", addr);
+        return -EINVAL;
     }
 
-    result = mmc_cmd.error ? mmc_cmd.error : mmc_dat.error;
+    if (blocks < 0)
+        return -EINVAL;
 
-    scat_req->result = result;
+    if (aml_sdio_block_bus_opt(SDIO_FUNC4, addr))
+       return -EIO;
 
-    if (scat_req->result)
-        ERROR_DEBUG_OUT("Scatter write request failed:%d\n", scat_req->result);
+    if (host_wake_req && host_wake_req() == 0) {
+        AML_NOTICE("host wake fail while %s\n", write ? "writing" : "reading");
+        return -EIO;
+    }
 
-    aml_sdio_scat_complete(scat_req);
+#ifdef CONFIG_AML_RECOVERY
+    if (bus_state_detect.bus_err)
+        return -EIO;
+#endif
 
-    return result;
+    AML_PROF_CNT(cmd53_tx, mmc_dat.blksz * blocks);
+    sdio_claim_host(func);
+    mmc_set_data_timeout(&mmc_dat, func->card);
+    mmc_wait_for_req(func->card->host, &mmc_req);
+    sdio_release_host(func);
+    AML_PROF_CNT(cmd53_tx, 0);
+
+    AML_DBG("sg_len: %d (%d * %d = %d)\n", sg_len, mmc_dat.blksz, blocks, mmc_dat.blksz * blocks);
+
+    result = mmc_cmd.error ? : mmc_dat.error;
+    if (result) {
+        AML_ERR("CMD53 error = %d data_error=%d\n", mmc_cmd.error, mmc_dat.error);
+#ifdef CONFIG_AML_RECOVERY
+        if (!bus_state_detect.bus_err)
+           bus_state_detect.bus_err = 1;
+#endif
+    }
+
+    return result ? : mmc_dat.blksz * blocks;
+}
+
+static int aml_sdio_send_frame(struct scatterlist *scat_list, int n_sg)
+{
+    struct aml_hwif_sdio *h_sdio = &g_hwif_sdio;
+
+    return aml_sdio_cmd53_sg(h_sdio, 1, 0 /* fake address */, scat_list, n_sg);
 }
 
 extern int aml_sdio_suspend(unsigned int suspend_enable);
@@ -773,7 +720,7 @@ void aml_sdio_init_w2_ops(void)
     ops->hi_rx_buffer_read = aml_sdio_rx_buffer_read;
 
     //for scatter list
-    ops->hi_send_frame = aml_sdio_scat_req_rw;
+    ops->hi_send_frame = aml_sdio_send_frame;
 
     //sdio func7 for bt
     ops->bt_hi_write_sram = aml_bt_sdio_write_sram;
@@ -1049,11 +996,6 @@ void aml_sdio_hw_init(void)
      */
     aml_sdio_self_define_domain_write8(RG_SCFG_FUNC1_AUTO_TX,
             aml_sdio_self_define_domain_read8(RG_SCFG_FUNC1_AUTO_TX) | BIT(4));
-
-    data = 0;
-    /* coverity[overrun-buffer-val] - length is correct */
-    aml_sdio_random_ram_write((unsigned char *)&data,
-            (unsigned char *)(uintptr_t)RG_WIFI_IF_MAC_TXTABLE_RD_ID, sizeof(data));
 
     /*
      * frame flag bypass for function4

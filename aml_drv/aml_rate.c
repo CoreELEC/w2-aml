@@ -296,6 +296,7 @@ char *print_sta_rate_stats(struct aml_hw *aml_hw, struct aml_sta *sta)
     // Display Statistics
     for (i = 0; i < rate_stats->size; i++)
     {
+        spin_lock_bh(&(sta->stats.rx_rate.table_lock));
         if (rate_stats->table && rate_stats->table[i]) {
             union aml_rate_ctrl_info rate_config;
             u64 permillage = div_u64((u64)rate_stats->table[i] * 1000, rate_stats->cpt);
@@ -314,6 +315,7 @@ char *print_sta_rate_stats(struct aml_hw *aml_hw, struct aml_sta *sta)
                              rate_stats->table[i],
                              div, rem, p, hist);
         }
+        spin_unlock_bh(&(sta->stats.rx_rate.table_lock));
     }
 
     // Display detailed info of the last received rate
@@ -564,11 +566,13 @@ int aml_sta_rate_table_init(struct aml_hw *aml_hw, struct aml_sta *sta)
 
 static void aml_rx_rate_stats_deinit(struct aml_rx_rate_stats *rate_stats)
 {
+    spin_lock_bh(&(rate_stats->table_lock));
     if (rate_stats->table) {
         kfree(rate_stats->table);
         rate_stats->table = NULL;
         rate_stats->size = 0;
     }
+    spin_unlock_bh(&(rate_stats->table_lock));
 }
 
 void aml_sta_rate_table_deinit(struct aml_hw *aml_hw, struct aml_sta *sta)
@@ -883,11 +887,19 @@ static void aml_dynamic_snr_work(struct work_struct *work)
     struct aml_hw *aml_hw;
 
     while ((aml_hw = dyn_snr->aml_hw)) {
+        int is_interruptible;
+
         if (!dyn_snr->cfg.enable || dyn_snr->need_trial) {
-            msleep(100);
+            is_interruptible = msleep_interruptible(100);
         } else {
-            msleep(3000);
+            is_interruptible = msleep_interruptible(3000);
         }
+
+        if (is_interruptible) {
+            AML_ERR("msleep_interruptible exit\n");
+            continue;
+        }
+
         if (dyn_snr->cfg.enable && aml_hw->vif_started)
             aml_dynamic_snr_probe(dyn_snr, aml_hw);
     }

@@ -278,7 +278,6 @@ void aml_txbuf_list_init(struct aml_hw *aml_hw);
 void aml_tx_cfmed_list_init(struct aml_hw *aml_hw);
 struct scan_results *aml_scan_get_scan_res_node(struct aml_hw *aml_hw);
 void aml_scan_results_list_init(struct aml_hw *aml_hw);
-void aml_scatter_req_init(struct aml_hw *aml_hw);
 
 void aml_amsdu_buf_list_init(struct aml_hw *aml_hw);
 void aml_amsdu_buf_list_deinit(struct aml_hw *aml_hw);

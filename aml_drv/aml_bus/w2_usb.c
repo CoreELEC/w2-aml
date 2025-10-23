@@ -11,12 +11,12 @@
 #include "usb_common.h"
 #include "chip_ana_reg.h"
 #include "wifi_intf_addr.h"
-#include "sg_common.h"
 #include "fi_sdio.h"
 #include "w2_usb.h"
 #include "aml_static_buf.h"
 #include "w2_sdio.h"
 #include "aml_interface.h"
+#include "aml_compat.h"
 #include "aml_log.h"
 
 #define ICCM_ROM_LEN (256 * 1024)
@@ -78,12 +78,16 @@ static inline void auc_cmd_rxrd_clear(void)
 
 int auc_cmd_rxrd_set(u32 rxrd)
 {
+    USB_BEGIN_LOCK();
     /* RX read pointer (confirm) is already embedded in command? */
-    if (*(u32 *)&g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX])
+    if (*(u32 *)&g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX]) {
+        USB_END_LOCK();
         return -1;
+    }
 
     /* later send it to firmware with the next command */
     __auc_cmd_rxrd_set(UPDATE_FLAG, rxrd);
+    USB_END_LOCK();
     return 0;
 }
 EXPORT_SYMBOL(auc_cmd_rxrd_set);
@@ -151,6 +155,10 @@ int auc_bulk_msg(struct usb_device *usb_dev, unsigned int pipe,
     AML_PROF_CNT(BULK, 0);
 #ifdef CONFIG_AML_RECOVERY
     if (ret && !bus_state_detect.bus_err) {
+#ifdef CONFIG_AML_USB_HOTPLUG
+        if (bus_state_detect.usb_unplug)
+            aml_usb_set_bus_err(1);
+#endif
         if ((bus_state_detect.is_drv_load_finished) && (!bus_state_detect.is_recy_ongoing)) {
             aml_usb_set_bus_err(1);
             ERROR_DEBUG_OUT("bus error(%d), will do reovery later\n", ret);
@@ -751,7 +759,10 @@ void auc_read_sram_by_ep(unsigned char *pdata, unsigned int addr, unsigned int l
 
     if (mode == WIFI_READ_CMD && addr == SRAM_TXCFM_START_ADDR && len == SRAM_TXCFM_SIZE) {
         /* EP5 is designed to directly read TX confirmation w/o a pre-command, no lock is required. */
-        auc_bulk_msg(udev, usb_rcvbulkpipe(udev, USB_EP5),pdata, len, &actual_length, 100);
+        ret = auc_bulk_msg(udev, usb_rcvbulkpipe(udev, USB_EP5), pdata, len, &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
+        if (ret) {
+            ERROR_DEBUG_OUT("Failed to usb_bulk_msg, ret %d, ep: %d, addr: 0x%x, len: %d, mode: %d\n", ret, ep, addr, len, mode);
+        }
         return;
     }
 
@@ -1034,15 +1045,6 @@ void auc_read_sram_by_ep_for_bt(unsigned char *buf,unsigned char *sram_addr, uns
     }
 }
 
-static void w2_usb_scat_complete(struct amlw_hif_scatter_req * scat_req)
-{
-    scat_req->free = true;
-    scat_req->scat_count = 0;
-    scat_req->len = 0;
-    scat_req->addr = 0;
-    memset(scat_req->sgentries, 0, MAX_SG_ENTRIES * sizeof(struct scatterlist));
-}
-
 struct tx_trb_info_ex
 {
     /* The number of pages needed for a single transfer */
@@ -1077,86 +1079,95 @@ void aml_usb_build_tx_packet_info(struct crg_msc_cbw *cbw_buf, unsigned char cdb
     }
 }
 
-int w2_usb_send_packet(struct amlw_hif_scatter_req * scat_req)
+struct usb_sg_request_ex {
+    struct usb_sg_request sgr;
+    struct timer_list timer;
+    int timed_out;
+};
+
+static void aml_usb_sg_cancel(struct usb_sg_request *io)
 {
-    struct usb_device *udev = g_udev;
-    struct scatterlist *sg;
-    struct usb_sg_request sgr = {0};
-    int sg_count, sgitem_count;
-    unsigned int max_req_size;
-    int ttl_len, pkt_offset, page_num;
-    //struct txdesc_host *txdesc_host;
+#if defined(CFG80211_VANILLA) || (LINUX_VERSION_CODE & 0xffffff00) != KERNEL_VERSION(6, 12, 0)
+    usb_sg_cancel(io);
+#else
+    /*
+     * WAR: The API usb_sg_cancel() is hidden by Android-16/Linux-6.12
+     * the following code is copied from drivers/usb/core/message.c
+     * this WAR can be removed after usb_sg_cancel is inserted into gki/aarch64/abi.stg
+     */
+    unsigned long flags;
+    int i, retval;
 
-    unsigned int last_page_size ;
-    unsigned int ttl_page_num = 0;
+    spin_lock_irqsave(&io->lock, flags);
+    if (io->status || io->count == 0) {
+        spin_unlock_irqrestore(&io->lock, flags);
+        return;
+    }
+    /* shut everything down */
+    io->status = -ECONNRESET;
+    io->count++;        /* Keep the request alive until we're done */
+    spin_unlock_irqrestore(&io->lock, flags);
+
+    for (i = io->entries - 1; i >= 0; --i) {
+        atomic_inc(&io->urbs[i]->reject);    /* = usb_block_urb(io->urbs[i]); */
+
+        retval = usb_unlink_urb(io->urbs[i]);
+        if (retval != -EINPROGRESS
+            && retval != -ENODEV
+            && retval != -EBUSY
+            && retval != -EIDRM)
+            dev_warn(&io->dev->dev, "%s, unlink --> %d\n",
+                 __func__, retval);
+    }
+
+    spin_lock_irqsave(&io->lock, flags);
+    io->count--;
+    if (!io->count)
+        complete(&io->complete);
+    spin_unlock_irqrestore(&io->lock, flags);
+#endif
+}
+
+static void w2_usb_sg_timed_out(struct timer_list *t)
+{
+    struct usb_sg_request_ex *ctx = from_timer(ctx, t, timer);
+
+    AML_RLMT_ERR("USB SG timeout!\n");
+    ctx->timed_out = 1;
+    aml_usb_sg_cancel(&ctx->sgr);
+}
+
+static int w2_usb_send_packet(struct usb_device *udev, unsigned int pipe,
+                              struct scatterlist *sg_list, int n_sg)
+{
+    struct usb_sg_request_ex ctx = {};
     int ret;
-    //int i;
 
-    /* fill SG entries */
-    sg = scat_req->sgentries;
-    pkt_offset = 0; // reminder
-    sgitem_count = 0; // count of scatterlist
-    max_req_size = USB_MAX_TRANS_SIZE;
-    udev->bus->sg_tablesize = MAXSG_SIZE;
+    BUG_ON(!udev->bus->sg_tablesize);
 
-    while (sgitem_count < scat_req->scat_count)
-    {
-        ttl_len = 0;
-        sg_count = 0;
-        sg_init_table(sg, MAXSG_SIZE);
-        /* assemble SG list */
-        while (sgitem_count < scat_req->scat_count)
-        {
-            int packet_len = 0;
-            unsigned char *pdata = NULL;
+    AML_PROF_CNT(SG, -n_sg);
+    ret = usb_sg_init(&ctx.sgr, udev, pipe, 0, sg_list, n_sg, 0, GFP_NOIO);
+    if (ret) {
+        AML_RLMT_ERR("usb_sg_init fail ret = %d\n", ret);
+        return ret;
+    }
 
-            /* coverity[MISSING_LOCK] --miss aml_hw.tx_desc_lock*/
-            packet_len = scat_req->scat_list[sgitem_count].len;
-            /* coverity[MISSING_LOCK] --miss aml_hw.tx_desc_lock*/
-            pdata = scat_req->scat_list[sgitem_count].packet;
-            /* coverity[MISSING_LOCK] --miss aml_hw.tx_desc_lock*/
-            page_num = scat_req->scat_list[sgitem_count].page_num;
-
-            if (sg_count > (MAXSG_SIZE - page_num))
-            {
-                AML_ERR("sg_count > MAXSG_SIZE, sg_count:%d, page_num:%d, scat_count:%d\n", sg_count, page_num, scat_req->scat_count);
-                break;
-            }
-            ttl_page_num += page_num;
-            last_page_size = packet_len - (page_num - 1) * USB_PAGE_LEN;
-
-            if (page_num == 1)
-            {
-                //AML_DBG("sg_count:%d, page_num:%d, scat_count:%d\n", sg_count, page_num, scat_req->scat_count);
-                sg_set_buf(&scat_req->sgentries[sg_count], pdata, packet_len);
-                sg_count++;
-                ttl_len += packet_len;
-            }
-            sgitem_count++;
-        }
-
-        ret = usb_sg_init(&sgr, udev, usb_sndbulkpipe(udev, USB_EP1), 0, scat_req->sgentries,
-            sg_count, 0, GFP_NOIO);
-
-        if (ret)
-        {
-            AML_ERR("usb_sg_init fail ret = %d\n", ret);
-            return ret;
-        }
-
-        usb_sg_wait(&sgr);
-        if (sgr.status != 0)
-        {
-            AML_ERR("usb_sg_wait fail  %d\n", sgr.status);
-            return -1;
-        }
-
+    timer_setup(&ctx.timer, w2_usb_sg_timed_out, 0);
+    ctx.timer.expires = jiffies + msecs_to_jiffies(AML_USB_CONTROL_MSG_TIMEOUT);
+    add_timer(&ctx.timer);
+    usb_sg_wait(&ctx.sgr);
+    del_timer(&ctx.timer);
+    AML_PROF_CNT(SG, 0);
+    if (ctx.sgr.status) {
+        AML_RLMT_ERR("usb_sg_wait fail %d timed out %d\n", ctx.sgr.status, ctx.timed_out);
+        return -1;
     }
     return 0;
 }
 
-int w2_usb_send_frame(struct amlw_hif_scatter_req * pframe)
+int w2_usb_send_frame(struct scatterlist *scat_list, int n_sg)
 {
+    struct scatterlist *sg;
     int ret;
     int i;
     int actual_length = 0;
@@ -1167,25 +1178,23 @@ int w2_usb_send_frame(struct amlw_hif_scatter_req * pframe)
     if (bus_state_detect.bus_err || bus_state_detect.bus_reset_ongoing) {
         ERROR_DEBUG_OUT("bus err or reset is on going(bus err %d, bus reset ongoing: %d)\n",
             bus_state_detect.bus_err, bus_state_detect.bus_reset_ongoing);
-        w2_usb_scat_complete(pframe);
         return 0;
     }
 #endif
     USB_BEGIN_LOCK();
-    /* build page_info array */
-    trb_info.packet_num = pframe->scat_count;
 
-    for (i = 0; i < pframe->scat_count; i++)
-    {
-        /* coverity[MISSING_LOCK] --miss aml_hw.tx_desc_lock*/
-        trb_info.buffer_size[i] = pframe->scat_list[i].len;
-        actual_length += trb_info.buffer_size[i];
+    /* build page_info array */
+    trb_info.packet_num = n_sg;
+    for_each_sg(scat_list, sg, n_sg, i) {
+        trb_info.buffer_size[i] = sg->length;
+        actual_length += sg->length;
     }
+
     AML_PROF_CNT(SG, - actual_length);
     aml_usb_build_tx_packet_info(g_cmd_buf, CMD_WRITE_PACKET, &trb_info);
     /* cmd stage */
     ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, USB_EP1),
-        g_cmd_buf, sizeof(*g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
+                       g_cmd_buf, sizeof(*g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
     if (ret) {
         ERROR_DEBUG_OUT("Failed to usb_bulk_msg, ret %d\n",ret);
         USB_END_LOCK();
@@ -1193,9 +1202,7 @@ int w2_usb_send_frame(struct amlw_hif_scatter_req * pframe)
     }
 
     auc_cmd_rxrd_clear();
-    w2_usb_send_packet(pframe);
-
-    w2_usb_scat_complete(pframe);
+    w2_usb_send_packet(udev, usb_sndbulkpipe(udev, USB_EP1), scat_list, n_sg);
 
     AML_PROF_CNT(SG, 0);
     USB_END_LOCK();

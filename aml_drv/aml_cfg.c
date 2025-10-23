@@ -509,7 +509,9 @@ int aml_get_mac_addr_from_conftxt(unsigned int *efuse_data_l, unsigned int *efus
     ret = aml_cfg_retrieve(path, &fbuf, AML_CFG_FBUF_MAXLEN);
     if (ret < 0 || ret >= AML_CFG_FBUF_MAXLEN) {
         AML_ERR("retrieve file data error\n");
-        kfree(fbuf);
+        if (!fbuf)
+            kfree(fbuf);
+        /* coverity[leaked_storage] - fbuf may be empty */
         return -1;
     }
 

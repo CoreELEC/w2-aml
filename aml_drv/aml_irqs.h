@@ -27,5 +27,6 @@ void aml_enable_sdio_irq(struct aml_hw *aml_hw);
 u32 aml_sdio_ack_irq(struct aml_hw *aml_hw);
 
 irqreturn_t aml_irq_pcie_hdlr(int irq, void *dev_id);
-
+void aml_suspend_sdio_irq_enable(struct aml_hw *aml_hw);
+void aml_suspend_sdio_irq_disable(struct aml_hw *aml_hw);
 #endif /* _AML_IRQS_H_ */

@@ -78,17 +78,11 @@
 
 // WIFI_CALI_VERSION must be consistent with the version field in "/vendor/firmware/"
 // After updating the parameters, it must be modified at the same time.
-#define WIFI_CALI_VERSION   (19)
+#define WIFI_CALI_VERSION   (20)
 #define WIFI_CALI_FILENAME  "aml_wifi_rf.txt"
 
 #define WIFI_COUNTRY_PWR_LIMIT_VERSION  (1)
 #define WIFI_COUNTRY_PWR_LIMIT  "aml_country_pwr_limit.txt"
-
-#define STRUCT_BUFF_LEN   252
-#define MAX_HEAD_LEN      92
-#define MAX_TAIL_LEN      20
-#define CO_ALIGN4_HI(val) (((val)+3)&~3)
-#define TX_BUFFER_POOL_SIZE  0x4dc8
 
 #define AMSDU_PADDING(x) ((4 - ((x) & 0x3)) & 0x3)
 #define NORMAL_AMSDU_MAX_LEN    2304
@@ -104,6 +98,8 @@
 #define AML_DISCONNECTING   BIT(1)
 #define AML_GETTING_IP   BIT(2)
 
+#define CHANNEL_SCAN_MIN_DURATION 20
+
 #define HOST_REQUEST_DISCONNECT (BIT(15))
 #define MAC_RS_DEAUTH_SENDER_LEFT_IBSS_ESS        3
 
@@ -114,6 +110,7 @@ enum wifi_module_sn {
 };
 
 #define TS_STAT0 0x00a04940
+#define TS_70_DEGREES_CELSIUS 0x26b7
 typedef union TS_STAT0_FIELD
 {
     unsigned int data;
@@ -195,7 +192,7 @@ struct aml_mesh_proxy {
  *
  * @vif: Pointer to the vif doing the CSA
  * @bcn: Beacon to use after CSA
- * @buf: IPC buffer to send the new beacon to the fw
+ * @bcn_buf: new beacon buffer
  * @chandef: defines the channel to use after the switch
  * @count: Current csa counter
  * @status: Status of the CSA at fw level
@@ -205,7 +202,7 @@ struct aml_mesh_proxy {
 struct aml_csa {
     struct aml_vif *vif;
     struct aml_bcn bcn;
-    struct aml_ipc_buf buf;
+    void *bcn_buf;
     struct cfg80211_chan_def chandef;
     int count;
     int status;
@@ -420,6 +417,7 @@ struct aml_sta_ps {
  */
 struct aml_rx_rate_stats {
     int *table;
+    spinlock_t table_lock;
     int size;
     int cpt;
     int rate_cnt;
@@ -677,10 +675,11 @@ struct tx_task_param {
     u32 tx_page_free_num;
     u32 tx_page_tot_num;
     u32 tot_page_num;
-    u32 mpdu_num;
     u8  tx_page_once;
     u8  txcfm_trigger_tx_thr;
-    struct amlw_hif_scatter_req * scat_req;
+
+#define SCAT_ITEM_MAX       160
+    struct scatterlist scat_list[SCAT_ITEM_MAX];
 };
 
 #define AMSDU_BUF_MAX  9600
@@ -713,13 +712,30 @@ struct apf_param {
 
 #endif
 
+struct custom_conf_param {
+    u8 custom_version;
+};
+
+struct soft_version_info {
+    u32 commit_id;
+    u32 fw_info_len;
+    u8 *fw_info;
+};
+
+/**
+ * @scan_result_cnt: the frame count of rx beacon and probe rsp in scanning
+ */
+struct aml_hw_misc {
+    u16 scan_result_cnt;
+};
+
 /**
  * struct aml_hw - AML driver main data
  *
  * @dev: Device structure
  *
  * @plat: Underlying AML platform information
- * @phy: PHY Configuration
+ * @phy: PHY Configurationf
  * @version_cfm: MACSW/HW versions (as obtained via MM_VERSION_REQ)
  * @version_hashid: stroe the hashid of fw version
  * @machw_type: Type of MACHW (see AML_MACHW_xxx)
@@ -775,6 +791,7 @@ struct apf_param {
  *
  * @debugfs: Debug FS entries
  * @stats: global statistics
+ * @misc: miscellaneous for contains auxiliary, utility, or multi-functional components
  */
 
 struct aml_hw {
@@ -784,7 +801,7 @@ struct aml_hw {
     struct aml_plat *plat;
     struct aml_phy_info phy;
     struct mm_version_cfm version_cfm;
-    u32 version_hashid;
+    struct soft_version_info bin_info;
     int machw_type;
 
     // Global wifi config
@@ -902,6 +919,7 @@ struct aml_hw {
     struct aml_ipc_buf_pool txcfm_pool;
     struct compact_tx_cfm_tag read_cfm[COMPACT_TXCFM_CNT];
 
+    // miscellaneous
     struct scan_results *scan_results;
     uint8_t *scanres_payload_buf;
     uint32_t scanres_payload_buf_offset;
@@ -931,32 +949,22 @@ struct aml_hw {
     /* FIXME: use the definition and API of "struct aml_task" */
     struct task_struct *aml_irq_task;
     struct semaphore aml_irq_sem;
-    struct completion aml_irq_completion;
-    char aml_irq_completion_init;
     int aml_irq_task_quit;
 
     struct task_struct *aml_rx_task;
     struct semaphore aml_rx_sem;
-    struct completion aml_rx_completion;
-    char aml_rx_completion_init;
     int aml_rx_task_quit;
 
     struct task_struct *aml_tx_task;
     struct semaphore aml_tx_sem;
-    struct completion aml_tx_completion;
-    char aml_tx_completion_init;
     int aml_tx_task_quit;
 
     struct task_struct *aml_msg_task;
     struct semaphore aml_msg_sem;
-    struct completion aml_msg_completion;
-    char aml_msg_completion_init;
     int aml_msg_task_quit;
 
     struct task_struct *aml_txcfm_task;
     struct semaphore aml_txcfm_sem;
-    struct completion aml_txcfm_completion;
-    char aml_txcfm_completion_init;
     int aml_txcfm_task_quit;
 
     /* FIXME: move the following struct into usb_common.h/c */
@@ -968,8 +976,6 @@ struct aml_hw {
 
     uint16_t trb_wait_time;
     u8 la_enable;
-    u8 trace_enable;
-    u8 trace_malloc_success;
     // Debug FS and stats
     struct aml_debugfs debugfs;
     struct aml_stats *stats;
@@ -980,10 +986,11 @@ struct aml_hw {
     struct aml_ipc_buf pcie_prssr_test;
     void * pcie_prssr_ul_addr;
 #endif
-    int tsq;
     u8 repush_rxdesc;
     u8 repush_rxbuff_cnt;
     u8 traffic_busy;
+    u8 scan_abort_enable;
+    u8 scan_interval_thr;
     u8 scan_abort_flag;
     /*management tcp session*/
     struct aml_tcp_sess_mgr ack_mgr;
@@ -1012,6 +1019,10 @@ struct aml_hw {
     struct early_suspend wifi_early_suspend;
     struct apf_param apf_params;
 #endif
+    bool roc_is_canceling;
+    struct custom_conf_param custom_conf;
+    struct aml_hw_misc misc;
+    struct device_link * pm_links[7];
 };
 
 #include "aml_hif.h"

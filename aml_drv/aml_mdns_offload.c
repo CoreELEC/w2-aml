@@ -107,7 +107,15 @@ static void setPassthroughBehavior(struct aml_hw *aml_hw, char *networkInterface
     aml_mdns_set_passthrough_behavior(aml_hw, behavior);
 }
 
-ANDROID_MDNS_OFFLOAD_VENDOR_IMPL = {
+static void setWakePorts(struct aml_hw *aml_hw, wakePort_set *ports)
+{
+    int ret = aml_mdns_set_wake_ports(aml_hw, ports);
+
+    if (ret)
+        AML_ERR("set wake port fail\n");
+}
+
+const struct s_mdns_offload_ops mdns_offload_ops = {
     .setOffloadState = setOffloadState,
 #ifdef MDNS_OFFLOAD_FEATURE
     .resetAll = resetAll,
@@ -118,6 +126,7 @@ ANDROID_MDNS_OFFLOAD_VENDOR_IMPL = {
     .addToPassthroughList = addToPassthroughList,
     .removeFromPassthroughList = removeFromPassthroughList,
     .setPassthroughBehavior = setPassthroughBehavior,
+    .setWakePorts = setWakePorts,
 #else
     .setOffloadState = NULL,
     .resetAll = NULL,
@@ -128,6 +137,22 @@ ANDROID_MDNS_OFFLOAD_VENDOR_IMPL = {
     .addToPassthroughList = NULL,
     .removeFromPassthroughList = NULL,
     .setPassthroughBehavior = NULL,
+    .setWakePorts = NULL,
 #endif
 };
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0))
+const struct nla_policy mdns_offload_attr_policy[WIFI_MDNS_OFFLOAD_ATTRIBUTE_MAX] = {
+    [WIFI_MDNS_OFFLOAD_ATTRIBUTE_STATE]                = { .type = NLA_U32, .len = sizeof(uint32_t) },
+    [WIFI_MDNS_OFFLOAD_ATTRIBUTE_NETWORK_INTERFACE]    = { .type = NLA_NUL_STRING },
+    [WIFI_MDNS_OFFLOAD_ATTRIBUTE_OFFLOAD_PKT_LEN]      = { .type = NLA_U32, .len = sizeof(uint32_t) },
+    [WIFI_MDNS_OFFLOAD_ATTRIBUTE_OFFLOAD_PKT_DATA]     = { .type = NLA_BINARY },
+    [WIFI_MDNS_OFFLOAD_ATTRIBUTE_MATCH_CRITERIA_NUM]   = { .type = NLA_U32, .len = sizeof(uint32_t) },
+    [WIFI_MDNS_OFFLOAD_ATTRIBUTE_MATCH_CRITERIA_DATA]  = { .type = NLA_BINARY },
+    [WIFI_MDNS_OFFLOAD_ATTRIBUTE_RECORD_KEY]           = { .type = NLA_U32, .len = sizeof(uint32_t) },
+    [WIFI_MDNS_OFFLOAD_ATTRIBUTE_QNAME]                = { .type = NLA_NUL_STRING },
+    [WIFI_MDNS_OFFLOAD_ATTRIBUTE_PASSTHROUGH_BEHAVIOR] = { .type = NLA_U32, .len = sizeof(uint32_t) },
+    [WIFI_MDNS_OFFLOAD_ATTRIBUTE_WAKE_PORTS_NUM]       = { .type = NLA_U32, .len = sizeof(uint32_t) },
+    [WIFI_MDNS_OFFLOAD_ATTRIBUTE_WAKE_PORTS]           = { .type = NLA_BINARY },
+};
+#endif

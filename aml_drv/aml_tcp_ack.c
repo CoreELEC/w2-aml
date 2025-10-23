@@ -447,7 +447,7 @@ static void aml_tcp_ack_timeout(struct timer_list *t)
     tcp_info = (struct aml_tcp_sess_info *)from_timer(tcp_info, t, timer);
     write_seqlock_bh(&tcp_info->seqlock);
     skb = tcp_info->skb;
-    if (tcp_info->busy && skb && !tcp_info->in_txq_skb) {
+    if (skb && tcp_info->busy) {
         struct aml_tcp_ack_tx tx_info;
         tx_info.aml_vif = tcp_info->aml_vif;
         tx_info.skb = tcp_info->skb;
@@ -524,28 +524,6 @@ void aml_tcp_delay_ack_deinit(struct aml_hw *aml_hw)
     }
 }
 
-void aml_check_tcpack_skb(struct aml_hw *aml_hw, struct sk_buff *skb, u32 len)
-{
-    struct aml_tcp_sess_info *tcp_info;
-    struct aml_tcp_sess_mgr *ack_mgr = &aml_hw->ack_mgr;
-    int i = 0;
-
-    if (!atomic_read(&ack_mgr->enable))
-        return;
-
-    if (len > MAX_TCP_ACK_LEN)
-        return;
-
-    for (i = 0; i < AML_TCP_SESS_NUM; i++) {
-        tcp_info = &ack_mgr->tcp_info[i];
-        write_seqlock_bh(&tcp_info->seqlock);
-        if (tcp_info->busy && (tcp_info->in_txq_skb == skb)) {
-            tcp_info->in_txq_skb = NULL;
-        }
-        write_sequnlock_bh(&tcp_info->seqlock);
-    }
-}
-
 static int aml_replace_tcp_ack(struct sk_buff *skb,
                                struct aml_tcp_sess_mgr *ack_mgr,
                                struct aml_tcp_sess_info *tcp_info,
@@ -570,7 +548,6 @@ static int aml_replace_tcp_ack(struct sk_buff *skb,
                 del_timer(&tcp_info->timer);
             }
 
-            tcp_info->in_txq_skb = NULL;
             tcp_info->drop_cnt = atomic_read(&ack_mgr->max_drop_cnt);
         } else {
             AML_INFO("before abnormal ack: %d, %d\n", old_pkt->seq, pkt_info->seq);
@@ -584,8 +561,7 @@ static int aml_replace_tcp_ack(struct sk_buff *skb,
         }
         tcp_info->drop_cnt++;
         old_pkt->seq = pkt_info->seq;
-        if (!tcp_info->in_txq_skb &&
-           (tcp_info->drop_cnt >= atomic_read(&ack_mgr->max_drop_cnt))) {
+        if (tcp_info->drop_cnt >= atomic_read(&ack_mgr->max_drop_cnt)) {
             tcp_info->drop_cnt = 0;
             del_timer(&tcp_info->timer);
         } else {

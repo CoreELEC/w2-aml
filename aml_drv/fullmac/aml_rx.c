@@ -1259,6 +1259,7 @@ void aml_scan_rx(struct aml_hw *aml_hw, struct hw_rxhdr *hw_rxhdr, struct sk_buf
                     && aml_recy->link_loss.is_happened)
                 aml_recy->link_loss.scan_result_cnt++;
 #endif
+            aml_hw->misc.scan_result_cnt++;
             contain = aml_scan_find_already_saved(aml_hw, skb);
             if (contain)
                 return;

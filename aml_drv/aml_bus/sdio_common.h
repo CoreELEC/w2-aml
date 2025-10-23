@@ -119,6 +119,6 @@ extern void set_usb_bt_power(int is_on);
 struct sdio_func *aml_priv_to_func(int func_n);
 int aml_sdio_pm_suspend(struct device *device);
 int aml_sdio_pm_resume(struct device *device);
-bool aml_sdio_block_bus_opt(void);
+bool aml_sdio_block_bus_opt(unsigned char func_num, int addr);
 
 #endif

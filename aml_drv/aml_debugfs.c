@@ -25,6 +25,7 @@
 #include "aml_tx.h"
 #include "aml_rate.h"
 #include "aml_iwpriv_cmds.h"
+#include "reg_access.h"
 
 #ifdef CONFIG_AML_SOFTMAC
 static ssize_t aml_dbgfs_stats_read(struct file *file,
@@ -1730,10 +1731,13 @@ static ssize_t aml_dbgfs_last_rx_write(struct file *file,
      * interrupt */
 #ifdef CONFIG_AML_DEBUGFS
     spin_lock_bh(&priv->tx_lock);
-    memset(sta->stats.rx_rate.table, 0,
-           sta->stats.rx_rate.size * sizeof(sta->stats.rx_rate.table[0]));
+    spin_lock_bh(&(sta->stats.rx_rate.table_lock));
+    if (sta->stats.rx_rate.table)
+        memset(sta->stats.rx_rate.table, 0,
+               sta->stats.rx_rate.size * sizeof(sta->stats.rx_rate.table[0]));
     sta->stats.rx_rate.cpt = 0;
     sta->stats.rx_rate.rate_cnt = 0;
+    spin_unlock_bh(&(sta->stats.rx_rate.table_lock));
     spin_unlock_bh(&priv->tx_lock);
 #endif
     return count;
@@ -2107,3 +2111,4 @@ void aml_dbgfs_unregister(struct aml_hw *aml_hw)
     aml_hw->debugfs.dir = NULL;
 }
 #endif
+

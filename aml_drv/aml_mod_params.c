@@ -851,7 +851,7 @@ void aml_set_vht_capa(struct aml_hw *aml_hw, struct wiphy *wiphy)
     }
 }
 
-void aml_set_ht_capa(struct aml_hw *aml_hw, struct wiphy *wiphy)
+void aml_set_ht_capa(struct aml_hw *aml_hw, struct wiphy *wiphy, int band_2g20m_only)
 {
     struct ieee80211_supported_band *band_5GHz = wiphy->bands[NL80211_BAND_5GHZ];
     struct ieee80211_supported_band *band_2GHz = wiphy->bands[NL80211_BAND_2GHZ];
@@ -901,9 +901,16 @@ void aml_set_ht_capa(struct aml_hw *aml_hw, struct wiphy *wiphy)
     }
 
     band_5GHz->ht_cap = band_2GHz->ht_cap;
+    if (aml_hw->mod_params->use_2040 && band_2g20m_only) {
+        band_2GHz->ht_cap.mcs.rx_mask[4] = 0x0;
+        band_2GHz->ht_cap.cap &= ~IEEE80211_HT_CAP_SUP_WIDTH_20_40;
+        band_2GHz->ht_cap.mcs.rx_highest = cpu_to_le16(65 * nss);
+        if (aml_hw->mod_params->sgi)
+            band_2GHz->ht_cap.mcs.rx_highest = cpu_to_le16(72 * nss);
+    }
 }
 
-void aml_set_he_capa(struct aml_hw *aml_hw, struct wiphy *wiphy)
+void aml_set_he_capa(struct aml_hw *aml_hw, struct wiphy *wiphy, int band_2g20m_only)
 {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0) || (defined CONFIG_KERNEL_AX_PATCH)
     struct ieee80211_supported_band *band_5GHz = wiphy->bands[NL80211_BAND_5GHZ];
@@ -928,7 +935,7 @@ void aml_set_he_capa(struct aml_hw *aml_hw, struct wiphy *wiphy)
 
     he_cap->he_cap_elem.mac_cap_info[2] |= IEEE80211_HE_MAC_CAP2_ALL_ACK;
     aml_set_ppe_threshold(aml_hw, he_cap);
-    if (aml_hw->mod_params->use_2040) {
+    if (aml_hw->mod_params->use_2040 && (band_2g20m_only == 0)) {
         he_cap->he_cap_elem.phy_cap_info[0] |=
                         IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_40MHZ_IN_2G;
         dcm_max_ru = IEEE80211_HE_PHY_CAP8_DCM_MAX_RU_484;
@@ -1160,6 +1167,7 @@ static void aml_set_rf_params(struct aml_hw *aml_hw, struct wiphy *wiphy)
 int aml_handle_dynparams(struct aml_hw *aml_hw, struct wiphy *wiphy)
 {
     int ret;
+    int band_2g20m_only = 0;
 
     /* Check compatibility between requested parameters and HW/SW features */
     ret = aml_check_fw_hw_feature(aml_hw, wiphy);
@@ -1178,10 +1186,10 @@ int aml_handle_dynparams(struct aml_hw *aml_hw, struct wiphy *wiphy)
     aml_set_vht_capa(aml_hw, wiphy);
 
     /* Set HE capabilities */
-    aml_set_he_capa(aml_hw, wiphy);
+    aml_set_he_capa(aml_hw, wiphy, band_2g20m_only);
 
     /* Set HT capabilities */
-    aml_set_ht_capa(aml_hw, wiphy);
+    aml_set_ht_capa(aml_hw, wiphy, band_2g20m_only);
 
     /* Set RF specific parameters (shall be done last as it might change some
        capabilities previously set) */

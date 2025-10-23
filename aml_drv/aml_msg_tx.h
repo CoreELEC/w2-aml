@@ -20,6 +20,14 @@
 
 extern unsigned char g_pci_shutdown;
 extern unsigned char g_pci_msg_suspend;
+
+#define AML_WAKE_REASON_NUM 9
+
+struct aml_wake_reason_id {
+    unsigned int wake_reason_id;
+    char name[16];
+};
+
 int aml_send_reset(struct aml_hw *aml_hw);
 int aml_send_start(struct aml_hw *aml_hw);
 int aml_send_version_req(struct aml_hw *aml_hw, struct mm_version_cfm *cfm);
@@ -32,8 +40,8 @@ int aml_send_key_add(struct aml_hw *aml_hw, u8 vif_idx, u8 sta_idx, bool pairwis
                       u8 *key, u8 key_len, u8 key_idx, u8 cipher_suite,
                       struct mm_key_add_cfm *cfm);
 int aml_send_key_del(struct aml_hw *aml_hw, uint8_t hw_key_idx);
-int aml_send_bcn_change(struct aml_hw *aml_hw, u8 vif_idx, u32 bcn_addr,
-                         u16 bcn_len, u16 tim_oft, u16 tim_len, u16 *csa_oft);
+int aml_beacon_update(struct aml_vif *vif, struct aml_bcn *bcn,
+                      void *bcn_buf, int addition_ie, u16 *csa_offset);
 int aml_send_tim_update(struct aml_hw *aml_hw, u8 vif_idx, u16 aid,
                          u8 tx_status);
 int aml_send_roc(struct aml_hw *aml_hw, struct aml_vif *vif,
@@ -234,17 +242,9 @@ int _aml_set_stbc(struct aml_hw *aml_hw, u8 vif_idx, u8 stbc_on);
 int aml_set_temp_start(struct aml_hw *aml_hw);
 int _aml_set_prot_type(struct aml_hw *aml_hw, u32 prot_type);
 
-int aml_mdns_reset_all(struct aml_hw *aml_hw);
-int aml_mdns_set_offload_state(struct aml_hw *aml_hw, int enable);
-int aml_mdns_set_passthrough_behavior(struct aml_hw *aml_hw, int behavior);
-int aml_mdns_get_reset_hit_counter(struct aml_hw *aml_hw, int index);
-int aml_mdns_add_passthrough_list(struct aml_hw *aml_hw, uint8_t *qname, int length);
-int aml_mdns_remove_passthrough_list(struct aml_hw *aml_hw, uint8_t *qname, int length);
-
 int aml_coex_cmd(struct net_device *dev, u32_l coex_cmd, u32_l cmd_ctxt_1, u32_l cmd_ctxt_2);
 int aml_set_coex_mode_cmd(struct net_device *dev, u32_l coex_cmd);
 int aml_tko_activate(struct aml_hw *aml_hw, struct aml_vif *vif, u8 active);
-int aml_coex_get_status(struct net_device *dev);
 int _aml_set_pt_calibration(struct aml_vif *aml_vif, int pt_cali_val);
 int aml_send_notify_ip(struct aml_vif *aml_vif,u8_l ip_ver,u8_l*ip_addr);
 int _aml_enable_wf(struct aml_vif *aml_vif, u32 addr);
@@ -276,11 +276,15 @@ int aml_mdns_get_reset_hit_counter(struct aml_hw *aml_hw, int index);
 int aml_mdns_get_reset_miss_counter(struct aml_hw *aml_hw);
 int aml_mdns_add_passthrough_list(struct aml_hw *aml_hw, uint8_t *qname, int length);
 int aml_mdns_remove_passthrough_list(struct aml_hw *aml_hw, uint8_t *qname, int length);
+int aml_mdns_set_wake_ports(struct aml_hw *aml_hw, wakePort_set *ports);
 int aml_mdns_set_passthrough_behavior(struct aml_hw *aml_hw, int behavior);
-int aml_set_mcc_ratio(struct aml_vif *aml_vif, int ratio);
+int aml_set_mcc_ratio(struct aml_hw *aml_hw, int ratio);
 int aml_set_suspend_tx_flush(struct aml_hw *aml_hw, int tx_flush_enable);
 int aml_set_linkloss_threshold(struct aml_hw * aml_hw, int threshold);
+int aml_set_2g4_bindwidth(struct aml_hw * aml_hw, u8 enable_2g4_20m);
+int aml_set_custom_config(struct aml_hw *aml_hw);
 bool aml_check_suspend_resume_msg(struct aml_hw *aml_hw, struct lmac_msg *msg);
+int aml_send_sync_trace(struct aml_hw *aml_hw);
 #ifdef CONFIG_AML_APF
 int aml_apf_get_capabilities(struct aml_hw *aml_hw);
 int aml_apf_add_filter(struct aml_hw *aml_hw, u8_l * program, uint32_t program_len);
@@ -292,14 +296,10 @@ int aml_set_early_suspend_mode(struct aml_hw *aml_hw, bool early_suspend_mode);
 void aml_apf_set_mac_addr(struct net_device *dev, u8 mac_addr3, u8 mac_addr4, u8 mac_addr5);
 #endif /* APF */
 
-int aml_mdns_reset_all(struct aml_hw *aml_hw);
-int aml_mdns_set_offload_state(struct aml_hw *aml_hw, int enable);
-int aml_mdns_set_passthrough_behavior(struct aml_hw *aml_hw, int behavior);
-int aml_mdns_get_reset_hit_counter(struct aml_hw *aml_hw, int index);
-int aml_mdns_add_passthrough_list(struct aml_hw *aml_hw, uint8_t *qname, int length);
-int aml_mdns_remove_passthrough_list(struct aml_hw *aml_hw, uint8_t *qname, int length);
-int aml_coex_get_status(struct net_device *dev);
 int aml_ps_info_get(struct net_device *dev, struct ps_info_s * ind, int debug_type);
 int aml_regdom_en(struct aml_hw *aml_hw, uint32_t reg_en);
 int aml_set_phy_maskfilter_param_req(struct aml_hw *aml_hw, struct COUNTRY_PWR_LIMIT_CFG *country_pwr_limit_cfg, unsigned char ofdm_power);
+int _aml_trig_sec_test(struct aml_hw *aml_hw);
+int aml_get_radio_info(struct aml_hw *aml_hw, struct mm_get_radio_cfm *cfm);
+
 #endif /* _AML_MSG_TX_H_ */

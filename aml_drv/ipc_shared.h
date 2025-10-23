@@ -754,7 +754,7 @@ extern struct ipc_shared_env_tag ipc_shared_env;
 
 #define SDIO_IRQ_E2A_MSG             CO_BIT(13)
 #define SDIO_IRQ_E2A_DBG             CO_BIT(12)
-#define SDIO_IRQ_E2A_TRACE           CO_BIT(14)
+#define IPC_IRQ_E2A_TRACE            CO_BIT(14)
 /// SDIO USB EXTEND EMB2APP interrupt
 #define SDIO_USB_EXTEND_E2A_IRQ IPC_IRQ_E2A_UNSUP_RX_VEC
 
@@ -764,7 +764,8 @@ extern struct ipc_shared_env_tag ipc_shared_env;
                                 | IPC_IRQ_E2A_MSG           \
                                 | IPC_IRQ_E2A_DBG           \
                                 | IPC_IRQ_E2A_RADAR         \
-                                | IPC_IRQ_E2A_UNSUP_RX_VEC)
+                                | IPC_IRQ_E2A_UNSUP_RX_VEC  \
+                                | IPC_IRQ_E2A_TRACE)
 
 // FLAGS for RX desc
 #define IPC_RX_FORWARD          CO_BIT(1)

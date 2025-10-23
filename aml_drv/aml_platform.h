@@ -33,9 +33,6 @@
 #define AML_MAC_REVC_FW_USB "wifi_w2_revC_fw_usb.bin"
 #define AML_MAC_REVC_FW_PCIE "wifi_w2_revC_fw_pcie.bin"
 
-#define W2s_C_PRODUCT_AMLOGIC_EFUSE 0x0680
-#define W2u_PRODUCT_C_AMLOGIC_EFUSE 0x0681
-#define W2pRevC_PRODUCT_AMLOGIC_EFUSE 0x0682
 
 #define MAC_SRAM_BASE 0x00a10000
 #define UBUNTU_PC_VERSION   0xA1B2C3D4  // indicate ubuntu pc + w2
@@ -105,8 +102,6 @@
 #define PCIE_BAR4_TABLE5_OFFSET 0x00190000
 #define PCIE_BAR4_TABLE6_OFFSET 0x001b0000
 #define PCIE_BAR4_TABLE7_OFFSET 0x001c0000
-
-#define W2p_VENDOR_AMLOGIC_EFUSE  0X1F35
 
 /*RG_AON_A53:This register is used to mark the type that prevents the firmware from going to sleep*/
 #define PS_MSG_PUSH       BIT(0)
@@ -333,6 +328,8 @@ u8* aml_pci_get_map_address(struct net_device *dev, unsigned int offset);
 
 int aml_platform_init(struct aml_plat *aml_plat, void **platform_data);
 void aml_platform_deinit(struct aml_hw *aml_hw);
+void aml_get_fw_info(struct aml_hw *aml_hw, char *filename);
+char *aml_get_fw_version(void);
 
 int aml_platform_on(struct aml_hw *aml_hw, void *config);
 void aml_platform_off(struct aml_hw *aml_hw, void **config);
@@ -353,5 +350,8 @@ void aml_plat_mpif_sel(struct aml_plat *aml_plat);
 
 int aml_cpufreq_boost_update(struct aml_hw *aml_hw);
 int aml_cpufreq_boost_remove(struct aml_hw *aml_hw);
-
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 10, 0)
+void aml_sdio_wifi_pm_link(struct aml_hw *aml_hw);
+void aml_sdio_wifi_pm_unlink(struct aml_hw *aml_hw);
+#endif
 #endif /* _AML_PLAT_H_ */

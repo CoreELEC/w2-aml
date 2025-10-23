@@ -56,7 +56,6 @@ struct aml_tcp_sess_info {
     unsigned long timeout;
     struct timer_list timer;
     struct sk_buff *skb;
-    struct sk_buff *in_txq_skb;
     struct aml_sta *sta;
     struct aml_vif *aml_vif;
     struct aml_pkt_info pkt_info;
@@ -95,7 +94,6 @@ struct aml_tcp_sess_mgr {
 void aml_tcp_delay_ack_deinit(struct aml_hw *aml_hw);
 void aml_tcp_delay_ack_init(struct aml_hw *aml_hw);
 int aml_filter_tx_tcp_ack(struct net_device *dev, struct sk_buff *skb, struct aml_sta *sta);
-void aml_check_tcpack_skb(struct aml_hw *aml_hw, struct sk_buff *skb, u32 len);
 void aml_set_tcp_ack_auto(struct aml_hw *aml_hw);
 
 #endif

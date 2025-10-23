@@ -9,14 +9,6 @@
 #define _W2_USB_H_
 #include "usb_common.h"
 
-#define W2_PRODUCT  0x4c55
-#define W2_VENDOR  0x414D
-
-#define W2u_VENDOR_AMLOGIC_EFUSE 0x1B8E
-#define W2u_PRODUCT_A_AMLOGIC_EFUSE 0x0601
-#define W2u_PRODUCT_B_AMLOGIC_EFUSE 0x0641
-#define W2u_PRODUCT_C_AMLOGIC_EFUSE 0x0681
-
 /*auc--amlogic usb common*/
 struct auc_hif_ops {
     int (*hi_send_cmd)(unsigned int addr, unsigned int len);
@@ -35,11 +27,11 @@ struct auc_hif_ops {
 
     int (*hi_enable_scat)(void);
     void (*hi_cleanup_scat)(void);
-    struct amlw_hif_scatter_req * (*hi_get_scatreq)(void);
+    void *(*hi_get_scatreq)(void);
     int (*hi_scat_rw)(struct scatterlist *sg_list, unsigned int sg_num, unsigned int blkcnt,
         unsigned char func_num, unsigned int addr, unsigned char write);
 
-    int (*hi_send_frame)(struct amlw_hif_scatter_req *scat_req);
+    int (*hi_send_frame)(struct scatterlist *scat_list, int n);
     void (*hi_rcv_frame)(unsigned char* buf, unsigned char* addr, unsigned long len);
 };
 

@@ -11,7 +11,6 @@
  */
 
 #include "aml_msg_tx.h"
-#include "fi_cmd.h"
 #include "share_mem_map.h"
 #include "aml_sap.h"
 #include "aml_wq.h"

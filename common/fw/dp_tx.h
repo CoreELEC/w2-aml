@@ -13,28 +13,7 @@
 #ifndef _COMMON_FW_DP_TX_H_
 #define _COMMON_FW_DP_TX_H_
 
-#ifdef __linux__
-#include <linux/types.h>
-#else
-#include <stdint.h>
-#endif
-
-#ifndef NX_TX_PAYLOAD_MAX
-#define NX_TX_PAYLOAD_MAX   6
-#endif
-
-struct txpage_info {
-    uint16_t total_len;
-    uint16_t first_msdu_len;    /* for patch_txu_cntrl_amsdu_hdr_append() */
-
-    uint8_t msdu_num;           /* for patch_txl_buffer_is_amsdu_multi_buf() */
-    uint8_t page_num;
-
-#define TXPAGE_INFO_PAGE_NUM_MAX    (NX_TX_PAYLOAD_MAX * 2) /* up to 2 pages per msdu */
-    uint8_t pages[TXPAGE_INFO_PAGE_NUM_MAX];                /* firmware only */
-};
-
-#define HOSTDESC_TXPAGE_INFO(host)      ((struct txpage_info *)&(host)->packet_addr[0])
+#include "aml_types.h"
 
 /*
  * compact TX confirmation tag for SDIO/USB

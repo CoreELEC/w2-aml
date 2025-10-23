@@ -1,0 +1,12 @@
+# sw custom version start, 0: disable 1:enable
+sw_custom_enable=0
+# 0:default, other: custom
+custom_version=0
+# millisecond
+linkloss_threshold=5000
+scan_duration=30
+# 0:default 2.4g40M, 1:enable, change to 20M
+enable_2g4_20m=0
+mcc_ratio=2
+scan_abort_enable=0
+scan_interval_thr=22

@@ -81,7 +81,7 @@ void aml_enable_mfp(struct aml_hw *aml_hw);
 void aml_enable_gcmp(struct aml_hw *aml_hw);
 void aml_adjust_amsdu_maxnb(struct aml_hw *aml_hw);
 void aml_set_vht_capa(struct aml_hw *aml_hw, struct wiphy *wiphy);
-void aml_set_ht_capa(struct aml_hw *aml_hw, struct wiphy *wiphy);
-void aml_set_he_capa(struct aml_hw *aml_hw, struct wiphy *wiphy);
+void aml_set_ht_capa(struct aml_hw *aml_hw, struct wiphy *wiphy, int band_2g20m_only);
+void aml_set_he_capa(struct aml_hw *aml_hw, struct wiphy *wiphy, int band_2g20m_only);
 
 #endif /* _AML_MOD_PARAM_H_ */

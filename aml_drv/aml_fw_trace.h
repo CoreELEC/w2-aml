@@ -130,13 +130,14 @@ struct log_file_info {
     uint32_t end;
     /*control aml_comm_diag order, start first then stop*/
     uint32_t net_switch;
+    unsigned int flag_end;
 };
 
 enum trace_type
 {
     LOG_TO_UART = 0,
-    LOG_TO_HOST,
     TRACE_TO_HOST,
+    LOG_TO_HOST,
     TRACE_TO_MAX,
 };
 

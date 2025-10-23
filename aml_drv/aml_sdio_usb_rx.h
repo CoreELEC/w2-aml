@@ -18,10 +18,6 @@
  *  logic analyzer buffer: (by default, la_enable = 0)
  *      for PCIe, this feature is not available.
  *      for SDIO/USB, CONFIG_AML_LA/LA=n
- *  trace buffer: (by default, trace_enable/usb_trace_enable = 0)
- *      for PCIe, host memory is used.
- *      for SDIO, 32K device SRAM is used (SDIO_TRACE_START_ADDR ~ SDIO_TRACE_END_ADDR)
- *      for USB, 27K shared memory is used (USB_TRACE_START_ADDR ~ USB_TRACE_END_ADDR)
  *  for USB, its TX buffer is also controlled by
  *      CONFIG_AML_USB_LARGE_PAGE/USB_TX_USE_LARGE_PAGE=y
  *
@@ -78,8 +74,6 @@
 #include "wifi_w2_shared_mem_cfg.h"
 #include "fw/dp_rx.h"
 
-typedef u32 addr32_t;
-
 enum aml_rx_buf_layout {
     AML_RX_BUF_NARROW = 0,  /* TX page is bigger */
     AML_RX_BUF_EXPAND = 1,
@@ -91,16 +85,6 @@ struct aml_sharedmem_layout {
     u32 tx_page;
     addr32_t rx_end;
 };
-
-#ifdef CONFIG_AML_SDIO_USB_FW_REORDER
-struct fw_reo_inst {    /* reorder instruction from f/w */
-    u16 hostid;         /* hostid = sn + 1 */
-    u16 pad;
-    u8 len;
-    u8 tid;
-    u16 flag;
-};
-#endif
 
 enum {
     AML_RX_STATE_START,     /* fetch new RX data from firmware? */
@@ -150,13 +134,6 @@ struct aml_rx {
 
     /* reorder */
     struct aml_reo_aging reo_aging;
-#ifdef CONFIG_AML_SDIO_USB_FW_REORDER
-    bool host_reorder;
-    struct {
-        struct sk_buff_head list;   /* all peer/tid mixed in one queue */
-        struct fw_reo_inst instructions[IEEE80211_NUM_UPS];
-    } fw_reo;
-#endif
 
     /* NAPI */
     struct net_device napi_dev;
@@ -204,26 +181,6 @@ static inline void aml_mpdu_free(struct sk_buff *skb)
         __skb_queue_purge(&rxcb->amsdu->msdus);
     dev_kfree_skb(skb);
 }
-
-#ifdef CONFIG_AML_SDIO_USB_FW_REORDER
-int aml_sdio_usb_fw_reo_inst_save(struct aml_rx *rx, struct fw_reo_inst *reo_inst);
-
-static inline bool aml_sdio_usb_host_reo_enabled(struct aml_rx *rx)
-{
-    return rx->host_reorder;
-}
-
-static inline void aml_sdio_usb_host_reo_detected(struct aml_rx *rx)
-{
-    if (!rx->host_reorder) {
-        rx->host_reorder = true;
-        AML_M_NOTICE(MSG_RX, "=== enable host reorder ===\n");
-    }
-}
-#else
-static inline bool aml_sdio_usb_host_reo_enabled(struct aml_rx *rx) { return true; }
-static inline void aml_sdio_usb_host_reo_detected(struct aml_rx *rx) { }
-#endif
 
 int aml_rx_task(void *data);
 

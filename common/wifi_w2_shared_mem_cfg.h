@@ -43,7 +43,11 @@ LA ON: rx buffer large size 0x30000, small size: 0x20000
 */
 
 #define TXLBUF_TAG_SDIO_4                (0x60017d44) /* size 0x1c00*/
-#define BUF_FOR_SUSPEND_USE_ADDR         (0x60019C00) /* size 2k */
+#ifdef PCIE
+#define BUF_FOR_SUSPEND_USE_ADDR         (0x60068000) /* size 6k */
+#else
+#define BUF_FOR_SUSPEND_USE_ADDR         (0x60019C00) /* size 6k */
+#endif
 #define RXBUF_START_ADDR                 (0x6001B400) /* size 6k for offload */
 
 
@@ -82,8 +86,11 @@ enum sdio_usb_e2a_irq_type {
     DYNAMIC_BUF_HOST_TX_START,
     DYNAMIC_BUF_NOTIFY_FW_TX_STOP,
     DYNAMIC_BUF_LA_SWITCH_FINISH,
-    DYNAMIC_BUF_TRACE_EXPEND_FINISH,
-    DYNAMIC_BUF_TRACE_REDUCE_FINISH,
+
+    /* DYNAMIC_BUF_RESERVEDx can be reused */
+    DYNAMIC_BUF_RESERVED0,
+    DYNAMIC_BUF_RESERVED1,
+
     EXCEPTION_IRQ,
 };
 
@@ -100,9 +107,8 @@ enum sdio_usb_e2a_irq_type {
 #define BUFFER_RX_FORBID_REDUCE    BIT(10)
 #define BUFFER_RX_FORBID_ENLARGE   BIT(11)
 #define BUFFER_LA_USED             BIT(12)
-#define BUFFER_TRACE_USED          BIT(13)
-#define BUFFER_LA_FREE             BIT(14)
-#define BUFFER_TRACE_FREE          BIT(15)
+#define BUFFER_LA_FREE             BIT(13)
+
 #define DYNAMIC_BUF_IS_ON_TX  ((sdio_buffer_ctrl.buffer_status) & (BUFFER_TX_USED))
 #define DYNAMIC_BUF_IS_ON_RX  ((sdio_buffer_ctrl.buffer_status) & (BUFFER_RX_USED))
 
@@ -138,4 +144,5 @@ struct exception_info
 #define SDIO_IRQ_E2A_CHAN_SWITCH_IND_MSG           CO_BIT(15)
 
 #define UNWRAP_SIZE (56)
+#define UART_TRACE_ID (203)
 #endif

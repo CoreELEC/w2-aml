@@ -162,21 +162,21 @@ int aml_bus_intf_insmod(void)
         ret = aml_usb_insmod();
         if (ret) {
             AML_ERR("aml usb bus init fail\n");
+            goto err;
         }
     } else if (strncmp(bus_type,"sdio",4) == 0) {
         aml_bus_type = SDIO_MODE;
         ret = aml_sdio_insmod();
         if (ret) {
             AML_ERR("aml sdio bus init fail\n");
-#ifdef CONFIG_PT_MODE
-            return ret;
-#endif
+            goto err;
         }
     } else if (strncmp(bus_type,"pci",3) == 0) {
         aml_bus_type = PCIE_MODE;
         ret = aml_pci_insmod();
         if (ret) {
-            AML_ERR("aml sdio bus init fail\n");
+            AML_ERR("aml pcie bus init fail\n");
+            goto err;
         }
     }
     atomic_set(&g_wifi_pm.bus_suspend_cnt, 0);
@@ -191,6 +191,9 @@ int aml_bus_intf_insmod(void)
 #endif
 
     return 0;
+err:
+    aml_deinit_wlan_mem();
+    return ret;
 }
 void aml_bus_intf_rmmod(void)
 {

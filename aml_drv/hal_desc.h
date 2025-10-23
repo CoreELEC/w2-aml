@@ -16,6 +16,7 @@
 #define _HAL_DESC_H_
 
 #include "lmac_types.h"
+#include "fw/dp_rx.h"
 
 /******************************************************************************
  * HW type
@@ -605,15 +606,24 @@ struct hw_vect {
     u32 mpdu_cnt              : 6;
     u32 ampdu_cnt             : 2;
 
+#ifdef AML_SDIO_USB_FW_PATCHED
+    struct aml_rhd_patch0 rhd0;
+#else
     /** TSF Low */
     __le32 tsf_lo;
     /** TSF High */
     __le32 tsf_hi;
+#endif
 
     /** Receive Vector 1 */
     struct rx_vector_1 rx_vect1;
+
+#ifdef AML_SDIO_USB_FW_PATCHED
+    struct aml_rhd_patch1 rhd1;
+#else
     /** Receive Vector 2 */
     struct rx_vector_2 rx_vect2;
+#endif
 
     /** MPDU status information */
     struct mpdu_status status;

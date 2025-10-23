@@ -15,7 +15,6 @@
 #include "usb_common.h"
 #include "chip_ana_reg.h"
 #include "wifi_intf_addr.h"
-#include "sg_common.h"
 #include "fi_sdio.h"
 #include "w2_usb.h"
 #include "aml_interface.h"
@@ -64,6 +63,13 @@ static int auc_probe(struct usb_interface *interface, const struct usb_device_id
     AML_INFO("done.\n");
 
     g_usb_after_probe = 1;
+
+#ifdef CONFIG_AML_USB_HOTPLUG
+    if (bus_state_detect.auc_wifi_enable_func)
+        bus_state_detect.auc_wifi_enable_func();
+    bus_state_detect.usb_unplug = 0;
+#endif
+
     return 0;
 }
 
@@ -75,6 +81,10 @@ static void auc_disconnect(struct usb_interface *interface)
     atomic_set(&g_wifi_pm.bus_suspend_cnt, 0);
     atomic_set(&g_wifi_pm.drv_suspend_cnt, 0);
     AML_INFO("--------aml_usb:disconnect-------\n");
+#ifdef CONFIG_AML_USB_HOTPLUG
+    if (bus_state_detect.auc_wifi_disable_func)
+         bus_state_detect.auc_wifi_disable_func();
+#endif
 }
 
 #ifdef CONFIG_PM
@@ -151,7 +161,8 @@ static int auc_suspend(struct usb_interface *interface,pm_message_t state)
         // exit immediately to prevent blocking the kernel USB resume call.
         if (bus_state_detect.bus_err || bus_state_detect.is_recy_ongoing)
         {
-            AML_INFO("Detect a bus error or ongoing recovery, return\n");
+            AML_INFO("Detect a bus error or ongoing recovery, return 1, %d,  %d\n",
+                  bus_state_detect.bus_err, bus_state_detect.is_recy_ongoing);
             return 0;
         }
     }
@@ -200,10 +211,10 @@ void auc_shutdown(struct device *dev)
 
 static const struct usb_device_id auc_devices[] =
 {
-    {USB_DEVICE(W2_VENDOR,W2_PRODUCT)},
-    {USB_DEVICE(W2u_VENDOR_AMLOGIC_EFUSE,W2u_PRODUCT_A_AMLOGIC_EFUSE)},
-    {USB_DEVICE(W2u_VENDOR_AMLOGIC_EFUSE,W2u_PRODUCT_B_AMLOGIC_EFUSE)},
-    {USB_DEVICE(W2u_VENDOR_AMLOGIC_EFUSE,W2u_PRODUCT_C_AMLOGIC_EFUSE)},
+    {USB_DEVICE(W2u_VENDOR_AMLOGIC,W2u_PRODUCT_AMLOGIC)},
+    {USB_DEVICE(W2u_VENDOR_AMLOGIC_EFUSE,W2u_A_PRODUCT_AMLOGIC_EFUSE)},
+    {USB_DEVICE(W2u_VENDOR_AMLOGIC_EFUSE,W2u_B_PRODUCT_AMLOGIC_EFUSE)},
+    {USB_DEVICE(W2u_VENDOR_AMLOGIC_EFUSE,W2u_C_PRODUCT_AMLOGIC_EFUSE)},
     {}
 };
 
@@ -269,7 +280,10 @@ int aml_usb_insmod(void)
     }
     err = usb_register(&aml_usb_common_driver);
     if (err) {
+        FREE(g_cmd_buf, "cmd stage");
+        FREE(g_kmalloc_buf, "reg tmp");
         AML_INFO("failed to register usb driver: %d \n", err);
+        return err;
     }
     auc_driver_insmoded = 1;
     auc_wifi_in_insmod = 0;
@@ -283,10 +297,9 @@ int aml_usb_insmod(void)
              "bus_wakeup_source");
     if (!aml_wifi_wakeup_source) {
         AML_INFO("Failed to create wakeup source\n");
-        return -ENOMEM;
     }
 
-    return err;
+    return 0;
 }
 EXPORT_SYMBOL(aml_usb_insmod);
 
@@ -313,20 +326,20 @@ void aml_usb_rmmod(void)
 }
 EXPORT_SYMBOL(aml_usb_rmmod);
 
-void aml_usb_reset(void)
+int aml_usb_reset(void)
 {
+#ifndef CONFIG_PT_MODE
     uint32_t count = 0;
     uint32_t try_cnt = 0;
 
 try_again:
-    AML_INFO("******* usb reset begin *******\n");
+    AML_INFO(" ******* usb reset begin ******* :%d\n", g_usb_after_probe);
 
-#ifndef CONFIG_PT_MODE
     aml_wifi_power_on(0);
-    while ((g_usb_after_probe) && (try_cnt <= 3)) {
+    while ((g_usb_after_probe) && (try_cnt < 1)) {
         msleep(5);
         count++;
-        if (count > 40 && try_cnt <= 3) {
+        if (count > 200 && try_cnt < 1) {
             count = 0;
             try_cnt++;
             aml_wifi_power_on(1);
@@ -338,8 +351,7 @@ try_again:
     aml_wifi_power_on(1);
 
     count = 0;
-    try_cnt = 0;
-    while ((!g_usb_after_probe) && try_cnt <= 3) {
+    while ((!g_usb_after_probe) && (try_cnt < 1)) {
         msleep(5);
         count++;
         if (count > 200) {
@@ -349,9 +361,17 @@ try_again:
             goto try_again;
         }
     };
+
+    if ((g_usb_after_probe == 0) || (try_cnt >= 1)) {
+        AML_ERR("usb reset fail, usb may be unplug\n");
+        return -ETIMEDOUT;
+    }
+
     bus_state_detect.bus_reset_ongoing = 0;
     bus_state_detect.bus_err = 0;
     AML_INFO("******* usb reset end *******\n");
+
+    return 0;
 #endif
 }
 EXPORT_SYMBOL(aml_usb_reset);

@@ -105,6 +105,8 @@ struct hw_rxhdr {
     u32 flags_sta_idx      : 8;    // 0xFF if invalid STA index
     u32 flags_dst_idx      : 8;    // 0xFF if unknown destination STA
 
+    /* the following members are only for PCIE */
+#ifndef AML_SDIO_USB_FW_PATCHED
 #ifdef CONFIG_AML_MON_DATA
     /// MAC header backup descriptor (used only for MSDU when there is a monitor and a data interface)
     struct mon_machdrdesc mac_hdr_backup;
@@ -114,6 +116,7 @@ struct hw_rxhdr {
     u32 reserved[6];
     u32 amsdu_hostids[NX_MAX_MSDU_PER_RX_AMSDU - 1];
     u16 amsdu_len[NX_MAX_MSDU_PER_RX_AMSDU];
+#endif
 };
 
 /**

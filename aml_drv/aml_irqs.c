@@ -19,6 +19,8 @@
 #include "wifi_top_addr.h"
 #include "aml_recy.h"
 
+extern unsigned char g_usb_after_probe;
+
 static int aml_sdio_usb_irq_task(struct aml_hw *aml_hw)
 {
     u32 status;
@@ -45,6 +47,20 @@ static int aml_sdio_usb_irq_task(struct aml_hw *aml_hw)
 }
 
 #ifdef CONFIG_AML_SDIO_IRQ_VIA_GPIO
+
+void aml_suspend_sdio_irq_enable(struct aml_hw *aml_hw)
+{
+    enable_irq(aml_hw->irq);
+    AML_INFO("enable_irq: %d\n", aml_hw->irq);
+}
+
+void aml_suspend_sdio_irq_disable(struct aml_hw *aml_hw)
+{
+    if (aml_hw->irq) {
+        disable_irq(aml_hw->irq);
+        AML_INFO("disable_irq: %d\n", aml_hw->irq);
+    }
+}
 
 static irqreturn_t aml_irq_sdio_thread(int irq, void *dev_id)
 {
@@ -208,8 +224,8 @@ int aml_usb_irq_urb_submit(struct aml_hw *aml_hw)
     struct urb *urb;
     int ret = 0;
 
-    if (!aml_hw->usb) {
-        AML_ERR("aml_hw->usb is NULL\n");
+    if (!aml_hw->usb || !g_usb_after_probe) {
+        AML_ERR("aml_hw->usb is NULL or g_usb_after_probe:%d\n", g_usb_after_probe);
         return -1;
     }
 
@@ -286,13 +302,9 @@ static inline int aml_usb_irq_task(struct aml_hw *aml_hw)
 
         REG_SW_CLEAR_PROFILING(aml_hw, SW_PROF_AML_IPC_IRQ_HDLR);
     }
-    if (aml_hw->aml_irq_completion_init) {
-        aml_hw->aml_irq_completion_init = 0;
-#if LINUX_VERSION_CODE <= KERNEL_VERSION(5, 16, 20)
-        complete_and_exit(&aml_hw->aml_irq_completion, 0);
-#else
-        complete(&aml_hw->aml_irq_completion);
-#endif
+
+    while (!kthread_should_stop()) {
+        msleep(10);
     }
 
     return 0;

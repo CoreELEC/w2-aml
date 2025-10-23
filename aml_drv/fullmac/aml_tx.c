@@ -756,12 +756,14 @@ static void aml_tx_retry(struct aml_hw *aml_hw, struct sk_buff *skb,
             AML_INFO("reuse sn = %d\n", cfm->status.sn);
     }
 
+    // Add it to the linked list first, and then start sending the package
+    // The credit of the retry package will not be used by the new skb
+    aml_txq_queue_skb(aml_hw, txq, skb, true, NULL);
+
     txq->credits += cfm->credits;
     if (txq->credits > 0)
         aml_txq_start(txq, AML_TXQ_STOP_FULL);
     trace_skb_retry(skb, txq, retry ? cfm->status.sn : IEEE80211_SN_MODULO);
-
-    aml_txq_queue_skb(aml_hw, txq, skb, true, NULL);
 }
 
 
@@ -1249,6 +1251,160 @@ static void aml_amsdu_update_len(struct aml_hw *aml_hw, struct aml_txq *txq,
 }
 #endif /* CONFIG_AML_AMSDUS_TX */
 
+/*
+ * aml_filter_sp_dns - get the dns name from skb
+ * in:
+ * @buf: the skb buf
+ * @buf_len: the skb length
+ * @offset: the offset of the start queries
+ * out:
+ * @qname: the decompress name
+ *
+ * return: 0 indicates success, while others indicate failure
+ *
+ * notes: qname: pre-allocated 256-byte buffer
+ */
+int aml_filter_sp_dns(const uint8_t *buf, uint32_t buf_len, int offset, char *qname)
+{
+    const uint8_t *p = NULL;
+    uint16_t location = 0;
+    uint32_t ptr_count = 0;
+    uint32_t label_len = 0;
+    uint32_t total_len = 0;
+
+    if (!buf || !qname || buf_len < 1 || offset < 0 || offset > buf_len - 1)
+        return -1;
+
+    p = buf + offset;
+    if (*p == 0)
+        return -1;
+
+    memset(qname, 0, MDNS_QNAME_LENGTH_MAX);
+    while (*p) {
+        if ((*p & 0xC0) == 0xC0) {
+            if (ptr_count++ > 10)
+                return -1;
+            location = ((*p << 8) | *(p + 1)) & 0x3fff;
+            if (location > (buf_len - 1))
+                return -1;
+            p = buf + location;
+            continue;
+        }
+
+        label_len = *p++;
+        if (label_len > MDNS_NAME_LABEL_LEN_MAX
+          || total_len + label_len + 1 > MDNS_QNAME_LENGTH_MAX
+          || p + label_len > buf + buf_len)
+            return -1;
+
+        memcpy(qname + total_len, p, label_len);
+        p += label_len;
+        total_len += label_len;
+        qname[total_len++] = '.';
+    }
+
+    if (total_len > 0)
+        qname[total_len-1] = '\0';
+    else
+        qname[0] = '\0';
+
+    return 0;
+}
+
+uint8_t *get_dhcp_option(struct dhcp_packet *packet, int len, uint8_t option_code, uint8_t *length)
+{
+    uint8_t *options = packet->options;
+    uint8_t *end = options + (len - sizeof(packet->options));
+    uint8_t opt_len;
+
+    while (options < end) {
+        uint8_t code = *options++;
+        if (code == DHCP_OPTION_END)
+            break;
+        if (code == DHCP_OPTION_PAD)
+            continue;
+
+        opt_len = *options++;
+        if (code == option_code) {
+            if (length)
+                *length = opt_len;
+            return options;
+        }
+        options += opt_len;
+    }
+
+    return NULL;
+}
+
+//
+const char *get_dhcp_message_type_name(int message_type)
+{
+    switch (message_type) {
+        case DHCP_DISCOVER:
+            return "DISCOVER";
+        case DHCP_OFFER:
+            return "OFFER";
+        case DHCP_REQUEST:
+            return "REQUEST";
+        case DHCP_DECLINE:
+            return "DECLINE";
+        case DHCP_ACK:
+            return "ACK";
+        case DHCP_NAK:
+            return "NAK";
+        case DHCP_RELEASE:
+            return "RELEASE";
+        case DHCP_INFORM:
+            return "INFORM";
+        default:
+            return "UNKNOWN";
+    }
+}
+
+void aml_filter_sp_data_dhcp_frame(const u8 *frame, int len, u32 pkt_types,
+    struct aml_vif *vif, AML_SP_STATUS_E sp_status)
+{
+    char dhcp_print[200] = {0};
+    int offset = 0;
+    uint8_t length = 0;
+
+    if (len < sizeof(struct dhcp_packet)) {
+        AML_M_ERR(TX, "dhcp length error len:%d", len);
+        return;
+    }
+
+    offset += snprintf(dhcp_print + offset, sizeof(dhcp_print) - offset, "%s[%d] DHCP ",
+                       sp_frame_status_trace[sp_status], vif->vif_index);
+
+    if (pkt_types & BIT(AML_PKT_IP)) {
+        struct dhcp_packet *dhcp = (struct dhcp_packet *)frame;
+        uint8_t *option_pos;
+        uint8_t option_type;
+
+        offset += snprintf(dhcp_print + offset, sizeof(dhcp_print) - offset, "id:%x %s ",
+            dhcp->xid, (dhcp->op == 1) ? "req" : (dhcp->op == 2) ? "rsp" : "nul");
+
+        option_pos = get_dhcp_option(dhcp, len, DHCP_OPTION_MESSAGE_TYPE, &length);
+        if (option_pos && length == 1) {
+            option_type = *option_pos;
+            offset += snprintf(dhcp_print + offset, sizeof(dhcp_print) - offset, "message type:%s, ip:%pI4",
+                               get_dhcp_message_type_name(option_type), &dhcp->yiaddr);
+
+        } else {
+            AML_M_INFO(TX, "%p, %d\n", option_pos, length);
+            offset += snprintf(dhcp_print + offset, sizeof(dhcp_print) - offset, "message type err");
+        }
+    } else {
+        offset += snprintf(dhcp_print + offset, sizeof(dhcp_print) - offset, "v6");
+    }
+
+    if (offset >= sizeof(dhcp_print)) {
+        AML_M_ERR(TX, "length is not enough for snprintf\n");
+    }
+
+    AML_M_NOTICE(TX, "%s\n", dhcp_print);
+}
+
 u32 aml_filter_sp_data_frame(const u8 *frame, int len, struct aml_vif *aml_vif,
                              AML_SP_STATUS_E sp_status)
 {
@@ -1257,6 +1413,9 @@ u32 aml_filter_sp_data_frame(const u8 *frame, int len, struct aml_vif *aml_vif,
     const void *nethdr;
     u8 net_prot = 0;
     u32 pkt_types = 0;
+    int offset = 0;
+    const struct iphdr *iphdr = NULL;
+    const struct ipv6hdr *ipv6hdr = NULL;
 
     if (!aml_vif) {
         aml_vif = &vif_dummy;
@@ -1305,7 +1464,7 @@ u32 aml_filter_sp_data_frame(const u8 *frame, int len, struct aml_vif *aml_vif,
 
         if (aml_vif == &vif_dummy || sp_status != SP_STATUS_RX ||
                 memcmp(ar->tip, &aml_vif->ipv4_addr, IPV4_ADDR_LEN) == 0) {
-            AML_WARN("%s[%d] ARP %s(0x%x) sender:[%pM %pI4] receiver:[%pM %pI4]\n",
+            AML_M_NOTICE(TX, "%s[%d] ARP %s(0x%x) sender:[%pM %pI4] receiver:[%pM %pI4]\n",
                      sp_frame_status_trace[sp_status], aml_vif->vif_index, op_name, op,
                      ar->sha, ar->sip, ar->tha, ar->tip);
         }
@@ -1320,16 +1479,18 @@ u32 aml_filter_sp_data_frame(const u8 *frame, int len, struct aml_vif *aml_vif,
 
     //filter dhcp
     if (ethhdr->h_proto == htons(ETH_P_IPV6)) {
-        const struct ipv6hdr *ipv6hdr = (const struct ipv6hdr *)(ethhdr + 1);
+        ipv6hdr = (const struct ipv6hdr *)(ethhdr + 1);
         pkt_types |= BIT(AML_PKT_IPV6);
         net_prot = ipv6hdr->nexthdr;
         nethdr = (const void *)(ipv6hdr + 1);
+        offset += sizeof(struct ipv6hdr);
     }
     else if (ethhdr->h_proto == htons(ETH_P_IP)) {
-        const struct iphdr *iphdr = (const struct iphdr *)(ethhdr + 1);
+        iphdr = (const struct iphdr *)(ethhdr + 1);
         pkt_types |= BIT(AML_PKT_IP);
         net_prot = iphdr->protocol;
         nethdr = (const void *)iphdr + (iphdr->ihl << 2);
+        offset += sizeof(struct iphdr);
     }
     else {
         return pkt_types;
@@ -1345,8 +1506,12 @@ u32 aml_filter_sp_data_frame(const u8 *frame, int len, struct aml_vif *aml_vif,
             break;
 
         case IPPROTO_UDP: {
-            u16 sport = ntohs(((const struct udphdr *)nethdr)->source);
+            const struct udphdr *udp = (const struct udphdr *)nethdr;
+            u16 sport = ntohs(udp->source);
+            u16 dport = ntohs(udp->dest);
+
             pkt_types |= BIT(AML_PKT_UDP);
+            offset += sizeof(struct udphdr);
 
             if ((pkt_types & BIT(AML_PKT_IP)) && (sport == DHCP_SP_V4 || sport == DHCP_CP_V4)) {
                 pkt_types |= BIT(AML_PKT_DHCP);
@@ -1356,15 +1521,35 @@ u32 aml_filter_sp_data_frame(const u8 *frame, int len, struct aml_vif *aml_vif,
                 pkt_types |= BIT(AML_PKT_DHCP_V6);
             }
 
-            if (pkt_types & (BIT(AML_PKT_DHCP) | BIT(AML_PKT_DHCP_V6)))
-                AML_WARN("%s[%d] DHCP%s\n", sp_frame_status_trace[sp_status], aml_vif->vif_index,
-                         (pkt_types & BIT(AML_PKT_DHCP_V6)) ? "v6" : "");
+            if ((sport == DNS_PORT) || (dport == DNS_PORT)) {
+                int ret;
+                struct mdns_pattern *dns = (struct mdns_pattern *)(udp + 1);
+                char qname[MDNS_QNAME_LENGTH_MAX] = {0};
+
+                ret = aml_filter_sp_dns((uint8_t *) dns, len - offset, sizeof(struct mdns_pattern), qname);
+                if (ret == 0) {
+                    AML_M_INFO(TX, "%s[%d] DNS:%s\n", sp_frame_status_trace[sp_status], aml_vif->vif_index, qname);
+                }
+            }
+
+            if (pkt_types & (BIT(AML_PKT_DHCP) | BIT(AML_PKT_DHCP_V6))) {
+                aml_filter_sp_data_dhcp_frame((u8 *)(udp + 1), len - offset, pkt_types, aml_vif, sp_status);
+            }
 
             break;
         }
 
         default:
             break;
+    }
+
+    if (pkt_types & BIT(AML_PKT_ICMP)) {
+        if (pkt_types & BIT(AML_PKT_IPV6))
+            AML_M_INFO(TX, "%s[%d] IPV6 ICMP from:%pI6c to %pI6c\n", sp_frame_status_trace[sp_status],
+                aml_vif->vif_index, &ipv6hdr->saddr, &ipv6hdr->daddr);
+        else
+            AML_M_INFO(TX, "%s[%d] IPV4 id:%d ICMP from:%pI4 to %pI4\n", sp_frame_status_trace[sp_status],
+                aml_vif->vif_index, iphdr->id, &iphdr->saddr, &iphdr->daddr);
     }
 
     return pkt_types;
@@ -1565,7 +1750,7 @@ uint32_t aml_filter_sp_mgmt_frame(struct aml_vif *vif, u8 *buf, AML_SP_STATUS_E 
                 aml_scc_save_probe_rsp(vif, (u8 *)buf, frame_len);
             }
 
-            if (vif->vif_index == AML_P2P_DEVICE_VIF_IDX) {
+            if ((vif->vif_index == AML_P2P_DEVICE_VIF_IDX) && (sp_status == SP_STATUS_TX_START)) {
                 if (aml_get_p2p_ie_offset(buf, frame_len, MAC_SHORT_MAC_HDR_LEN + PROBE_RSP_HDR_LEN)) {
                     vif->aml_hw->wfd_present = true;
                 }
@@ -1580,48 +1765,6 @@ uint32_t aml_filter_sp_mgmt_frame(struct aml_vif *vif, u8 *buf, AML_SP_STATUS_E 
 
     return ret;
 }
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0) && LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0)
-#include <linux/kallsyms.h>
-#include <net/sock.h>
-void aml_pkt_orphan_partial(struct sk_buff *skb, int tsq)
-{
-    u32 fraction;
-    static void *p_tcp_wfree = NULL;
-
-    if (tsq <= 0) {
-        return;
-    }
-    if (!skb->destructor || skb->destructor == sock_wfree) {
-        return;
-    }
-    if (unlikely(!p_tcp_wfree)) {
-        char sym[KSYM_SYMBOL_LEN];
-        sprint_symbol(sym, (unsigned long)skb->destructor);
-        sym[9] = 0;
-        if (!strcmp(sym, "tcp_wfree")) {
-            p_tcp_wfree = skb->destructor;
-        }
-        else {
-            return;
-        }
-    }
-
-    if (unlikely(skb->destructor != p_tcp_wfree || !skb->sk)) {
-      return;
-    }
-    /* abstract a certain portion of skb truesize from the socket
-           * sk_wmem_alloc to allow more skb can be allocated for this
-           * socket for better cusion meeting WiFi device requirement
-           */
-    fraction = skb->truesize * (tsq - 1) / tsq;
-    skb->truesize -= fraction;
-
-    atomic_sub(fraction, &skb->sk->sk_wmem_alloc);
-    skb_orphan(skb);
-}
-#endif
-
 
 /**
  * netdev_tx_t (*ndo_start_xmit)(struct sk_buff *skb,
@@ -1675,6 +1818,18 @@ netdev_tx_t aml_start_xmit(struct sk_buff *skb, struct net_device *dev)
         aml_wait_fw_wake(aml_plat);
     }
 #endif
+
+    /* FIXME: Forrest */
+    if (skb_has_frag_list(skb) && !skb_is_nonlinear(skb)) {
+        kfree_skb_list(skb_shinfo(skb)->frag_list);
+        skb_shinfo(skb)->frag_list = NULL;
+        AML_WARN("kernel issue??? %d [%64ph]\n", skb->len, skb->data);
+    }
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0) && LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0)
+    skb_orphan_partial(skb);
+#endif
+
     // If buffer is shared (or may be used by another interface) need to make a
     // copy as TX information is stored inside buffer's headroom
     if (skb_shared(skb) || (skb_headroom(skb) < tx_max_headroom) ||
@@ -1687,9 +1842,6 @@ netdev_tx_t aml_start_xmit(struct sk_buff *skb, struct net_device *dev)
         skb = newskb;
     }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0) && LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0)
-    aml_pkt_orphan_partial(skb, aml_hw->tsq);
-#endif
     /* Get the STA id and TID information */
     sta = aml_get_tx_info(aml_vif, skb, &tid);
     if (!sta)
@@ -2090,6 +2242,7 @@ int aml_tx_cfm_task(void *data)
                 page_num = sw_txhdr->desc.api.host.packet_cnt ;
                 #endif
             }
+
             spin_lock_bh(&aml_hw->tx_buf_lock);
             aml_hw->g_tx_param.tx_page_free_num += page_num;
             AML_RLMT_DBG("tx_page_free_num=%d, credit=%d, page num=%d, skb=%p, drv_txcfm_idx=%d\n",
@@ -2241,13 +2394,9 @@ int aml_tx_cfm_task(void *data)
         spin_unlock_bh(&aml_hw->tx_lock);
         AML_PROF_LO(tx_cfm_task);
     }
-    if (aml_hw->aml_txcfm_completion_init) {
-        aml_hw->aml_txcfm_completion_init = 0;
-#if LINUX_VERSION_CODE <= KERNEL_VERSION(5, 16, 20)
-        complete_and_exit(&aml_hw->aml_txcfm_completion, 0);
-#else
-        complete(&aml_hw->aml_txcfm_completion);
-#endif
+
+    while (!kthread_should_stop()) {
+        msleep(10);
     }
 
     return 0;

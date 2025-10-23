@@ -19,11 +19,10 @@
 #include <net/cfg80211.h>
 #include <net/ip.h>
 #include <linux/version.h>
-#if LINUX_VERSION_CODE > KERNEL_VERSION(6, 0, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
 #include <net/netdev_rx_queue.h>
 #endif
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0)
-#include <net/hotdata.h>
 #include <net/rps.h>
 #endif
 #include "aml_rps.h"

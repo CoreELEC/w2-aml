@@ -52,24 +52,6 @@ CONIG_AML_CSA_MODE ?= y
 #usb large page
 CONFIG_AML_USB_LARGE_PAGE ?= y
 
-#
-# For PCIE:
-#  * firmware reorder is the only way.
-#
-# For SDIO/USB:
-#  * host reorder is mandatory.
-#  * firmware reorder is for internal test.
-#  If driver is built with CONFIG_AML_SDIO_USB_FW_REORDER=y, then it supports both of them.
-#  that's to say, the driver follows firmware's setting.
-#
-#  PS: To enable firmware reorder, build SDIO/USB firmware with FW_REORDER=y
-#      (e.g. make PROJ=SDIO FW_REORDER=y),
-#      by default, SDIO/USB firmware supports host reorder. (e.g. make PROJ=USB)
-#
-# FIXME: remove CONFIG_AML_SDIO_USB_FW_REORDER and related code in the future
-#
-CONFIG_AML_SDIO_USB_FW_REORDER ?= y
-
 #Enable APF (Android Packet Filter)
 ifeq ($(CONFIG_AML_ANDROID),16)
 CONFIG_AML_APF ?= y
@@ -156,7 +138,6 @@ ccflags-$(CONFIG_AML_SUSPEND) += -DCONFIG_AML_SUSPEND
 ccflags-$(CONFIG_AML_LA) += -DCONFIG_AML_LA
 ccflags-$(CONIG_AML_CSA_MODE) += -DCONIG_AML_CSA_MODE
 ccflags-$(CONFIG_AML_USB_LARGE_PAGE) += -DCONFIG_AML_USB_LARGE_PAGE
-ccflags-$(CONFIG_AML_SDIO_USB_FW_REORDER) += -DCONFIG_AML_SDIO_USB_FW_REORDER
 ccflags-$(CONFIG_AML_APF) += -DCONFIG_AML_APF
 
 ifeq ($(CONFIG_AML_MUMIMO_TX), y)

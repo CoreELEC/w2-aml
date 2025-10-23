@@ -608,7 +608,11 @@ static inline int CALL_USERMODEHELPER(char *path, char **argv, char **envp, int 
 	UNUSED(wait);
 	return -ENOTSUPP;
 #else
+#ifndef CONFIG_PT_MODE
 	return call_usermodehelper(path, argv, envp, wait);
+#else
+    return 0;
+#endif
 #endif
 }
 

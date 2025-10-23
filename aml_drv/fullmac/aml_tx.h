@@ -53,6 +53,9 @@
 #define DHCP_CP_V4      0x0044
 #define DHCP_SP_V6      0x0223
 #define DHCP_CP_V6      0x0222
+#define DNS_PORT        53
+#define MDNS_PORT       5353
+
 #define ETH_ADDR_LEN  6
 #define ETH_TYPE_LEN  2
 #define ETH_HDR_LEN   (ETH_ADDR_LEN * 2 + ETH_TYPE_LEN)
@@ -87,6 +90,29 @@
 #define AUTH_ALGO_OFFSET        MAC_SHORT_MAC_HDR_LEN
 
 #define TXCFM_TRIGGER_TX_THR  20
+
+/* DHCP option codes (partial list). See RFC 2132 */
+#define DHCP_OPTION_PAD             0x00
+#define DHCP_OPTION_SUBNET_MASK     0x01
+#define DHCP_OPTION_ROUTER          0x03
+#define DHCP_OPTION_DNS_SERVER      0x06
+#define DHCP_OPTION_HOST_NAME       0x0C
+#define DHCP_OPTION_REQUESTED_IP    0x32
+#define DHCP_OPTION_LEASE_TIME      0x33
+#define DHCP_OPTION_MESSAGE_TYPE    0x35  // Option 53
+#define DHCP_OPTION_SERVER_ID       0x36
+#define DHCP_OPTION_PARAMETER_LIST  0x37
+#define DHCP_OPTION_END             0xFF
+
+/* DHCP message types (DHCP option 53) */
+#define DHCP_DISCOVER   1
+#define DHCP_OFFER      2
+#define DHCP_REQUEST    3
+#define DHCP_DECLINE    4
+#define DHCP_ACK        5
+#define DHCP_NAK        6
+#define DHCP_RELEASE    7
+#define DHCP_INFORM     8
 
 extern const int aml_tid2hwq[IEEE80211_NUM_TIDS];
 
@@ -206,6 +232,37 @@ struct tx_cfm_wait_rsp
     uint32_t len;
     struct wireless_dev *wdev;
 };
+
+/// MDNS header structure
+struct mdns_pattern
+{
+    uint16_t trans_id;
+    uint16_t flags;
+    uint16_t questions;
+    uint16_t answer_rrs;
+    uint16_t auth_rrs;
+    uint16_t additional_rrs;
+} __attribute__ ((__packed__));
+
+/// DHCP protocol. See RFC 2131
+struct dhcp_packet {
+    u8    op;         /* 0: Message opcode/type */
+    u8    htype;      /* 1: Hardware addr type (net/if_arp.h) */
+    u8    hlen;       /* 2: Hardware addr length */
+    u8    hops;       /* 3: Number of relay agent hops */
+    u32   xid;        /* 4: Transaction ID */
+    u16   secs;       /* 8: Seconds since client started booting */
+    u16   flags;      /* 10: Flags */
+    u32   ciaddr;     /* 12: Client IP address (if already in use) */
+    u32   yiaddr;     /* 16: Your (client) IP address */
+    u32   siaddr;     /* 20: Next server IP address */
+    u32   giaddr;     /* 24: Relay agent IP address */
+    u8    chaddr[16]; /* 28: Client hardware address */
+    u8    sname[64];  /* 44: Optional server host name */
+    u8    file[128];  /* 108: Boot file name */
+    u32   magic;      /* Magic Cookie: 0x63825363 */
+    u8    options[0]; /* 236: Optional parameters (actual length varies) */
+} __attribute__((__packed__));
 
 typedef enum {
     SP_STATUS_TX_START = 0,
@@ -342,6 +399,8 @@ enum aml_pkt_type {
     AML_PKT_UDP,
     AML_PKT_DHCP,
     AML_PKT_DHCP_V6,
+    AML_PKT_DNS,
+    AML_PKT_MDNS,
 
     AML_PKT_LAST,
 };

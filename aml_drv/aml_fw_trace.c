@@ -308,15 +308,42 @@ static uint16_t *aml_fw_trace_to_str(uint16_t *trace, char *buf, size_t *size)
     buf_idx += res;
     left    -= res;
 
+    if (id == UART_TRACE_ID)
+    {
+        res = scnprintf(&buf[buf_idx], left, ", uart log: ");
+        buf_idx += res;
+        left    -= res;
+    }
+
     while (nb_param > 0) {
-        res = scnprintf(&buf[buf_idx], left, AML_FW_TRACE_PARAM_FMT, *trace++);
+        if (id == UART_TRACE_ID)
+        {
+            res = scnprintf(&buf[buf_idx], left, "%c", *trace & 0xff);
+            buf_idx += res;
+            left    -= res;
+            res = scnprintf(&buf[buf_idx], left, "%c", *trace >> 8);
+            trace++;
+        }
+        else
+            res = scnprintf(&buf[buf_idx], left, AML_FW_TRACE_PARAM_FMT, *trace++);
         buf_idx += res;
         left    -= res;
         nb_param--;
     }
 
-    res = scnprintf(&buf[buf_idx], left, "\n");
-    left -= res;
+    if (id != UART_TRACE_ID)
+    {
+        res = scnprintf(&buf[buf_idx], left, "\n");
+        left -= res;
+    }
+    else
+    {
+        if (buf[buf_idx - res] != '\n')
+        {
+            left += 1;
+        }
+    }
+
     *size = (*size - left);
 
     return trace;
@@ -1027,50 +1054,47 @@ int aml_trace_buf_init(void)
     int ret = 0;
     static int isInit = 0;
 
-    if (aml_bus_type != PCIE_MODE) {
-        trace_log_file_info.trace_type = LOG_TO_UART;
-        trace_log_file_info.net_switch = 0;
-        if (!isInit) {
-            AML_INFO("trace mutex init");
-            mutex_init(&trace_log_file_info.mutex);
-            isInit = 1;
-        }
-
-        mutex_lock(&trace_log_file_info.mutex);
-#ifdef CONFIG_AML_PREALLOC_BUF_STATIC
-        trace_log_file_info.ptr = aml_prealloc_get(PREALLOC_TRACE_PTR_EXPEND,
-                                                   PREALLOC_TRACE_PTR_EXPEND_SIZE);
-        if (!trace_log_file_info.ptr) {
-            AML_INFO("prealloc trace ptr buf failed");
-            ret = -1;
-        }
-
-        trace_log_file_info.log_buf = aml_prealloc_get(PREALLOC_TRACE_STR_EXPEND,
-                                                       PREALLOC_TRACE_STR_EXPEND_SIZE);
-        if (!trace_log_file_info.log_buf) {
-            AML_INFO("prealloc trace log_buf failed");
-            ret = -1;
-        }
-#else
-        trace_log_file_info.ptr = kzalloc(PREALLOC_TRACE_PTR_EXPEND_SIZE, GFP_KERNEL);
-        if (!trace_log_file_info.ptr) {
-            AML_INFO("prealloc trace ptr buf failed");
-            ret = -1;
-        }
-
-        trace_log_file_info.log_buf = kzalloc(PREALLOC_TRACE_STR_EXPEND_SIZE, GFP_KERNEL);
-        if (!trace_log_file_info.log_buf) {
-            if (trace_log_file_info.ptr) {
-                kfree(trace_log_file_info.ptr);
-                trace_log_file_info.ptr = NULL;
-            }
-            AML_INFO("prealloc trace log_buf failed");
-            ret = -1;
-        }
-#endif
-        mutex_unlock(&trace_log_file_info.mutex);
+    trace_log_file_info.trace_type = LOG_TO_UART;
+    trace_log_file_info.net_switch = 0;
+    if (!isInit) {
+        AML_INFO("trace mutex init");
+        mutex_init(&trace_log_file_info.mutex);
+        isInit = 1;
     }
 
+    mutex_lock(&trace_log_file_info.mutex);
+#ifdef CONFIG_AML_PREALLOC_BUF_STATIC
+    trace_log_file_info.ptr = aml_prealloc_get(PREALLOC_TRACE_PTR_EXPEND,
+                                               PREALLOC_TRACE_PTR_EXPEND_SIZE);
+    if (!trace_log_file_info.ptr) {
+        AML_INFO("prealloc trace ptr buf failed");
+        ret = -1;
+    }
+
+    trace_log_file_info.log_buf = aml_prealloc_get(PREALLOC_TRACE_STR_EXPEND,
+                                                   PREALLOC_TRACE_STR_EXPEND_SIZE);
+    if (!trace_log_file_info.log_buf) {
+        AML_INFO("prealloc trace log_buf failed");
+        ret = -1;
+    }
+#else
+    trace_log_file_info.ptr = kzalloc(PREALLOC_TRACE_PTR_EXPEND_SIZE, GFP_KERNEL);
+    if (!trace_log_file_info.ptr) {
+        AML_INFO("prealloc trace ptr buf failed");
+        ret = -1;
+    }
+
+    trace_log_file_info.log_buf = kzalloc(PREALLOC_TRACE_STR_EXPEND_SIZE, GFP_KERNEL);
+    if (!trace_log_file_info.log_buf) {
+        if (trace_log_file_info.ptr) {
+            kfree(trace_log_file_info.ptr);
+            trace_log_file_info.ptr = NULL;
+        }
+        AML_INFO("prealloc trace log_buf failed");
+        ret = -1;
+    }
+#endif
+    mutex_unlock(&trace_log_file_info.mutex);
 
     return ret;
 }
@@ -1222,8 +1246,8 @@ static void aml_recv_netlink(struct sk_buff *skb)
                     /* 0x500000:convert dccm addr from fw to host */
                     trace_log_file_info.trace_buf = cfm.trace_buf | 0x500000;
                     trace_log_file_info.end = cfm.end | 0x500000;
-                    AML_INFO("cfm.trace_buf:%x, cfm.end:%x, trace_buf:%x, end:%x", cfm.trace_buf, cfm.end,
-                        trace_log_file_info.trace_buf, trace_log_file_info.end);
+                    AML_INFO("aml_bus_type:%d cfm.trace_buf:%x, cfm.end:%x, trace_buf:%x, end:%x", aml_bus_type,
+                         cfm.trace_buf, cfm.end, trace_log_file_info.trace_buf, trace_log_file_info.end);
                     trace_log_file_info.trace_type = TRACE_TO_HOST;
                     trace_log_file_info.net_switch = 1;
                 } else {

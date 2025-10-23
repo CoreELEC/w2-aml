@@ -14,11 +14,11 @@
 #include "aml_mod_params.h"
 #include "reg_access.h"
 #include "aml_compat.h"
-#include "fi_cmd.h"
 #include "share_mem_map.h"
 #include "aml_scc.h"
 #include "aml_wq.h"
 #include "aml_sap.h"
+#include "aml_main.h"
 
 #define CSA_COUNT               10
 #define CSA_BLOCK_TX            1
@@ -52,29 +52,17 @@ struct aml_csa_data {
     struct aml_csa_wrapper csa_wrapper;
 } __packed;
 
+/* FIXME: put them into struct aml_hw */
 static u8 scc_use_csa = 1;
 static u8 probe_rsp_save[AML_SCC_FRMBUF_MAXLEN];
 static u32 sap_init_band;
 u32 beacon_need_update = 0;
-static u8 *scc_bcn_buf = NULL;  //used in new channel
-static u8 *scc_csa_bcn = NULL;  //used in old channel, add csa ie
 
 /*p2p related*/
 u8 g_scc_p2p_save[MAX_P2P_SAVE_LEN] = {0,};
 u32 g_scc_p2p_len_before = 0;
 u32 g_scc_p2p_len_diff = 0;
 bool g_scc_p2p_peer_5g_support = 0;
-
-char chan_width_trace[][35] = {
-    "NL80211_CHAN_WIDTH_20_NOHT",
-    "NL80211_CHAN_WIDTH_20",
-    "NL80211_CHAN_WIDTH_40",
-    "NL80211_CHAN_WIDTH_80",
-    "NL80211_CHAN_WIDTH_80P80",
-    "NL80211_CHAN_WIDTH_160",
-    "NL80211_CHAN_WIDTH_5",
-    "NL80211_CHAN_WIDTH_10"
-};
 
 /**
  * This function is used to check new vif's chan is same or diff with existing vif's chan
@@ -112,29 +100,23 @@ int aml_scc_change_beacon(struct aml_hw *aml_hw, struct aml_vif *vif)
     AML_DBG(AML_FN_ENTRY_STR);
 
     if (AML_VIF_TYPE(vif) == NL80211_IFTYPE_AP) {
-        struct net_device *dev = vif->ndev;
         struct aml_bcn *bcn = &vif->ap.bcn;
-        struct aml_ipc_buf buf = {0};
-        int error;
-        unsigned int addr;
         u8 *bcn_ie_addr;
         u32 offset;
         u8 e_id;
         u8 e_len;
+        u8 *scc_bcn_buf;
+        int ret;
 
-        // Build the beacon
-        if (scc_bcn_buf == NULL) {
-            scc_bcn_buf = kmalloc(AML_SCC_FRMBUF_MAXLEN, GFP_KERNEL);
-
-            if (!scc_bcn_buf) {
-                return -ENOMEM;
-            }
+        scc_bcn_buf = kmalloc(AML_SCC_FRMBUF_MAXLEN, GFP_KERNEL);
+        if (!scc_bcn_buf) {
+            return -ENOMEM;
         }
 
         memcpy(scc_bcn_buf, bcn_save, bcn->len);
         bcn_ie_addr = aml_get_beacon_ie_addr(scc_bcn_buf, bcn->len, WLAN_EID_SSID);
-
         if (!bcn_ie_addr) {
+            kfree(scc_bcn_buf);
             return -1;
         }
 
@@ -160,33 +142,9 @@ int aml_scc_change_beacon(struct aml_hw *aml_hw, struct aml_vif *vif)
             offset += e_len + 2;
         }
 
-        // Sync buffer for FW
-        if (aml_bus_type == PCIE_MODE) {
-            if ((error = aml_ipc_buf_a2e_init(aml_hw, &buf, scc_bcn_buf, bcn->len))) {
-                netdev_err(dev, "Failed to allocate IPC buf for new beacon\n");
-                return error;
-            }
-        }
-        else if (aml_bus_type == USB_MODE) {
-            addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
-            aml_hw->plat->hif_ops->hi_write_sram((unsigned char *)scc_bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len, USB_EP4);
-        }
-        else if (aml_bus_type == SDIO_MODE) {
-            addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
-            aml_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)scc_bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len);
-        }
-
-        // Forward the information to the LMAC
-        error = aml_send_bcn_change(aml_hw, vif->vif_index, buf.dma_addr,
-                                    bcn->len, bcn->head_len, bcn->tim_len, NULL);
-
-        if (aml_bus_type == PCIE_MODE) {
-            if (buf.addr) {
-                dma_unmap_single(aml_hw->dev, buf.dma_addr, buf.size, DMA_TO_DEVICE);
-            }
-        }
-
-        return error;
+        ret = aml_beacon_update(vif, bcn, scc_bcn_buf, 0, NULL);
+        kfree(scc_bcn_buf);
+        return ret;
     }
     else {
         AML_INFO("type error:%d", AML_VIF_TYPE(vif));
@@ -202,26 +160,20 @@ int aml_scc_change_beacon(struct aml_hw *aml_hw, struct aml_vif *vif)
 static int aml_scc_change_beacon_ht_ie(struct wiphy *wiphy, struct net_device *dev,
                                        struct cfg80211_chan_def target_chdef)
 {
-    struct aml_hw *aml_hw = wiphy_priv(wiphy);
     struct aml_vif *vif = netdev_priv(dev);
     struct aml_bcn *bcn = &vif->ap.bcn;
-    struct aml_ipc_buf buf = {0};
-    int error;
-    unsigned int addr;
     u8 *ds_ie, *vht_ie, *ht_ie;
     u8 len;
     u8 *var_pos;
     u32 target_freq = target_chdef.chan->center_freq;
     int var_offset = offsetof(struct ieee80211_mgmt, u.beacon.variable);
     u8 chan_no = aml_ieee80211_freq_to_chan(target_freq, target_chdef.chan->band);
+    u8 *scc_bcn_buf;
+    int ret;
 
-    // Build the beacon
-    if (scc_bcn_buf == NULL) {
-        scc_bcn_buf = kmalloc(AML_SCC_FRMBUF_MAXLEN, GFP_KERNEL);
-
-        if (!scc_bcn_buf) {
-            return -ENOMEM;
-        }
+    scc_bcn_buf = kmalloc(AML_SCC_FRMBUF_MAXLEN, GFP_KERNEL);
+    if (!scc_bcn_buf) {
+        return -ENOMEM;
     }
 
     memcpy(scc_bcn_buf, bcn_save, bcn->len);
@@ -307,33 +259,11 @@ static int aml_scc_change_beacon_ht_ie(struct wiphy *wiphy, struct net_device *d
 
     aml_save_bcn_buf(scc_bcn_buf, bcn->len);
 
-    // Sync buffer for FW
-    if (aml_bus_type == PCIE_MODE) {
-        if ((error = aml_ipc_buf_a2e_init(aml_hw, &buf, scc_bcn_buf, bcn->len))) {
-            netdev_err(dev, "Failed to allocate IPC buf for new beacon\n");
-            return error;
-        }
-    }
-    else if (aml_bus_type == USB_MODE) {
-        addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
-        aml_hw->plat->hif_ops->hi_write_sram((unsigned char *)scc_bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len, USB_EP4);
-    }
-    else if (aml_bus_type == SDIO_MODE) {
-        addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
-        aml_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)scc_bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len);
-    }
-
     // Forward the information to the LMAC
-    error = aml_send_bcn_change(aml_hw, vif->vif_index, buf.dma_addr,
-                                bcn->len, bcn->head_len, bcn->tim_len, NULL);
+    ret =  aml_beacon_update(vif, bcn, scc_bcn_buf, 0, NULL);
+    kfree(scc_bcn_buf);
 
-    if (aml_bus_type == PCIE_MODE) {
-        if (buf.addr) {
-            dma_unmap_single(aml_hw->dev, buf.dma_addr, buf.size, DMA_TO_DEVICE);
-        }
-    }
-
-    return error;
+    return ret;
 }
 
 static int aml_scc_sync_bcn(struct aml_hw *aml_hw, void *ptr)
@@ -419,8 +349,7 @@ static void aml_scc_csa_finish(struct work_struct *ws)
 #endif
     }
 
-    kfree(csa);
-    vif->ap.csa = NULL;
+    aml_del_csa(vif);
 }
 
 static int aml_csa_send_action(struct aml_hw *aml_hw, struct aml_vif *aml_vif, struct aml_sta *sta, struct cfg80211_chan_def chan_def)
@@ -492,16 +421,15 @@ static int aml_csa_send_action(struct aml_hw *aml_hw, struct aml_vif *aml_vif, s
  */
 static int aml_scc_channel_switch(struct aml_hw *aml_hw, struct aml_vif *vif, struct cfg80211_chan_def chan_def)
 {
-    struct aml_ipc_buf buf = {0};
     struct aml_bcn *bcn;
     struct aml_csa *csa;
-    u16 csa_oft[BCN_MAX_CSA_CPT];//csa offset,fw use to change csa cnt
-    u8 *bcn_buf;
+    u16 csa_oft[BCN_MAX_CSA_CPT] = {};//csa offset,fw use to change csa cnt
     int error = 0;
-    unsigned int addr;
     u32 idx = 0;
     u8 *pos = NULL;
     u8 operating_class = 0;
+    u8 *scc_csa_bcn;
+
     AML_DBG(AML_FN_ENTRY_STR);
 
     if (vif->ap.csa) {
@@ -511,17 +439,13 @@ static int aml_scc_channel_switch(struct aml_hw *aml_hw, struct aml_vif *vif, st
 
     bcn = &vif->ap.bcn;
 
-    if (scc_csa_bcn == NULL) {
-        scc_csa_bcn = kmalloc(AML_SCC_FRMBUF_MAXLEN, GFP_KERNEL);
-
-        if (!scc_csa_bcn) {
-            AML_INFO("csa bcn alloc fail");
-            return -ENOMEM;
-        }
+    scc_csa_bcn = kmalloc(AML_SCC_FRMBUF_MAXLEN, GFP_KERNEL);
+    if (!scc_csa_bcn) {
+        AML_INFO("csa bcn alloc fail");
+        return -ENOMEM;
     }
 
     memcpy(scc_csa_bcn, bcn_save, bcn->len);
-    bcn_buf = scc_csa_bcn;
     pos = &scc_csa_bcn[bcn->len];
     *(pos + idx++) = WLAN_EID_CHANNEL_SWITCH; //ie
     *(pos + idx++) = 3; //len
@@ -585,58 +509,35 @@ static int aml_scc_channel_switch(struct aml_hw *aml_hw, struct aml_vif *vif, st
         }
     }
 
-    memset(csa_oft, 0, sizeof(csa_oft));
     csa_oft[0] = bcn->len + 4;
     csa_oft[1] = bcn->len + 10;
     AML_INFO("vif_type:%d, bcn_len:%d, tim_len:%d, idx:%d, csa_oft[0]:%d, csa_oft[1]:%d",
              AML_VIF_TYPE(vif), (int)bcn->len, (int)bcn->tim_len, idx, csa_oft[0], csa_oft[1]);
 
-    if (aml_bus_type == PCIE_MODE) {
-        if ((error = aml_ipc_buf_a2e_init(aml_hw, &buf, bcn_buf, bcn->len + idx))) {
-            AML_INFO("ipc init fail");
-            return error;
-        }
-    }
-    else if (aml_bus_type == USB_MODE) {
-        addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
-        aml_hw->plat->hif_ops->hi_write_sram((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len + idx, USB_EP4);
-    }
-    else if (aml_bus_type == SDIO_MODE) {
-        addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
-        aml_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len + idx);
-    }
-
     csa = kzalloc(sizeof(struct aml_csa), GFP_KERNEL);
-
     if (!csa) {
         AML_INFO("csa alloc fail");
+        kfree(scc_csa_bcn);
         return -ENOMEM;
     }
 
-    memset(csa, 0, sizeof(struct aml_csa));
+    /* Send new Beacon. FW will extract channel and count from the beacon */
+    error = aml_beacon_update(vif, bcn, scc_csa_bcn, idx, csa_oft);
+    kfree(scc_csa_bcn);
+    if (error) {
+        AML_INFO("bcn send fail");
+        kfree(csa);
+        return error;
+    }
+
     vif->ap.csa = csa;
     csa->vif = vif;
     csa->chandef = chan_def;
-    /* Send new Beacon. FW will extract channel and count from the beacon */
-    error = aml_send_bcn_change(aml_hw, vif->vif_index, buf.dma_addr, bcn->len + idx, bcn->head_len, bcn->tim_len, csa_oft);
 
-    if (error) {
-        kfree(csa);
-        vif->ap.csa = NULL;
-        AML_INFO("bcn send fail");
-    }
-    else {
-        INIT_WORK(&csa->work, aml_scc_csa_finish);
+    INIT_WORK(&csa->work, aml_scc_csa_finish);
 #ifndef CONFIG_PT_MODE
-        aml_cfg80211_ch_switch_started_notify(vif->ndev, &csa->chandef, 0, CSA_COUNT, CSA_BLOCK_TX);
+    aml_cfg80211_ch_switch_started_notify(vif->ndev, &csa->chandef, 0, CSA_COUNT, CSA_BLOCK_TX);
 #endif
-    }
-
-    if (aml_bus_type == PCIE_MODE) {
-        if (buf.addr) {
-            dma_unmap_single(aml_hw->dev, buf.dma_addr, buf.size, DMA_TO_DEVICE);
-        }
-    }
 
     /* coverity[leaked_storage] - csa have added to list */
     return error;
@@ -668,19 +569,17 @@ int aml_scc_check_chan_conflict(struct aml_hw *aml_hw)
 #endif
                 target_vif_idx = aml_scc_get_conflict_vif_idx(vif);
                 AML_INFO("target_idx:%d, sta_list:%d, use_csa:%d", target_vif_idx, list_empty(&vif->ap.sta_list), scc_use_csa);
-
-                if (target_vif_idx == 0xff) {
+                if (target_vif_idx >= NX_ITF_MAX) {
                     break;
                 }
 
                 target_vif = aml_hw->vif_table[target_vif_idx];
-                target_chdef = vif->aml_hw->chanctx_table[target_vif->ch_index].chan_def;
-                cur_chdef = vif->aml_hw->chanctx_table[vif->ch_index].chan_def;
-
-                if (target_vif->ch_index >= NX_CHAN_CTXT_CNT) {
+                if ((target_vif->ch_index >= NX_CHAN_CTXT_CNT) || (vif->ch_index >= NX_CHAN_CTXT_CNT)) {
                     AML_INFO("target ch_index invalid:%d", target_vif->ch_index);
                     break;
                 }
+                target_chdef = vif->aml_hw->chanctx_table[target_vif->ch_index].chan_def;
+                cur_chdef = vif->aml_hw->chanctx_table[vif->ch_index].chan_def;
 
                 if (target_chdef.chan == NULL) {
                     AML_INFO("target chdef is null");
@@ -702,11 +601,9 @@ int aml_scc_check_chan_conflict(struct aml_hw *aml_hw)
                     break;
                 }
 
-                AML_INFO("chan %d,bw:%s --> chan %d,bw:%s ",
-                         aml_ieee80211_freq_to_chan(cur_chdef.chan->center_freq, cur_chdef.chan->band),
-                         chan_width_trace[cur_chdef.width],
-                         aml_ieee80211_freq_to_chan(target_chdef.chan->center_freq, target_chdef.chan->band),
-                         chan_width_trace[target_chdef.width]);
+                AML_INFO("chan %d,bw:%d --> chan %d,bw:%d ",
+                         aml_ieee80211_freq_to_chan(cur_chdef.chan->center_freq, cur_chdef.chan->band), cur_chdef.width,
+                         aml_ieee80211_freq_to_chan(target_chdef.chan->center_freq, target_chdef.chan->band), target_chdef.width);
 
                 if (!(list_empty(&vif->ap.sta_list)) && scc_use_csa) {
                     struct aml_sta *sta, *tmp;
@@ -754,24 +651,8 @@ int aml_scc_check_chan_conflict(struct aml_hw *aml_hw)
     return 0;
 }
 
-void aml_scc_init(void)
-{
-    scc_bcn_buf = NULL;
-    scc_csa_bcn = NULL;
-}
-
 void aml_scc_deinit(void)
 {
-    if (scc_bcn_buf) {
-        kfree(scc_bcn_buf);
-        scc_bcn_buf = NULL;
-    }
-
-    if (scc_csa_bcn) {
-        kfree(scc_csa_bcn);
-        scc_csa_bcn = NULL;
-    }
-
     AML_SCC_CLEAR_BEACON_UPDATE();
 }
 

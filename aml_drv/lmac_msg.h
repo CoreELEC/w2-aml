@@ -85,6 +85,8 @@ enum
 #define MDNS_QNAME_LENGTH_MAX       256
 /// The len of a label in mdns name
 #define MDNS_NAME_LABEL_LEN_MAX      63
+/// The num of wake ports
+#define MDNS_WAKE_PORT_MAX 16
 
 /// For MAC HW States copied from "hal_machw.h"
 enum
@@ -425,6 +427,8 @@ enum priv_e2a_tag {
     PRIV_APF_DELETE_PGM,
     PRIV_GET_PS_INFO_CFM,
     PRIV_SET_RESUME_CFM,
+    PRIV_GET_RADIO_CFM,
+    PRIV_SCHED_SCAN_CANCEL_CFM,
     PRIV_SUB_E2A_MAX,
 };
 
@@ -476,7 +480,6 @@ enum mm_sub_a2e_tag {
     MM_SUB_SET_LA_STATE = 42,
     MM_SUB_SHUTDOWN = 43,
     MM_SUB_FIX_TXPWR = 44,
-    MM_SUB_SET_USB_TRACE_STATE = 45,
     MM_SUB_SET_PUTV_TRACE_SWITCH = 46,
     MM_SUB_COEX_GET_STATUS = 47,
     MM_SUB_SET_MCC_RATIO = 48,
@@ -504,6 +507,13 @@ enum mm_sub_a2e_tag {
     MM_SUB_SET_PROT_TYPE = 70,
     MM_SUB_REGDOM_EN = 71,
     MM_SUB_PHY_CFG_MASKFILTER_REQ = 72,
+    MM_SUB_SET_2G4_BINDWIDTH = 73,
+    MM_SUB_SET_EXTRA_SSID_PARAM = 74,
+    MM_SUB_SET_CUSTOM_CONF = 75,
+    MM_SUB_TRIG_SEC_TEST = 76,
+    MDNS_SET_WAKE_PORTS = 77,
+    MM_SUB_GET_RADIO_INFO = 78,
+
     /// the MAX
     MM_SUB_A2E_MAX,
     /// New members cannot be added below
@@ -522,8 +532,9 @@ static inline int is_mdnsoffload_msg(uint32_t id)
     case MDNS_REMOVE_PASS_LIST:
     case MDNS_RESET_ALL:
     case MDNS_ADD_PROTOCOL_STATUS:
+    case MDNS_SET_WAKE_PORTS:
         return 1;
-	default:
+    default:
         return 0;
     }
     return 0;
@@ -1484,6 +1495,9 @@ enum scan_msg_tag
 
 /// Maximum number of SSIDs in a scan request
 #define SCAN_SSID_MAX   2
+
+#define EXTRA_SCAN_SSID_MAX   3
+
 
 /// Maximum number of channels in a scan request
 #define SCAN_CHANNEL_MAX (MAC_DOMAINCHANNEL_24G_MAX + MAC_DOMAINCHANNEL_5G_MAX)
@@ -3312,7 +3326,7 @@ struct ldpc_config_req
     u8_l phy_bw_max;
     /// VIF Index
     u8_l vif_idx;
-	/// Boolean indicating if HT is supported or not
+    /// Boolean indicating if HT is supported or not
     u8_l ht_supp;
     /// Boolean indicating if VHT is supported or not
     u8_l vht_supp;
@@ -3561,9 +3575,21 @@ struct mm_mdns_passthrough_list {
     uint8_t qname[MDNS_QNAME_LENGTH_MAX];
 };
 
-/// Structure containing the parameters of the @ref PRIV_EX_MM_VERSION_IND message.
-struct ex_mm_version_cfm {
-    uint32_t hash;
+/// Structure containing the parameters of the wake_port.
+struct wake_port
+{
+    /// the protocol of wake-up package.
+    uint8_t protocol; //0:tcp;1:udp
+    /// the matching direction of wake port
+    uint8_t matcher; //0:local;1:remote; 0:dest_port, 1:src_port
+    /// the port number
+    uint16_t port;
+};
+
+/// Structure containing the parameters of the @ref MDNS_SET_WAKE_PORTS message.
+struct mm_mdns_set_wake_ports {
+    uint32_t num;
+    struct wake_port list_wake_port[MDNS_WAKE_PORT_MAX];
 };
 
 struct mcc_ratio_req
@@ -3574,6 +3600,19 @@ struct mcc_ratio_req
 /// Structure containing the parameters of the @ref MM_SUB_SET_LINKLOSS_THRESHOLD message.
 struct linkloss_threshold_req {
     uint32_t threshold;
+};
+
+/// Structure containing the parameters of the @ref MM_SUB_SET_2G4_BINDWIDTH message.
+struct mm_2g4_bindwidth {
+    uint8_t enable_2g4_20m;
+};
+
+struct extra_ssid_param
+{
+    /// Number of SSIDs to scan for
+    u8_l ssid_cnt;
+    /// List of SSIDs to be scanned
+    struct mac_ssid ssid[EXTRA_SCAN_SSID_MAX];
 };
 
 enum {
@@ -3667,4 +3706,12 @@ struct regdom_en_req
 {
     uint32_t reg_en;
 };
+
+/// Structure containing the parameters of the @ref PRIV_GET_RADIO_CFM message.
+struct mm_get_radio_cfm {
+    uint8_t ap_num;
+    uint8_t rev;
+    uint16_t ap_weight;
+};
+
 #endif // LMAC_MSG_H_

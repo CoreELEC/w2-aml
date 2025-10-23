@@ -88,6 +88,18 @@ then
     then
         fw_date=$(stat ../firmware/wifi_w2_fw_sdio.bin | grep -w "Modify" | awk '{print $2 " " $3}' | cut -d . -f 1)
         fw_size=$(stat ../firmware/wifi_w2_fw_sdio.bin | grep -w "Size" | awk '{print $2}')
+    elif [ -f "../firmware_revC/wifi_w2_revC_fw_pcie.bin" ]
+    then
+        fw_date=$(stat ../firmware_revC/wifi_w2_revC_fw_pcie.bin | grep -w "Modify" | awk '{print $2 " " $3}' | cut -d . -f 1)
+        fw_size=$(stat ../firmware_revC/wifi_w2_revC_fw_pcie.bin | grep -w "Size" | awk '{print $2}')
+    elif [ -f "../firmware_revC/wifi_w2_revC_fw_usb.bin" ]
+    then
+        fw_date=$(stat ../firmware_revC/wifi_w2_revC_fw_usb.bin | grep -w "Modify" | awk '{print $2 " " $3}' | cut -d . -f 1)
+        fw_size=$(stat ../firmware_revC/wifi_w2_revC_fw_usb.bin | grep -w "Size" | awk '{print $2}')
+    elif [ -f "../firmware_revC/wifi_w2_revC_fw_sdio.bin" ]
+    then
+        fw_date=$(stat ../firmware_revC/wifi_w2_revC_fw_sdio.bin | grep -w "Modify" | awk '{print $2 " " $3}' | cut -d . -f 1)
+        fw_size=$(stat ../firmware_revC/wifi_w2_revC_fw_sdio.bin | grep -w "Size" | awk '{print $2}')
     else
         echo "cannot stat wifi_w2_fw bin : No such file or directory"
     fi

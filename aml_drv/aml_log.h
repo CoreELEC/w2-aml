@@ -39,7 +39,7 @@
         AML_LOG_MODULE(RECOVERY,    DEBUG) \
         AML_LOG_MODULE(BA,          NOTICE) \
         AML_LOG_MODULE(REO,         ERR) \
-        AML_LOG_MODULE(TX,          INFO) \
+        AML_LOG_MODULE(TX,          NOTICE) \
         AML_LOG_MODULE(RX,          INFO) \
         AML_LOG_MODULE(RX_IRQ,      WARNING) \
         AML_LOG_MODULE(CMD,         DEBUG) \

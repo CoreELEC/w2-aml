@@ -1,6 +1,7 @@
 #config version info <char> version must be consistent with the WIFI_CALI_VERSION in c code
 #After updating the parameters, it must be modified at the same time.
-version=20
+#For xiaomi  20240920 5g_mcs10/11dbm to 10dbm  soc_x5m
+version=17
 
 #cali config <short>
 cali_config=0x0
@@ -39,8 +40,8 @@ cw2mod=0xfe,0xfc,0x2,0xfe,0xfe,0xfe
 
 #wf2g olpc target_pwr limit
 wf2g_11b_tpwr=21,21,21,21
-wf2g_11g_tpwr=20,20,20,19,19,19,18,17
-wf2g_ht20_tpwr=20,20,20,19,19,18,17,16
+wf2g_11g_tpwr=20,20,20,19,19,19,19,16
+wf2g_ht20_tpwr=20,20,20,19,19,18,18,16
 wf2g_ht40_tpwr=19,19,19,19,18,17,16,16
 wf2g_vht20_tpwr=20,20,20,19,19,18,17,16,15
 wf2g_vht40_tpwr=19,19,19,19,19,18,17,17,16,15
@@ -50,25 +51,25 @@ wf2g_he40_tpwr=20,20,20,19,19,18,17,17,16,15,13,13
 #wf5g olpc target_pwr limit
 //low/mid channel
 wf5g_11a_tpwr_lm=16,16,16,16,15,14,13,13
-wf5g_ht20_tpwr_lm=15,15,15,15,14,14,13,13
+wf5g_ht20_tpwr_lm=15,15,15,15,14,14,13,12
 wf5g_ht40_tpwr_lm=15,15,15,15,14,14,13,12
 wf5g_vht20_tpwr_lm=15,15,15,14,14,14,13,13,12
-wf5g_vht40_tpwr_lm=15,15,15,14,14,14,13,13,12,11
-wf5g_vht80_tpwr_lm=14,14,14,14,13,13,13,13,12,11
-wf5g_he20_tpwr_lm=15,15,15,14,14,14,13,13,12,11,10,10
-wf5g_he40_tpwr_lm=15,15,15,14,14,14,13,13,12,11,10,10
-wf5g_he80_tpwr_lm=14,14,14,14,13,13,13,13,12,11,10,10
+wf5g_vht40_tpwr_lm=15,15,15,15,14,14,13,13,13,12
+wf5g_vht80_tpwr_lm=14,14,14,14,13,13,13,13,13,11
+wf5g_he20_tpwr_lm=15,15,15,14,14,14,13,13,13,13,10,10
+wf5g_he40_tpwr_lm=15,15,15,15,14,14,13,13,13,13,10,10
+wf5g_he80_tpwr_lm=14,14,14,14,13,13,13,13,13,12,10,10
 
 //high channel
 wf5g_11a_tpwr_h=16,16,16,16,15,14,13,13
-wf5g_ht20_tpwr_h=15,15,15,15,14,14,13,13
+wf5g_ht20_tpwr_h=15,15,15,15,14,14,13,12
 wf5g_ht40_tpwr_h=15,15,15,15,14,14,13,12
 wf5g_vht20_tpwr_h=15,15,15,14,14,14,13,13,12
-wf5g_vht40_tpwr_h=15,15,15,14,14,14,13,13,12,11
-wf5g_vht80_tpwr_h=14,14,14,14,13,13,13,13,12,11
-wf5g_he20_tpwr_h=15,15,15,14,14,14,13,13,12,11,10,10
-wf5g_he40_tpwr_h=15,15,15,14,14,14,13,13,12,11,10,10
-wf5g_he80_tpwr_h=14,14,14,14,13,13,13,13,12,11,10,10
+wf5g_vht40_tpwr_h=15,15,15,15,14,14,13,13,13,12
+wf5g_vht80_tpwr_h=14,14,14,14,13,13,13,13,13,11
+wf5g_he20_tpwr_h=15,15,15,14,14,14,13,13,13,13,10,10
+wf5g_he40_tpwr_h=15,15,15,15,14,14,13,13,13,13,10,10
+wf5g_he80_tpwr_h=14,14,14,14,13,13,13,13,13,12,10,10
 
 #wf5g lch he lowrssi mcs0~5 tp use
 wf5g_lch_he_lowrssi_tpwr=17,17,17,17,17,16
@@ -173,23 +174,23 @@ second_offset_power_wf1_5660=0x00
 second_offset_power_wf1_5780=0x00
 
 #txt_shift_value for board gap
-txt_shift_value_wf0_2g_l=0x00
+txt_shift_value_wf0_2g_l=0x02
 txt_shift_value_wf0_2g_m=0x00
-txt_shift_value_wf0_2g_h=0x00
-txt_shift_value_wf0_5200=0x00
-txt_shift_value_wf0_5300=0x00
-txt_shift_value_wf0_5530=0x00
-txt_shift_value_wf0_5660=0x00
-txt_shift_value_wf0_5780=0x00
+txt_shift_value_wf0_2g_h=0x1f
+txt_shift_value_wf0_5200=0x06
+txt_shift_value_wf0_5300=0x06
+txt_shift_value_wf0_5530=0x04
+txt_shift_value_wf0_5660=0x04
+txt_shift_value_wf0_5780=0x03
 
-txt_shift_value_wf1_2g_l=0x00
-txt_shift_value_wf1_2g_m=0x00
-txt_shift_value_wf1_2g_h=0x00
-txt_shift_value_wf1_5200=0x00
-txt_shift_value_wf1_5300=0x00
-txt_shift_value_wf1_5530=0x00
-txt_shift_value_wf1_5660=0x00
-txt_shift_value_wf1_5780=0x00
+txt_shift_value_wf1_2g_l=0x02
+txt_shift_value_wf1_2g_m=0x02
+txt_shift_value_wf1_2g_h=0x04
+txt_shift_value_wf1_5200=0x08
+txt_shift_value_wf1_5300=0x06
+txt_shift_value_wf1_5530=0x06
+txt_shift_value_wf1_5660=0x04
+txt_shift_value_wf1_5780=0x02
 
 #use pmu in txt:0, use pmu in efuse:1
 pmu_efuse_en=1

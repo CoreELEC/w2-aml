@@ -142,13 +142,8 @@ int aml_msg_task(void *data)
         }
     }
 
-    if (aml_hw->aml_msg_completion_init) {
-        aml_hw->aml_msg_completion_init = 0;
-#if LINUX_VERSION_CODE <= KERNEL_VERSION(5, 16, 20)
-    complete_and_exit(&aml_hw->aml_msg_completion, 0);
-#else
-    complete(&aml_hw->aml_msg_completion);
-#endif
+    while (!kthread_should_stop()) {
+        msleep(10);
     }
 
     return 0;

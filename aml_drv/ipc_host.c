@@ -305,9 +305,7 @@ static void ipc_host_dbg_handler(struct ipc_host_env_tag *env)
 
 static void ipc_host_trace_handler(struct aml_hw *aml_hw)
 {
-    if (aml_bus_type != PCIE_MODE) {
-       aml_traceind(aml_hw);
-    }
+    aml_traceind(aml_hw);
 }
 
 /**
@@ -976,14 +974,6 @@ void aml_sdio_usb_extend_irq_handle(struct aml_hw *aml_hw)
         case DYNAMIC_BUF_LA_SWITCH_FINISH:
             AML_INFO("la page had been released completely!\n");
             break;
-        case DYNAMIC_BUF_TRACE_EXPEND_FINISH:
-            AML_INFO("USB TRACE READY!\n");
-            aml_hw->trace_malloc_success = 1;
-            break;
-        case DYNAMIC_BUF_TRACE_REDUCE_FINISH:
-            AML_INFO("USB TRACE REDUCE!\n");
-            aml_hw->trace_malloc_success = 0;
-            break;
         case EXCEPTION_IRQ:
             if (aml_bus_type == SDIO_MODE) {
                 AML_ERR("firmware exception!\n");
@@ -1003,10 +993,24 @@ void ipc_host_irq(struct ipc_host_env_tag *env, uint32_t status)
     struct aml_hw *aml_hw = (struct aml_hw *)env->pthis;
 
     // Acknowledge the pending interrupts
-    if (aml_bus_type == PCIE_MODE)
+    if (aml_bus_type == PCIE_MODE) {
         ipc_emb2app_ack_clear(env->pthis, status);
+        // And re-read the status, just to sure that the acknowledgment is
+        // effective when we start the interrupt handling
+        ipc_host_get_status(aml_hw->ipc_env);
+    }
 
     AML_PROF_HI(ipc);
+
+    if (status & IPC_IRQ_E2A_MSG_ACK)
+    {
+        ipc_host_msgack_handler(env);
+    }
+    if (((status & IPC_IRQ_E2A_MSG) && (aml_bus_type == PCIE_MODE))
+        || ((status & SDIO_IRQ_E2A_MSG) && (aml_bus_type != PCIE_MODE)))
+    {
+        ipc_host_msg_handler(env);
+    }
     // Optimized for only one IRQ at a time
     if (status & IPC_IRQ_E2A_RXDESC) {
         BUG_ON(aml_bus_type != PCIE_MODE);
@@ -1016,15 +1020,6 @@ void ipc_host_irq(struct ipc_host_env_tag *env, uint32_t status)
 #else
         ipc_host_rxdesc_handler(env);
 #endif
-    }
-    if (status & IPC_IRQ_E2A_MSG_ACK)
-    {
-        ipc_host_msgack_handler(env);
-    }
-    if (((status & IPC_IRQ_E2A_MSG) && (aml_bus_type == PCIE_MODE))
-        || ((status & SDIO_IRQ_E2A_MSG) && (aml_bus_type != PCIE_MODE)))
-    {
-        ipc_host_msg_handler(env);
     }
     if (status & IPC_IRQ_E2A_TXCFM) {
         BUG_ON(aml_bus_type != PCIE_MODE);
@@ -1057,7 +1052,7 @@ void ipc_host_irq(struct ipc_host_env_tag *env, uint32_t status)
         ipc_host_dbg_handler(env);
     }
 
-    if (((status & SDIO_IRQ_E2A_TRACE) && (aml_bus_type != PCIE_MODE)))
+    if (status & IPC_IRQ_E2A_TRACE)
     {
         ipc_host_trace_handler((struct aml_hw *)env->pthis);
     }

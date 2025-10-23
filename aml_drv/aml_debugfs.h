@@ -273,5 +273,4 @@ static inline int aml_dbgfs_txq_vif(char *buf, size_t size,
 
 #endif /* CONFIG_AML_DEBUGFS */
 
-
 #endif /* _AML_DEBUGFS_H_ */

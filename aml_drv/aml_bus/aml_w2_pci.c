@@ -21,12 +21,6 @@
 #include "aml_log.h"
 #include "chip_bt_pmu_reg.h"
 
-#define W2p_VENDOR_AMLOGIC_EFUSE 0x1F35
-#define W2p_PRODUCT_AMLOGIC_EFUSE 0x0602
-
-#define W2pRevB_PRODUCT_AMLOGIC_EFUSE 0x0642
-#define W2pRevC_PRODUCT_AMLOGIC_EFUSE 0x0682
-
 struct aml_plat_pci *g_aml_plat_pci;
 unsigned char g_pci_driver_insmoded;
 unsigned char g_pci_after_probe;
@@ -43,9 +37,9 @@ static u8* aml_pci_get_address_from_domain(struct aml_plat_pci *aml_plat, int ad
 static const struct pci_device_id aml_pci_ids[] =
 {
     {PCI_DEVICE(0x0, 0x0)},
-    {PCI_DEVICE(W2p_VENDOR_AMLOGIC_EFUSE, W2p_PRODUCT_AMLOGIC_EFUSE)},
-    {PCI_DEVICE(W2p_VENDOR_AMLOGIC_EFUSE, W2pRevB_PRODUCT_AMLOGIC_EFUSE)},
-    {PCI_DEVICE(W2p_VENDOR_AMLOGIC_EFUSE, W2pRevC_PRODUCT_AMLOGIC_EFUSE)},
+    {PCI_DEVICE(W2p_VENDOR_AMLOGIC_EFUSE, W2p_A_PRODUCT_AMLOGIC_EFUSE)},
+    {PCI_DEVICE(W2p_VENDOR_AMLOGIC_EFUSE, W2p_B_PRODUCT_AMLOGIC_EFUSE)},
+    {PCI_DEVICE(W2p_VENDOR_AMLOGIC_EFUSE, W2p_C_PRODUCT_AMLOGIC_EFUSE)},
     {0,}
 };
 
@@ -307,19 +301,20 @@ static struct pci_driver aml_pci_drv = {
 
 int aml_pci_insmod(void)
 {
-    int err = 0;
+    int err;
 
     err = pci_register_driver(&aml_pci_drv);
+    if (err) {
+        AML_ERR("failed to register pci driver: %d \n", err);
+        return err;
+    }
+
     g_pci_driver_insmoded = 1;
     g_pci_shutdown = 0;
     g_pci_msg_suspend = 0;
 
-    if (err) {
-        AML_ERR("failed to register pci driver: %d \n", err);
-    }
-
     AML_FN_EXIT();
-    return err;
+    return 0;
 }
 
 void aml_pci_rmmod(void)
@@ -439,7 +434,8 @@ uint32_t aml_pci_read_for_bt(int base, u32 offset)
     u8 *addr;
 
     if (!g_aml_plat_pci)
-        return 0x0000;
+        return 0xdead;
+
     addr = aml_pci_get_address_from_domain(g_aml_plat_pci, base, offset);
 
     if (addr == NULL)
@@ -454,8 +450,10 @@ uint32_t aml_pci_read_for_bt(int base, u32 offset)
 void aml_pci_write_for_bt(u32 val, int base, u32 offset)
 {
     u8 *addr;
+
     if (!g_aml_plat_pci)
-        return ;
+        return;
+
     addr = aml_pci_get_address_from_domain(g_aml_plat_pci, base, offset);
 
     if (addr == NULL)

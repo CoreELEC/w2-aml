@@ -113,7 +113,7 @@ ddk_module(
         "aml_drv/aml_sap.c",
         "aml_drv/aml_mdns_offload.c",
         "aml_drv/aml_fw_trace.c",
-        "aml_drv/aml_rate.c",
+	"aml_drv/aml_rate.c",
         "aml_drv/aml_sdio_usb_rx.c",
         "aml_drv/aml_cfgvendor.c",
     ],

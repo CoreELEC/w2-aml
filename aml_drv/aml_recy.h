@@ -39,6 +39,8 @@
 #define AML_RECY_OPEN_VIF_PROC      BIT(9)
 #define AML_RECY_CLOSE_VIF_PROC     BIT(10)
 #define AML_RECY_DROP_XMIT_PKT      BIT(11)
+#define AML_RECY_USB_SUSPEND        BIT(12)
+#define AML_RECY_USB_UNPLUG         BIT(13)
 
 
 #define AML_AGCCNTL_ADDR            0x00C0B390
@@ -78,6 +80,7 @@ struct aml_recy_link_loss {
     bool is_requested;
     /* check link loss status and scan result */
     bool is_happened;
+    u8 scan_cnt;
     u16 scan_result_cnt;
 };
 
@@ -138,5 +141,7 @@ void aml_wake_source_relax(struct aml_hw *aml_hw);
 void aml_wake_source_set(struct aml_hw *aml_hw);
 void aml_wake_source_deinit(struct aml_hw *aml_hw);
 void aml_wake_source_init(struct aml_hw *aml_hw);
+void aml_usb_probe_wifi_process(void);
+void aml_usb_disconnect_wifi_process(void);
 
 #endif  //__AML_RECY__

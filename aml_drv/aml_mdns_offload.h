@@ -35,6 +35,8 @@ typedef enum {
     WIFI_MDNS_OFFLOAD_ATTRIBUTE_RECORD_KEY,
     WIFI_MDNS_OFFLOAD_ATTRIBUTE_QNAME,
     WIFI_MDNS_OFFLOAD_ATTRIBUTE_PASSTHROUGH_BEHAVIOR,
+    WIFI_MDNS_OFFLOAD_ATTRIBUTE_WAKE_PORTS_NUM,
+    WIFI_MDNS_OFFLOAD_ATTRIBUTE_WAKE_PORTS,
     WIFI_MDNS_OFFLOAD_ATTRIBUTE_MAX,
 } wifi_mdns_offload_attr_t;
 
@@ -63,7 +65,28 @@ typedef enum {
     PASSTHROUGH_LIST,
 } passthroughBehavior;
 
-struct MDNS_OFFLOAD_OPS {
+typedef enum {
+    TCP,
+    UDP,
+} PortProtocol;
+
+typedef enum {
+    MATCH_PORT_LOCAL,
+    MATCH_PORT_REMOTE,
+} portMatcher;
+
+typedef struct {
+    PortProtocol protocol;
+    portMatcher matcher;
+    uint16_t portNumber;
+} wakePort_info;
+
+typedef struct {
+    wakePort_info *port;
+    uint32_t num;
+} wakePort_set;
+
+struct s_mdns_offload_ops {
     u32_boolean (*setOffloadState)(struct aml_hw *aml_hw, u32_boolean enabled);
     void (*resetAll)(struct aml_hw *aml_hw);
     int (*addProtocolResponses)(struct aml_hw *aml_hw, char *networkInterface,
@@ -75,39 +98,18 @@ struct MDNS_OFFLOAD_OPS {
     void (*removeFromPassthroughList)(struct aml_hw *aml_hw, char *networkInterface, char *qname);
     void (*setPassthroughBehavior)(struct aml_hw *aml_hw, char *networkInterface,
         passthroughBehavior behavior);
+    void (*setWakePorts)(struct aml_hw *aml_hw, wakePort_set *ports);
 };
 
-extern const struct MDNS_OFFLOAD_OPS mdns_offload_ops;
+extern const struct s_mdns_offload_ops mdns_offload_ops;
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0))
 extern const struct nla_policy mdns_offload_attr_policy[];
-#define DEFINE_MDNS_OFFLOAD_ATTR_POLICY \
-    const struct nla_policy  \
-        mdns_offload_attr_policy[WIFI_MDNS_OFFLOAD_ATTRIBUTE_MAX] = {\
-        [WIFI_MDNS_OFFLOAD_ATTRIBUTE_STATE] = {\
-            .type = NLA_U32, .len = sizeof(uint32_t) },\
-        [WIFI_MDNS_OFFLOAD_ATTRIBUTE_NETWORK_INTERFACE] = {\
-            .type = NLA_NUL_STRING },\
-        [WIFI_MDNS_OFFLOAD_ATTRIBUTE_OFFLOAD_PKT_LEN] = {\
-            .type = NLA_U32, .len = sizeof(uint32_t) },\
-        [WIFI_MDNS_OFFLOAD_ATTRIBUTE_OFFLOAD_PKT_DATA] = {\
-            .type = NLA_BINARY },\
-        [WIFI_MDNS_OFFLOAD_ATTRIBUTE_MATCH_CRITERIA_NUM] = {\
-            .type = NLA_U32, .len = sizeof(uint32_t) },\
-        [WIFI_MDNS_OFFLOAD_ATTRIBUTE_MATCH_CRITERIA_DATA] = {\
-            .type = NLA_BINARY },\
-        [WIFI_MDNS_OFFLOAD_ATTRIBUTE_RECORD_KEY] = {\
-            .type = NLA_U32, .len = sizeof(uint32_t) },\
-        [WIFI_MDNS_OFFLOAD_ATTRIBUTE_QNAME] = {\
-            .type = NLA_NUL_STRING },\
-        [WIFI_MDNS_OFFLOAD_ATTRIBUTE_PASSTHROUGH_BEHAVIOR] = {\
-            .type = NLA_U32, .len = sizeof(uint32_t) },\
-    }
+
 #define MDNS_OFFLOAD_ATTR_POLICY \
     .policy = mdns_offload_attr_policy,\
     .maxattr = WIFI_MDNS_OFFLOAD_ATTRIBUTE_MAX
 #else
-#define DEFINE_MDNS_OFFLOAD_ATTR_POLICY
 #define MDNS_OFFLOAD_ATTR_POLICY
 #endif /* LINUX_VERSION >= 5.3 */
 
@@ -121,12 +123,6 @@ extern const struct nla_policy mdns_offload_attr_policy[];
     .doit = func,\
     MDNS_OFFLOAD_ATTR_POLICY\
 }
-
-#define VENDOR_CMD_FUNC(func) __mdnsOffload_##func
-
-#define ANDROID_MDNS_OFFLOAD_VENDOR_IMPL \
-    DEFINE_MDNS_OFFLOAD_ATTR_POLICY;\
-    const struct MDNS_OFFLOAD_OPS mdns_offload_ops
 
 static inline char *__mdnsOffload_decode_qname(const uint8_t *buf,
     uint32_t buf_len, int offset)
@@ -419,6 +415,77 @@ exit:
     return err;
 }
 
+static inline int __mdnsOffload_setWakePorts(struct wiphy *wiphy,
+    struct wireless_dev *wdev, const void *data, int len)
+{
+    struct aml_hw *aml_hw = wiphy_priv(wiphy);
+    int rem, type, err = 0, i = 0, size = 0;
+    const struct nlattr *iter;
+    wakePort_set ports;
+    uint32_t num = 0;
+    uint32_t *p_num = NULL;
+    wakePort_info *port = NULL;
+
+    nla_for_each_attr(iter, data, len, rem) {
+        type = nla_type(iter);
+        MDNS_OFFLOAD_DEBUG("mdnsOffload: attr type:%d\n", type);
+        switch (type) {
+            case WIFI_MDNS_OFFLOAD_ATTRIBUTE_WAKE_PORTS_NUM:
+                num = nla_get_u32(iter);
+                if (num > MDNS_WAKE_PORT_MAX) {
+                    MDNS_OFFLOAD_DEBUG("mdnsOffload: warning for wake port num, is :%u\n", num);
+                    num = MDNS_WAKE_PORT_MAX;
+                }
+                p_num = &num;
+                break;
+            case WIFI_MDNS_OFFLOAD_ATTRIBUTE_WAKE_PORTS:
+                if ((num > 0) && (!port)) {
+                    size = num * sizeof(wakePort_info);
+                    port = (wakePort_info *)kzalloc(size, GFP_KERNEL);
+                    if (!port) {
+                        AML_ERR("mdnsOffload: alloc failed!\n");
+                        err = -ENOMEM;
+                        goto exit;
+                    }
+                    memcpy(port, nla_data(iter), size);
+                }
+                break;
+            default:
+                MDNS_OFFLOAD_DEBUG("mdnsOffload: unknown type:%d\n", type);
+                break;
+        }
+    }
+    if (!p_num || !port) {
+        err = -EINVAL;
+        goto exit;
+    }
+    MDNS_OFFLOAD_DEBUG("mdnsOffload: setWakePorts: num:%u\n", num);
+    memset(&ports, 0, sizeof(ports));
+
+    for (i = 0; i < num; i++) {
+        AML_WARN("%d. protocol:%s\tmatcher:%s\tportNumber:%hu\n",
+          i + 1,
+          port[i].protocol ? "udp" : "tcp",
+          port[i].matcher ? "remote" : "local",
+          port[i].portNumber);
+    }
+    if (mdns_offload_ops.setWakePorts) {
+        ports.num = num;
+        ports.port = port;
+        mdns_offload_ops.setWakePorts(aml_hw, &ports);
+    } else {
+        MDNS_OFFLOAD_DEBUG("mdnsOffload: setWakePorts: unsupported!\n");
+        err = -EPERM;
+        goto exit;
+    }
+exit:
+    if (port)
+        kfree(port);
+    if (err)
+        MDNS_OFFLOAD_DEBUG("mdnsOffload: setWakePorts: failed!err:%d\n", err);
+    return err;
+}
+
 static inline int __mdnsOffload_removeProtocolResponses(struct wiphy *wiphy,
     struct wireless_dev *wdev, const void *data, int len)
 {
@@ -569,8 +636,8 @@ static inline int __mdnsOffload_addToPassthroughList(struct wiphy *wiphy,
         err = -EINVAL;
         goto exit;
     }
-    MDNS_OFFLOAD_DEBUG("mdnsOffload: addToPassthroughList: ifname:%s\n", ifname);
-    MDNS_OFFLOAD_DEBUG("mdnsOffload: addToPassthroughList: length:%d qname:%s\n", (int)strlen(qname), qname);
+    MDNS_OFFLOAD_DEBUG("mdnsOffload: addToPassthroughList: ifname:%s, length:%d qname:%s\n",
+        ifname, (int)strlen(qname), qname);
     if (mdns_offload_ops.addToPassthroughList) {
         reply = mdns_offload_ops.addToPassthroughList(aml_hw, ifname, qname);
         MDNS_OFFLOAD_DEBUG("mdnsOffload: addToPassthroughList: reply:%u\n", reply);
@@ -619,8 +686,7 @@ static inline int __mdnsOffload_removeFromPassthroughList(struct wiphy *wiphy,
                 break;
         }
     }
-    MDNS_OFFLOAD_DEBUG("mdnsOffload: removeFromPassthroughList: ifname:%s\n", ifname);
-    MDNS_OFFLOAD_DEBUG("mdnsOffload: removeFromPassthroughList: qname:%s\n", qname);
+    MDNS_OFFLOAD_DEBUG("mdnsOffload: removeFromPassthroughList: ifname:%s, qname:%s\n", ifname, qname);
     if (!p_ifname || !p_qname) {
         err = -EINVAL;
         goto exit;
@@ -668,8 +734,7 @@ static inline int __mdnsOffload_setPassthroughBehavior(struct wiphy *wiphy,
                 break;
         }
     }
-    MDNS_OFFLOAD_DEBUG("mdnsOffload: setPassthroughBehavior: ifname:%s\n", ifname);
-    MDNS_OFFLOAD_DEBUG("mdnsOffload: setPassthroughBehavior: behavior:%d\n", behavior);
+    MDNS_OFFLOAD_DEBUG("mdnsOffload: setPassthroughBehavior: ifname:%s, %d\n", ifname, behavior);
     if (!p_ifname || !p_behavior) {
         err = -EINVAL;
         goto exit;
@@ -689,24 +754,16 @@ exit:
 }
 
 #define ANDROID_MDNS_OFFLOAD_VENDOR_CMD \
-_MDNS_OFFLOAD_VENDOR_CMD(WIFI_MDNS_OFFLOAD_SET_STATE,\
-  VENDOR_CMD_FUNC(setOffloadState)),\
-_MDNS_OFFLOAD_VENDOR_CMD(WIFI_MDNS_OFFLOAD_RESET_ALL,\
-  VENDOR_CMD_FUNC(resetAll)),\
-_MDNS_OFFLOAD_VENDOR_CMD(WIFI_MDNS_OFFLOAD_ADD_PROTOCOL_RESPONSES,\
-  VENDOR_CMD_FUNC(addProtocolResponses)),\
-_MDNS_OFFLOAD_VENDOR_CMD(WIFI_MDNS_OFFLOAD_REMOVE_PROTOCOL_RESPONSES,\
-  VENDOR_CMD_FUNC(removeProtocolResponses)),\
-_MDNS_OFFLOAD_VENDOR_CMD(WIFI_MDNS_OFFLOAD_GET_AND_RESET_HIT_COUNTER,\
-  VENDOR_CMD_FUNC(getAndResetHitCounter)),\
-_MDNS_OFFLOAD_VENDOR_CMD(WIFI_MDNS_OFFLOAD_GET_AND_RESET_MISS_COUNTER,\
-  VENDOR_CMD_FUNC(getAndResetMissCounter)),\
-_MDNS_OFFLOAD_VENDOR_CMD(WIFI_MDNS_OFFLOAD_ADD_TO_PASSTHROUGH_LIST,\
-  VENDOR_CMD_FUNC(addToPassthroughList)),\
-_MDNS_OFFLOAD_VENDOR_CMD(WIFI_MDNS_OFFLOAD_REMOVE_FROM_PASSTHROUGH_LIST,\
-  VENDOR_CMD_FUNC(removeFromPassthroughList)),\
-_MDNS_OFFLOAD_VENDOR_CMD(WIFI_MDNS_OFFLOAD_SET_PASSTHROUGH_BEHAVIOR,\
-  VENDOR_CMD_FUNC(setPassthroughBehavior))
+_MDNS_OFFLOAD_VENDOR_CMD(WIFI_MDNS_OFFLOAD_SET_STATE, __mdnsOffload_setOffloadState),\
+_MDNS_OFFLOAD_VENDOR_CMD(WIFI_MDNS_OFFLOAD_RESET_ALL, __mdnsOffload_resetAll),\
+_MDNS_OFFLOAD_VENDOR_CMD(WIFI_MDNS_OFFLOAD_ADD_PROTOCOL_RESPONSES, __mdnsOffload_addProtocolResponses),\
+_MDNS_OFFLOAD_VENDOR_CMD(WIFI_MDNS_OFFLOAD_REMOVE_PROTOCOL_RESPONSES, __mdnsOffload_removeProtocolResponses),\
+_MDNS_OFFLOAD_VENDOR_CMD(WIFI_MDNS_OFFLOAD_GET_AND_RESET_HIT_COUNTER, __mdnsOffload_getAndResetHitCounter),\
+_MDNS_OFFLOAD_VENDOR_CMD(WIFI_MDNS_OFFLOAD_GET_AND_RESET_MISS_COUNTER, __mdnsOffload_getAndResetMissCounter),\
+_MDNS_OFFLOAD_VENDOR_CMD(WIFI_MDNS_OFFLOAD_ADD_TO_PASSTHROUGH_LIST, __mdnsOffload_addToPassthroughList),\
+_MDNS_OFFLOAD_VENDOR_CMD(WIFI_MDNS_OFFLOAD_REMOVE_FROM_PASSTHROUGH_LIST, __mdnsOffload_removeFromPassthroughList),\
+_MDNS_OFFLOAD_VENDOR_CMD(WIFI_MDNS_OFFLOAD_SET_PASSTHROUGH_BEHAVIOR, __mdnsOffload_setPassthroughBehavior),\
+_MDNS_OFFLOAD_VENDOR_CMD(WIFI_MDNS_OFFLOAD_SET_WAKE_PORTS, __mdnsOffload_setWakePorts)
 
 #endif /* __AML_MDNS_OFFLOAD_H__ */
 
