@@ -1329,7 +1329,6 @@ static void record_proc_rx_buf(u16 status, u32 dma_addr, u32 host_id, struct aml
  * This function is called for each buffer received by the fw
  *
  */
-extern bool g_pcie_suspend;
 int aml_pci_rxdataind(void *pthis, void *hostid)
 {
     struct aml_hw *aml_hw = pthis;
@@ -1590,7 +1589,7 @@ check_alloc:
         }
 
         while (nb_buff--) {
-            if (g_pcie_suspend == 1) {
+            if ((aml_bus_type == PCIE_MODE) && atomic_read(&g_wifi_pm.bus_suspend_cnt)) {
                 aml_hw->repush_rxbuff_cnt++;
             } else {
                 aml_ipc_rxbuf_alloc(aml_hw);
@@ -1602,7 +1601,7 @@ end:
     REG_SW_CLEAR_PROFILING(aml_hw, SW_PROF_AMLDATAIND);
 
     /*if suspend,repush when resume*/
-    if (g_pcie_suspend == 1) {
+    if ((aml_bus_type == PCIE_MODE) && atomic_read(&g_wifi_pm.bus_suspend_cnt)) {
         struct rxdesc_tag *rxdesc = ipc_desc->addr;
         /* coverity[LOCK_EVASION] - ignore coverity warning */
         rxdesc->status = 0;

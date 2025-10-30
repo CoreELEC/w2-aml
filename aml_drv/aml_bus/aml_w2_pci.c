@@ -20,6 +20,7 @@
 #include "chip_intf_reg.h"
 #include "aml_log.h"
 #include "chip_bt_pmu_reg.h"
+#include <linux/pm.h>
 
 struct aml_plat_pci *g_aml_plat_pci;
 unsigned char g_pci_driver_insmoded;
@@ -96,6 +97,7 @@ bool aml_pci_resume_complete(struct pci_dev *pdev)
             return true;
         }
     } while ((!((wake_flag != 0xffffffff) && (wake_flag & BIT(0)))) && (loop-- > 0));
+    AML_INFO("wake_flag = 0x%x\n", wake_flag);
 
     return true;
 }
@@ -135,14 +137,21 @@ static void aml_pci_remove(struct pci_dev *pci_dev)
     g_aml_plat_pci->deinit(g_aml_plat_pci);
 }
 
-bool g_pcie_suspend = 0;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 150)
+static int aml_pci_suspend(struct device *dev)
+#else
 static int aml_pci_suspend(struct pci_dev *pdev, pm_message_t state)
+#endif
+
 {
     int ret;
     u64 start_time_ns;
     u64 elapsed_time_ns = 0;
     u64 wait_bt_time_ns = 8000000000; //wait bt 8s
     u64 wait_wifi_time_ns = 12000000000; //wait wifi 12s
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 150)
+    struct pci_dev *pdev = to_pci_dev(dev);
+#endif
 
     //bt open
     if (aml_pci_read_for_bt(AML_ADDR_AON, RG_BT_PMU_A16) & BIT(31))
@@ -207,7 +216,6 @@ static int aml_pci_suspend(struct pci_dev *pdev, pm_message_t state)
         }
     }
 
-    g_pcie_suspend = 1;
     atomic_set(&g_wifi_pm.bus_suspend_cnt, 1);
     AML_INFO("%s\n", __func__);
     //aml_suspend_dump_cfgregs(bus, "BEFORE_EP_SUSPEND");
@@ -225,10 +233,18 @@ static int aml_pci_suspend(struct pci_dev *pdev, pm_message_t state)
     return ret;
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 150)
+static int aml_pci_resume(struct device *dev)
+#else
 static int aml_pci_resume(struct pci_dev *pdev)
+#endif
 {
     int err;
     bool pci_resume_ok = false;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 150)
+    struct pci_dev *pdev = to_pci_dev(dev);
+#endif
+
     AML_FN_ENTRY();
     pci_restore_state(pdev);
 
@@ -240,12 +256,10 @@ static int aml_pci_resume(struct pci_dev *pdev)
     }
 
     pci_resume_ok = aml_pci_resume_complete(pdev);
-    if (!pci_resume_ok)
-    {
+    if (!pci_resume_ok) {
         AML_INFO("pci_resume_ok = 0x%x\n", pci_resume_ok);
         goto out;
     }
-    g_pcie_suspend = 0;
     AML_INFO(" ok exit\n");
 out:
     atomic_set(&g_wifi_pm.bus_suspend_cnt, 0);
@@ -289,13 +303,23 @@ static void aml_pci_shutdown(struct pci_dev *pdev)
     AML_FN_EXIT();
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 150)
+static struct dev_pm_ops aml_pci_pm_ops = {
+    NOIRQ_SYSTEM_SLEEP_PM_OPS(aml_pci_suspend, aml_pci_resume)
+};
+#endif
+
 static struct pci_driver aml_pci_drv = {
     .name     = KBUILD_MODNAME,
     .id_table = aml_pci_ids,
     .probe    = aml_pci_probe,
     .remove   = aml_pci_remove,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 150)
+    .driver.pm = &aml_pci_pm_ops,
+#else
     .suspend  = aml_pci_suspend,
     .resume   = aml_pci_resume,
+#endif
     .shutdown = aml_pci_shutdown,
 };
 
@@ -481,4 +505,3 @@ EXPORT_SYMBOL(g_pci_msg_suspend);
 #ifndef CONFIG_AML_FPGA_PCIE
 EXPORT_SYMBOL(pcie_ep_addr_range);
 #endif
-EXPORT_SYMBOL(g_pcie_suspend);
