@@ -225,6 +225,7 @@ int aml_sdio_probe(struct sdio_func *func, const struct sdio_device_id *id)
     g_aml_device_id = id->device;
     AML_INFO("device id 0x%x\n", g_aml_device_id);
     AML_INFO("sdio probe success\n");
+    bus_state_detect.bus_err = 0;
     aml_sdio_init_base_addr();
     aml_sdio_init_ops();
 
