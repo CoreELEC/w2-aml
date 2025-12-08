@@ -307,7 +307,7 @@ void aml_ipc_buf_e2a_sync_back(struct aml_hw *aml_hw, struct aml_ipc_buf *buf,
 static int aml_ipc_rxskb_alloc(struct aml_hw *aml_hw,
                                 struct aml_ipc_buf *buf, size_t skb_size)
 {
-    struct sk_buff *skb = dev_alloc_skb(skb_size);
+    struct sk_buff *skb = __dev_alloc_skb(skb_size, in_interrupt() ? GFP_ATOMIC : GFP_KERNEL);
 #ifdef CONFIG_AML_PREALLOC_BUF_SKB
     struct aml_prealloc_rxbuf *prealloc_rxbuf = NULL;
 

@@ -1310,7 +1310,7 @@ int aml_prealloc_rxbuf_task(void *data)
         }
 
         while (!list_empty(&aml_hw->prealloc_rxbuf_used)) {
-            skb = dev_alloc_skb(aml_hw->ipc_env->rxbuf_sz);
+            skb = __dev_alloc_skb(aml_hw->ipc_env->rxbuf_sz, in_interrupt() ? GFP_ATOMIC : GFP_KERNEL);
             if (unlikely(!skb)) {
                 if ((i++ % 20) == 0) {
                     AML_INFO("prealloc: new skb size(%u) failed(=%u)",

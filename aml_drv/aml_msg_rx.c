@@ -1421,7 +1421,7 @@ static inline int aml_rx_sm_ft_auth_ind(struct aml_hw *aml_hw,
     size_t data_len = (offsetof(struct ieee80211_mgmt, u.auth.variable) +
                        ind->ft_ie_len);
 
-    skb = dev_alloc_skb(data_len);
+    skb = __dev_alloc_skb(data_len, in_interrupt() ? GFP_ATOMIC : GFP_KERNEL);
     if (skb) {
         struct ieee80211_mgmt *mgmt = (struct ieee80211_mgmt *)skb_put(skb, data_len);
         mgmt->frame_control = cpu_to_le16(IEEE80211_FTYPE_MGMT | IEEE80211_STYPE_AUTH);

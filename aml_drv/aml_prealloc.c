@@ -42,7 +42,7 @@ void aml_prealloc_rxbuf_init(struct aml_hw *aml_hw, uint32_t rxbuf_sz)
             ASSERT_ERR(0);
             return;
         }
-        prealloc_rxbuf->skb = dev_alloc_skb(rxbuf_sz);
+        prealloc_rxbuf->skb = __dev_alloc_skb(rxbuf_sz, in_interrupt() ? GFP_ATOMIC : GFP_KERNEL);
         if (prealloc_rxbuf->skb) {
             list_add_tail(&prealloc_rxbuf->list, &aml_hw->prealloc_rxbuf_free);
         } else {

@@ -2042,7 +2042,7 @@ int aml_start_mgmt_xmit(struct aml_vif *vif, struct aml_sta *sta,
     }
 
     /* Create a SK Buff object that will contain the provided data */
-    skb = dev_alloc_skb(tx_headroom + frame_len);
+    skb = __dev_alloc_skb(tx_headroom + frame_len, in_interrupt() ? GFP_ATOMIC : GFP_KERNEL);
     if (!skb)
         return -ENOMEM;
     *cookie = (unsigned long)skb;
