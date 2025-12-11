@@ -2379,8 +2379,11 @@ int aml_send_sm_connect_req(struct aml_hw *aml_hw,
         req->auth_type = WLAN_AUTH_FT;
     else if (sme->auth_type == NL80211_AUTHTYPE_SAE)
         req->auth_type = WLAN_AUTH_SAE;
-    else
-        goto invalid_param;
+    else {
+        aml_msg_free(aml_hw, req);
+        /* coverity[leaked_storage] - req has be freed by aml_msg_free */
+        return -EINVAL;
+    }
 
     if (sme->crypto.akm_suites[0] == WLAN_AKM_SUITE_SAE) {
         req->flags |= WPA3_SAE_IN_USE;
@@ -2399,11 +2402,6 @@ int aml_send_sm_connect_req(struct aml_hw *aml_hw,
     /* Send the SM_CONNECT_REQ message to LMAC FW */
     /* coverity[leaked_storage] - req will be freed later */
     return aml_send_msg(aml_hw, req, 1, SM_CONNECT_CFM, cfm);
-
-invalid_param:
-    aml_msg_free(aml_hw, req);
-    /* coverity[leaked_storage] - req will be freed later */
-    return -EINVAL;
 }
 
 int aml_send_sm_disconnect_req(struct aml_hw *aml_hw,

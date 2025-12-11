@@ -1123,12 +1123,7 @@ static inline int aml_rx_sm_connect_ind(struct aml_hw *aml_hw,
         sta->center_freq2 = ind->chan.center2_freq;
         aml_vif->sta.ap = sta;
         aml_vif->generation++;
-
-        if (aml_vif->sta.flags & AML_STA_FT_OVER_DS)
-            aml_vif->sta.flags &= ~AML_STA_FT_OVER_DS;
-
-        if (aml_vif->sta.flags & AML_STA_FT_OVER_AIR)
-            aml_vif->sta.flags &= ~AML_STA_FT_OVER_AIR;
+        aml_vif->sta.flags &= ~(AML_STA_FT_OVER_DS | AML_STA_FT_OVER_AIR);
 
         chan = ieee80211_get_channel(aml_hw->wiphy, ind->chan.prim20_freq);
 
@@ -1291,13 +1286,57 @@ static inline int aml_rx_sm_connect_ind(struct aml_hw *aml_hw,
     return 0;
 }
 
+void aml_sm_disconnect_release(struct aml_hw *aml_hw, struct aml_vif *vif, uint16_t reason, bool reassoc)
+{
+    struct net_device *dev= vif->ndev;
+
+    /* if vif is not up, aml_close has already been called */
+    if (vif->up) {
+        if (!reassoc) {
+            cfg80211_disconnected(dev, (reason & ~HOST_REQUEST_DISCONNECT), NULL, 0,
+                                  ((reason & HOST_REQUEST_DISCONNECT) != 0), GFP_ATOMIC);
+
+            if (vif->sta.ft_assoc_ies) {
+                kfree(vif->sta.ft_assoc_ies);
+                vif->sta.ft_assoc_ies = NULL;
+                vif->sta.ft_assoc_ies_len = 0;
+            }
+        }
+        if (aml_connect_flags_chk(vif, AML_CONNECTING | AML_GETTING_IP)) {
+            aml_wake_source_relax(aml_hw);
+        }
+        netif_tx_stop_all_queues(dev);
+        netif_carrier_off(dev);
+    }
+
+    spin_lock_bh(&vif->vif_lock);
+    if (vif->sta.ap) {
+#ifdef CONFIG_AML_BFMER
+        /* Disable Beamformer if supported */
+        aml_bfmer_report_del(aml_hw, vif->sta.ap);
+#endif //(CONFIG_AML_BFMER)
+
+        aml_sta_deinit(aml_hw, vif->sta.ap);
+        aml_txq_tdls_vif_deinit(vif);
+        AML_INFO("sta assoc ap info was cleared, sta_idx:%d", vif->sta.ap->sta_idx);
+        vif->sta.ap->valid = false;
+        vif->sta.ap = NULL;
+    }
+    spin_unlock_bh(&vif->vif_lock);
+
+    vif->generation++;
+    aml_external_auth_disable(vif);
+    aml_chanctx_unlink(vif);
+    aml_set_scan_hang(vif, 0, __func__, __LINE__);
+    coex_flag &= ~(1U << 30);
+}
+
 static inline int aml_rx_sm_disconnect_ind(struct aml_hw *aml_hw,
                                             struct aml_cmd *cmd,
                                             struct ipc_e2a_msg *msg)
 {
     struct sm_disconnect_ind *ind = (struct sm_disconnect_ind *)msg->param;
     struct aml_vif *aml_vif = aml_hw->vif_table[ind->vif_idx];
-    struct net_device *dev;
 
     if (aml_vif == NULL)
         return 0;
@@ -1315,44 +1354,8 @@ static inline int aml_rx_sm_disconnect_ind(struct aml_hw *aml_hw,
     }
 #endif
 
-    dev = aml_vif->ndev;
+    aml_sm_disconnect_release(aml_hw, aml_vif, ind->reason_code, ind->reassoc);
 
-    /* if vif is not up, aml_close has already been called */
-    if (aml_vif->up) {
-        if (!ind->reassoc) {
-            cfg80211_disconnected(dev, (ind->reason_code & ~HOST_REQUEST_DISCONNECT), NULL, 0,
-                                  ((ind->reason_code & HOST_REQUEST_DISCONNECT) != 0), GFP_ATOMIC);
-
-            if (aml_vif->sta.ft_assoc_ies) {
-                kfree(aml_vif->sta.ft_assoc_ies);
-                aml_vif->sta.ft_assoc_ies = NULL;
-                aml_vif->sta.ft_assoc_ies_len = 0;
-            }
-        }
-        if (aml_connect_flags_chk(aml_vif, AML_CONNECTING | AML_GETTING_IP)) {
-            aml_wake_source_relax(aml_hw);
-        }
-        netif_tx_stop_all_queues(dev);
-        netif_carrier_off(dev);
-    }
-    spin_lock_bh(&aml_vif->vif_lock);
-    if (aml_vif->sta.ap) {
-#ifdef CONFIG_AML_BFMER
-        /* Disable Beamformer if supported */
-        aml_bfmer_report_del(aml_hw, aml_vif->sta.ap);
-#endif //(CONFIG_AML_BFMER)
-
-        aml_sta_deinit(aml_hw, aml_vif->sta.ap);
-        aml_txq_tdls_vif_deinit(aml_vif);
-        AML_INFO("sta assoc ap info was cleared, sta_idx:%d", aml_vif->sta.ap->sta_idx);
-        aml_vif->sta.ap->valid = false;
-        aml_vif->sta.ap = NULL;
-    }
-    spin_unlock_bh(&aml_vif->vif_lock);
-    aml_vif->generation++;
-    aml_external_auth_disable(aml_vif);
-    aml_chanctx_unlink(aml_vif);
-    aml_set_scan_hang(aml_vif, 0, __func__, __LINE__);
 #ifdef CONFIG_AML_RECOVERY
     if ((aml_recy) && (aml_vif->vif_index == aml_recy->assoc_info.vif_idx)) {
         aml_recy_flags_clr(AML_RECY_ASSOC_INFO_SAVED);
@@ -1360,7 +1363,6 @@ static inline int aml_rx_sm_disconnect_ind(struct aml_hw *aml_hw,
 #endif
     aml_connect_flags_clr(aml_vif, AML_DISCONNECTING);
     aml_connect_flags_clr(aml_vif, AML_GETTING_IP);
-    coex_flag &= ~(1U << 30);
 
     return 0;
 }

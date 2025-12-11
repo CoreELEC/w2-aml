@@ -1,4 +1,4 @@
-AML_VERS_NUM=v2.1.2_2025-08.04-w2 driver:d5fe0b45
+AML_VERS_NUM=6.10.0.0
 # KERNELDIR ?= /usr/lib/modules/$(shell uname -r)/build
 PWD=$(shell pwd)
 ifeq ($(ARCH),)
@@ -81,9 +81,9 @@ CONFIG_AML_USB_HOTPLUG ?= n
 CONFIG_AML_PLATFORM_ANDROID ?= y
 
 ifeq ($(CONFIG_AML_KERNEL_4_9)$(CONFIG_AML_PLATFORM_ANDROID),yy)
-CONFIG_AML_SDIO_IRQ_VIA_GPIO ?= n
+CONFIG_AML_SDIO_IRQ_VIA_GPIO ?= y
 else
-CONFIG_AML_SDIO_IRQ_VIA_GPIO := n
+CONFIG_AML_SDIO_IRQ_VIA_GPIO := y
 endif
 
 # Use platform random mac

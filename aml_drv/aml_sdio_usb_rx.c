@@ -149,7 +149,7 @@ static void aml_amsdu_to_msdu(struct sk_buff_head *msdus,
             continue;
         }
 
-        frame = __dev_alloc_skb(hlen + len, in_interrupt() ? GFP_ATOMIC : GFP_KERNEL);
+        frame = dev_alloc_skb(hlen + len);
         if (!frame)
             goto purge;
 
@@ -381,7 +381,7 @@ static inline struct aml_skb_rxcb_frag *AML_SKB_RXCB_FRAG(struct sk_buff *skb)
 
 static inline struct sk_buff *aml_rx_alloc_skb(struct aml_rx *rx, int len)
 {
-    struct sk_buff *skb = __dev_alloc_skb(rx->skb_head_room + len, in_interrupt() ? GFP_ATOMIC : GFP_KERNEL);
+    struct sk_buff *skb = dev_alloc_skb(rx->skb_head_room + len);
 
     if (skb)
         skb_reserve(skb, rx->skb_head_room);

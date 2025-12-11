@@ -2550,6 +2550,9 @@ static int aml_cfg80211_disconnect(struct wiphy *wiphy, struct net_device *dev,
                     break;
                 }
             }
+        } else {
+            aml_sm_disconnect_release(aml_hw, aml_vif,
+                HOST_REQUEST_DISCONNECT | MAC_RS_DEAUTH_SENDER_LEFT_IBSS_ESS, false);
         }
         aml_connect_flags_clr(aml_vif, AML_DISCONNECTING);
     }
@@ -2560,7 +2563,7 @@ static int aml_cfg80211_disconnect(struct wiphy *wiphy, struct net_device *dev,
 #endif
     {
         AML_INFO("wifi is disconnect, and state mismatch with upper layer, need disconnect to kernel\n");
-        cfg80211_disconnected(dev, 0, NULL, 0,false, GFP_KERNEL);
+        cfg80211_disconnected(dev, 0, NULL, 0, false, GFP_KERNEL);
     }
     aml_set_scan_hang(aml_vif, 0, __func__, __LINE__);
     AML_INFO("vif_idx:%d \n", aml_vif->vif_index);
