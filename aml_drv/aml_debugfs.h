@@ -272,5 +272,4 @@ static inline int aml_dbgfs_txq_vif(char *buf, size_t size,
             struct aml_vif *aml_vif, struct aml_hw *aml_hw) {return 0;}
 
 #endif /* CONFIG_AML_DEBUGFS */
-
 #endif /* _AML_DEBUGFS_H_ */

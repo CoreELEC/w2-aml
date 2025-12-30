@@ -23,24 +23,24 @@ static u32_boolean setOffloadState(struct aml_hw *aml_hw, u32_boolean enabled)
 {
     uint32_t ret;
 
-#ifdef MDNS_OFFLOAD_FEATURE
-    if (aml_mdns_set_offload_state(aml_hw, enabled) != 0) {
-        AML_ERR(" MDNS_OFFLOAD_FEATURE is enabled!\n");
+#ifndef MDNS_OFFLOAD_FEATURE
+    enabled = 0;
+    AML_ERR("mdns don't support in drv!!\n");
+#endif
+    ret = aml_mdns_set_offload_state(aml_hw, enabled);
+    if (ret) {
+        AML_ERR("aml_mdns_set_offload_state fail ret:%d\n", ret);
         ret = false;
-        goto exit;
     }
-    ret = true;
-#else
-    AML_ERR(" MDNS_OFFLOAD_FEATURE is disabled!\n");
-    aml_mdns_set_offload_state(aml_hw, 0);
+#ifndef MDNS_OFFLOAD_FEATURE
     ret = false;
 #endif
 
-exit:
-    AML_ERR(" enabled:%d,ret:%d\n", enabled, ret);
+    AML_ERR("enabled:%d,ret:%d\n", enabled, ret);
     return ret;
 }
 
+#ifdef MDNS_OFFLOAD_FEATURE
 static void resetAll(struct aml_hw *aml_hw)
 {
     aml_mdns_reset_all(aml_hw);
@@ -114,6 +114,7 @@ static void setWakePorts(struct aml_hw *aml_hw, wakePort_set *ports)
     if (ret)
         AML_ERR("set wake port fail\n");
 }
+#endif /* MDNS_OFFLOAD_FEATURE */
 
 const struct s_mdns_offload_ops mdns_offload_ops = {
     .setOffloadState = setOffloadState,
@@ -128,7 +129,6 @@ const struct s_mdns_offload_ops mdns_offload_ops = {
     .setPassthroughBehavior = setPassthroughBehavior,
     .setWakePorts = setWakePorts,
 #else
-    .setOffloadState = NULL,
     .resetAll = NULL,
     .addProtocolResponses = NULL,
     .removeProtocolResponses = NULL,

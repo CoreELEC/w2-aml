@@ -103,7 +103,8 @@ w2_comm-objs := \
         ../aml_bus/aml_w2_v7.o     \
         ../aml_bus/w2_sdio.o       \
         ../aml_bus/aml_static_buf.o \
-        ../aml_bus/w2_usb.o
+        ../aml_bus/w2_usb.o        \
+        ../aml_bus/aml_recy_notify.o
 
 w2-$(CONFIG_AML_RADAR)       += ../aml_radar.o
 w2-$(CONFIG_DEBUG_FS)         += ../aml_debugfs.o

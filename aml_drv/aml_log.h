@@ -41,6 +41,7 @@
         AML_LOG_MODULE(REO,         ERR) \
         AML_LOG_MODULE(TX,          NOTICE) \
         AML_LOG_MODULE(RX,          INFO) \
+        AML_LOG_MODULE(RX_STATS,    ERR) \
         AML_LOG_MODULE(RX_IRQ,      WARNING) \
         AML_LOG_MODULE(CMD,         DEBUG) \
         AML_LOG_MODULE(TRACE,       INFO) \
@@ -118,16 +119,24 @@ int aml_name_index(const char *names[], const char *name);
 #define AML_FMT                     AML_FMT_M_FN_LN
 #endif
 
+#define AML_FMT_NONE(_level, _m, fmt)    fmt
+#define AML_FMT_CHIP(_level, _m, fmt)    CONFIG_AML_LOG_PREFIX fmt
+
 #define AML_FN_ENTRY_STR            ">>> %s(%d)\n", __func__, __LINE__
 #define AML_FN_EXIT_STR             "<<< %s(%d)\n", __func__, __LINE__
 #define AML_FN_ENTRY()              AML_INFO(AML_FN_ENTRY_STR)
 #define AML_FN_EXIT()               AML_INFO(AML_FN_EXIT_STR)
 
 /*
+ * exported log API to check the log is enabled or not.
+ */
+#define AML_LOG_EN(_level, _m)      (LOGLEVEL_##_level <= aml_log_m_levels[AML_LOG_MODULE_##_m])
+
+/*
  * the following log APIs should not be used directly.
  */
 #define _AML_LOG(_level, _m, _rlmt, fmt, ...)  do { \
-            if (LOGLEVEL_##_level <= aml_log_m_levels[AML_LOG_MODULE_##_m] && _rlmt) { \
+            if (AML_LOG_EN(_level, _m) && _rlmt) { \
                 printk(AML_FMT(_level, _m, fmt), ##__VA_ARGS__); \
             } \
         } while (0)

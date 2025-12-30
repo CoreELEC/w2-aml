@@ -969,10 +969,7 @@ static int aml_sdio_usb_create_thread(struct aml_hw *aml_hw)
     if (!aml_hw->aml_msg_task)
         return -1;
 
-    sema_init(&aml_hw->aml_txcfm_sem, 0);
-    aml_hw->aml_txcfm_task_quit = 0;
-    aml_hw->aml_txcfm_task = aml_kthread_run(aml_tx_cfm_task, aml_hw, "aml_txcfm_task", -1);
-    if (!aml_hw->aml_txcfm_task)
+    if (AML_TASK_INIT(&aml_hw->cfm_task, aml_task_fn_tx_cfm, tx_cfm, -1) < 0)
         return -1;
 
     if (aml_bus_type == SDIO_MODE)
@@ -1017,12 +1014,7 @@ static void aml_sdio_usb_destroy_thread(struct aml_hw *aml_hw)
         aml_hw->aml_msg_task = NULL;
     }
 
-    if (aml_hw->aml_txcfm_task) {
-        aml_hw->aml_txcfm_task_quit = 1;
-        up(&aml_hw->aml_txcfm_sem);
-        kthread_stop(aml_hw->aml_txcfm_task);
-        aml_hw->aml_txcfm_task = NULL;
-    }
+    AML_TASK_DEINIT(&aml_hw->cfm_task);
 }
 
 static int __aml_cpufreq_boost_update(struct aml_hw *aml_hw)
@@ -1040,11 +1032,12 @@ static int __aml_cpufreq_boost_update(struct aml_hw *aml_hw)
         } else if (!freq_qos_request_active(req)) {
             struct cpufreq_policy *policy = cpufreq_cpu_get(cpu);
 
-            if (IS_ERR_OR_NULL(policy))
+            if (IS_ERR_OR_NULL(policy)) {
                 AML_ERR("CPU%d: policy not ready\n", cpu);
-            else
-                ret = freq_qos_add_request(&policy->constraints, req,
-                                           FREQ_QOS_MIN, cpufreq_quick_get_max(cpu));
+                continue;
+            }
+            ret = freq_qos_add_request(&policy->constraints, req,
+                                       FREQ_QOS_MIN, cpufreq_quick_get_max(cpu));
             if (ret < 0)
                 AML_ERR("CPU%d: failed to add min-freq constraint (%d)\n", cpu, ret);
 
@@ -1248,8 +1241,7 @@ static int aml_sdio_usb_platform_on(struct aml_hw *aml_hw, void *config)
         return -ENOMEM;
     }
 
-    aml_txbuf_list_init(aml_hw);
-    aml_tx_cfmed_list_init(aml_hw);
+    aml_sdio_usb_txbuf_init(aml_hw);
 #ifdef CONFIG_SDIO_TX_ENH
     aml_tx_cfm_param_init(aml_hw);
     aml_hw->irqless_flag = 0;
@@ -1263,7 +1255,6 @@ static int aml_sdio_usb_platform_on(struct aml_hw *aml_hw, void *config)
     }
     aml_hw->g_tx_param.txcfm_trigger_tx_thr = TXCFM_TRIGGER_TX_THR;
 
-    aml_amsdu_buf_list_init(aml_hw);
     aml_sdio_usb_rx_restart(&aml_hw->rx);
     if (aml_bus_type == SDIO_MODE) {
         if ((ret = aml_plat->enable(aml_hw))) {
@@ -1578,13 +1569,9 @@ void aml_platform_off(struct aml_hw *aml_hw, void **config)
     aml_ipc_deinit(aml_hw);
 
     aml_platform_reset(aml_hw->plat);
-    if (aml_bus_type != PCIE_MODE) {
-        aml_hw->host_buf = NULL;
-        aml_txbuf_list_deinit(aml_hw);
-#ifndef CONFIG_AML_PREALLOC_BUF_STATIC
-        aml_amsdu_buf_list_deinit(aml_hw);
-#endif
-    }
+    if (aml_bus_type != PCIE_MODE)
+        aml_sdio_usb_txbuf_deinit(aml_hw);
+
     if (aml_hw->usb) {
         usb_kill_urb(&aml_hw->usb->urb);
         usb_free_urb(&aml_hw->usb->urb);

@@ -467,8 +467,6 @@ DEBUGFS_READ_WRITE_FILE_OPS(um_helper);
 #ifdef CONFIG_AML_DEBUGFS
 int aml_um_helper(struct aml_debugfs *aml_debugfs, const char *cmd)
 {
-    struct aml_hw *aml_hw = container_of(aml_debugfs, struct aml_hw,
-                                           debugfs);
     char *envp[] = { "PATH=/sbin:/usr/sbin:/bin:/usr/bin", NULL };
     char **argv;
     int argc = 0, ret = 0;
@@ -480,10 +478,8 @@ int aml_um_helper(struct aml_debugfs *aml_debugfs, const char *cmd)
     if (!argc)
         return PTR_ERR(argv);
 
-    if ((ret = CALL_USERMODEHELPER(argv[0], argv, envp,
-                                   UMH_WAIT_PROC | UMH_KILLABLE)))
-        dev_err(aml_hw->dev, "Failed to call %s (%s returned %d)\n",
-                argv[0], cmd, ret);
+    ret = CALL_USERMODEHELPER(argv[0], argv, envp,
+                                   UMH_WAIT_PROC | UMH_KILLABLE);
     argv_free(argv);
 
     return ret;

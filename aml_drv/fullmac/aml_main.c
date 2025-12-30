@@ -992,6 +992,21 @@ int aml_rsne_to_connect_params(const struct element *rsne,
     return 0;
 }
 
+static int aml_hw_addr_set(struct net_device *dev)
+{
+    struct aml_vif *vif = netdev_priv(dev);
+    int index = vif->drv_vif_index;
+
+    if (index >= AML_IFTYPE_MAX) {
+        /* random MAC address for AP VLAN? */
+        AML_INFO("TODO: no MAC address for \"%s\"\n", dev->name);
+        return -1;
+    }
+
+    eth_hw_addr_set(dev, vif->aml_hw->wiphy->addresses[index].addr);
+    return 0;
+}
+
 int g_cali_cfg_done = 0;
 /*********************************************************************
  * netdev callbacks
@@ -1040,17 +1055,8 @@ static int aml_open(struct net_device *dev)
     aml_recy_flags_set(AML_RECY_OPEN_VIF_PROC);
 #endif
 
-    // Check if it is the first opened VIF
-    if (strncmp(dev->name, AML_IFNAME_STA, 4) == 0) {
-        eth_hw_addr_set(dev, aml_hw->wiphy->addresses[0].addr);
-    } else if (strncmp(dev->name, AML_IFNAME_P2P, 3) == 0) {
-        eth_hw_addr_set(dev, aml_hw->wiphy->addresses[1].addr);
-    } else if (strncmp(dev->name, AML_IFNAME_SAP, 2) == 0) {
-        eth_hw_addr_set(dev, aml_hw->wiphy->addresses[2].addr);
-    } else {
-        AML_INFO("open netdev name(%s) error\n", dev->name);
+    if (aml_hw_addr_set(dev) < 0)
         return -1;
-    }
 
     if (aml_hw->vif_started == 0) {
         // Start the FW
@@ -1114,6 +1120,7 @@ static int aml_open(struct net_device *dev)
         }
     }
 
+    /* FIXME: check interface type instead of its name */
     if (strcmp(dev->name, "wlan0")) {
         aml_vif->is_sta_mode = false;
     } else {
@@ -1415,7 +1422,8 @@ static int aml_set_mac_address(struct net_device *dev, void *addr)
 
     AML_INFO("dev:%s, addr:%pM\n", dev->name, sa->sa_data);
 
-    if (strncmp(dev->name, AML_IFNAME_STA, 4)) {
+    if (vif->drv_vif_index == 0) {
+        AML_INFO("%s: MAC address can not be changed!\n", dev->name);
         return 0;
     }
 
@@ -1646,6 +1654,7 @@ static ssize_t aml_radio_info_store(struct device *dev, struct device_attribute 
 
     return count;
 }
+
 static DEVICE_ATTR(radio_info, S_IWUSR |S_IRUGO, aml_radio_info_show, aml_radio_info_store);
 
 int aml_sys_driver_init(struct net_device *ndev)
@@ -1783,16 +1792,8 @@ struct wireless_dev *aml_interface_add(struct aml_hw *aml_hw,
         break;
     }
 
-    if (strncmp(ndev->name, AML_IFNAME_STA, 4) == 0) {
-        eth_hw_addr_set(ndev, aml_hw->wiphy->addresses[0].addr);
-    } else if (strncmp(ndev->name, AML_IFNAME_P2P, 3) == 0) {
-        eth_hw_addr_set(ndev, aml_hw->wiphy->addresses[1].addr);
-    } else if (strncmp(ndev->name, AML_IFNAME_SAP, 2) == 0) {
-        eth_hw_addr_set(ndev, aml_hw->wiphy->addresses[2].addr);
-    } else {
-        AML_INFO("add interface name(%s) error\n", ndev->name);
+    if (aml_hw_addr_set(ndev) < 0)
         goto err;
-    }
 
     if (params) {
         vif->use_4addr = params->use_4addr;
@@ -2099,24 +2100,14 @@ static int aml_cfg80211_scan(struct wiphy *wiphy,
     spin_lock_bh(&aml_hw->roc_lock);
     roc = aml_hw->roc;
     if (roc) {
-        if (roc->vif->is_sta_mode) {
-            int ret;
-            spin_unlock_bh(&aml_hw->roc_lock);
-            ret = aml_send_cancel_roc(aml_hw);
-            AML_INFO("sta mode in roc,cancel roc first,ret:%d\n", ret);
-            if (ret) {
-                return -EBUSY;
-            }
-        }
-        else {
+        AML_INFO("roc onging :%d\n",AML_VIF_TYPE(roc->vif));
+        if (!roc->vif->is_sta_mode) {
             AML_INFO("avoid scan as roc,roc vif type:%d\n",AML_VIF_TYPE(roc->vif));
             spin_unlock_bh(&aml_hw->roc_lock);
             return -EBUSY;
         }
     }
-    else {
-        spin_unlock_bh(&aml_hw->roc_lock);
-    }
+    spin_unlock_bh(&aml_hw->roc_lock);
 
     spin_lock_bh(&aml_hw->scan_req_lock);
     aml_hw->scan_request = request;
@@ -3578,8 +3569,6 @@ static int aml_cfg80211_cancel_remain_on_channel(struct wiphy *wiphy,
     if (cookie != (u64)(unsigned long)aml_hw->roc)
         return -EINVAL;
 
-    if (aml_vif->is_sta_mode)
-        return -EINVAL;
     /* Forward the information to the FMAC */
     return aml_send_cancel_roc(aml_hw);
 }
@@ -3741,10 +3730,13 @@ static int aml_cfg80211_mgmt_tx(struct wiphy *wiphy, struct wireless_dev *wdev,
 
         // Offchannel transmission, need to start a RoC
         if (roc) {
+            uint32_t remain_duration = roc->duration - (jiffies_to_msecs(jiffies - roc->start_time));
             // Test if current RoC can be re-used
             if ((roc->vif != aml_vif) ||
-                (roc->chan->center_freq != params->chan->center_freq)) {
-                AML_INFO("roc chan=%d, params chan=%d\n", roc->chan->center_freq, params->chan->center_freq);
+                (roc->chan->center_freq != params->chan->center_freq)
+                || ((params->wait) && (remain_duration < params->wait))) {
+                AML_INFO("roc chan=%d, params chan=%d, remain_duration=%d, wait=%d\n",
+                    roc->chan->center_freq, params->chan->center_freq, remain_duration, params->wait);
                 lunch_roc = true;
             }
         }
@@ -5675,7 +5667,6 @@ static int aml_ps_wow_suspend_sta(struct aml_hw *aml_hw, struct aml_vif *aml_vif
 static int aml_ps_wow_suspend_done(struct aml_hw *aml_hw)
 {
     int count = 0;
-    unsigned int reg_value;
 
     if (aml_bus_type != PCIE_MODE)
         aml_sdio_usb_rx_stop(&aml_hw->rx);
@@ -5712,10 +5703,6 @@ static int aml_ps_wow_suspend_done(struct aml_hw *aml_hw)
     } else if (aml_bus_type == PCIE_MODE) {
         aml_hw->repush_rxdesc = 0;
         aml_hw->repush_rxbuff_cnt = 0;
-    } else {
-        reg_value = aml_hw->plat->hif_sdio_ops->hi_self_define_domain_read8(RG_SDIO_PMU_HOST_REQ);
-        reg_value |= HOST_SLEEP_REQ;
-        aml_hw->plat->hif_sdio_ops->hi_self_define_domain_write8(RG_SDIO_PMU_HOST_REQ, reg_value);
     }
 
     return 0;
@@ -6611,7 +6598,7 @@ unsigned char aml_parse_country_pwr_limit(char *varbuf, int len, struct COUNTRY_
         aml_get_s32_item(varbuf, len, "modify_filter_ofdm_80_1", &country_pwr_limit_cfg->phy_maskfilter_cfg[1].maskfilter[28]);
         aml_get_s32_item(varbuf, len, "modify_bw_filter_config", &country_pwr_limit_cfg->phy_maskfilter_cfg[1].mask_bw_cfg[0]);
 
-        regdom_en = 1;
+        //regdom_en = 1;
     }
 
     return 0;
@@ -7289,11 +7276,7 @@ int aml_interface_add_all(struct aml_hw *aml_hw, bool custchan)
         pr_info("new interface create %s success\n", wdev->netdev->name);
 #ifdef CONFIG_AML_NAPI
         if (i == AML_IFTYPE_STA) {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 0)
-            netif_napi_add(wdev->netdev, &aml_hw->napi, aml_napi_poll, AML_NAPI_WEIGHT);
-#else
             netif_napi_add_weight(wdev->netdev, &aml_hw->napi, aml_napi_poll, AML_NAPI_WEIGHT);
-#endif
             napi_enable(&aml_hw->napi);
             __skb_queue_head_init(&aml_hw->napi_rx_upload_queue);
             __skb_queue_head_init(&aml_hw->napi_rx_pending_queue);
@@ -7629,9 +7612,8 @@ err_add_interface:
     aml_wiphy_addresses_free(aml_hw->wiphy);
 #ifndef CONFIG_PT_MODE
     aml_dbgfs_unregister(aml_hw);
-#endif
-
 err_debugfs:
+#endif
     aml_dynamic_snr_deinit(aml_hw);
 
 #ifdef CONFIG_AML_RECOVERY

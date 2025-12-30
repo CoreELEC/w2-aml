@@ -252,8 +252,8 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
 
             if (ret) {
                 cmd->flags &= ~(AML_CMD_FLAG_WAIT_ACK | AML_CMD_FLAG_WAIT_CFM);
-                cmd_complete(cmd_mgr, cmd);
                 spin_unlock_bh(&cmd_mgr->lock);
+                aml_hw->cmd_mgr.llind(&aml_hw->cmd_mgr, cmd);
                 return ret;
             }
         }

@@ -71,7 +71,9 @@ const int nx_txuser_cnt[] =
 extern struct aml_pm_type g_wifi_pm;
 static void ipc_host_rxdesc_handler(struct ipc_host_env_tag *env)
 {
+#ifdef CONFIG_AML_NAPI
     struct aml_hw *aml_hw = env->pthis;
+#endif
     // For profiling
     REG_SW_SET_PROFILING(env->pthis, SW_PROF_IRQ_E2A_RXDESC);
 

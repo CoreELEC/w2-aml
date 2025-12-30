@@ -370,9 +370,8 @@ try_again:
     bus_state_detect.bus_reset_ongoing = 0;
     bus_state_detect.bus_err = 0;
     AML_INFO("******* usb reset end *******\n");
-
-    return 0;
 #endif
+    return 0;
 }
 EXPORT_SYMBOL(aml_usb_reset);
 

@@ -4260,6 +4260,25 @@ int aml_set_fwlog_cmd(struct net_device *dev, int mode)
     return 0;
 }
 
+int aml_get_str_log_cmd(struct net_device *dev, int mode)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    struct aml_hw *aml_hw = aml_vif->aml_hw;
+
+    if (trace_log_file_info.trace_type != TRACE_TO_HOST) {
+        AML_INFO("just supportting get_str_log when enable getting trace log");
+        return 0;
+    }
+    if (mode > 1) {
+        AML_INFO("mode err");
+        return 0;
+    }
+
+    aml_send_strlog_cmd(aml_hw, mode);
+
+    return 0;
+}
+
 static void aml_close_netlink_socket(struct net_device *dev)
 {
     AML_INFO("close netlink socket in user space\n");
@@ -4997,6 +5016,12 @@ int aml_set_regdom_en(struct net_device *dev, int reg_en)
     struct aml_vif *aml_vif = netdev_priv(dev);
     struct aml_hw * aml_hw = aml_vif->aml_hw;
 
+    if (country_pwr_limit_cfg.country_pwr_limit_en == 0)
+    {
+        AML_INFO("note:aml_country_pwr_limit.txt country_pwr_limit_en is 0, regdom_en cmd no used!\n");
+        return 0;
+    }
+
     AML_INFO("reg_en: 0x%08x\n", reg_en);
 
     regdom_en = reg_en;
@@ -5174,6 +5199,9 @@ static int aml_iwpriv_send_para1(struct net_device *dev,
             break;
         case AML_IWP_SET_BT_DIGITAL_GAIN:
             aml_set_bt_gain_efuse(dev, set1);
+            break;
+        case AML_IWP_GET_STR_LOG:
+            aml_get_str_log_cmd(dev, set1);
             break;
         default:
             AML_ERR("param err\n");
@@ -6023,6 +6051,9 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
     {
         AML_IWP_GET_FW_LOG,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "get_fw_log"},
+    {
+        AML_IWP_GET_STR_LOG,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "get_str_log"},
     {
         AML_IWP_SET_PUTV_TRACE_SWITCH,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "trace_switch"},

@@ -74,6 +74,8 @@
 #include "wifi_w2_shared_mem_cfg.h"
 #include "fw/dp_rx.h"
 
+#define AML_RX_DEBUG
+
 enum aml_rx_buf_layout {
     AML_RX_BUF_NARROW = 0,  /* TX page is bigger */
     AML_RX_BUF_EXPAND = 1,
@@ -93,7 +95,30 @@ enum {
     AML_RX_STATE_NAPI_EN,   /* NAPI is enabled */
     AML_RX_STATE_NO_BUF,
     AML_RX_STATE_DEFERRED,
+    AML_RX_STATE_IDLE,
+    AML_RX_STATE_DEINIT,
 };
+
+#ifdef AML_RX_DEBUG
+enum aml_rx_dur_id {
+    AML_RX_DUR_FORM = 0,
+    AML_RX_DUR_REO,
+    AML_RX_DUR_FWD,
+    AML_RX_DUR_NAPI,
+
+    AML_RX_DUR_LAST,
+};
+
+struct aml_rx_dur {
+    ktime_t show;
+    ktime_t last;
+
+    uint64_t sum;
+    uint32_t cnt;
+    uint32_t min;
+    uint32_t max;
+};
+#endif
 
 struct aml_rx {
     struct aml_sharedmem_layout layouts[AML_RX_BUF_LAYOUT_LAST];
@@ -103,7 +128,6 @@ struct aml_rx {
     unsigned long state;    /* bits of AML_RX_STATE_XXX */
 
     u32 irq_pending;        /* if RX is pending */
-
 
     u8 *buf;                /* pre-allocated buffer */
     int buf_sz;             /* <= PREALLOC_BUF_TYPE_RXBUF_SIZE */
@@ -140,6 +164,23 @@ struct aml_rx {
     struct napi_struct napi;
     struct sk_buff_head napi_preq;
     struct sk_buff_head napi_pending;
+
+    /* status monitor */
+    struct {
+        struct work_struct work;
+        struct workqueue_struct *workqueue;
+    } status_mon;
+
+#ifdef AML_RX_DEBUG
+    struct {
+        ktime_t show;
+
+        ktime_t indicate;
+        ktime_t fetch;
+        ktime_t confirm;
+    } ts;
+    struct aml_rx_dur durs[AML_RX_DUR_LAST];
+#endif
 };
 
 /* use the head room of the last skb */

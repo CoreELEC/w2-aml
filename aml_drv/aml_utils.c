@@ -799,13 +799,20 @@ err_alloc:
     return -ENOMEM;
 }
 
-void aml_amsdu_buf_list_init(struct aml_hw *aml_hw)
+void aml_sdio_usb_txbuf_init(struct aml_hw *aml_hw)
 {
     int i = 0;
     struct tx_amsdu_param *txamsdu;
 #ifdef CONFIG_AML_PREALLOC_BUF_STATIC
     struct tx_amsdu_param *txamsdu_base;
 #endif
+
+    /* coverity[side_effect_free] - standard kernel interface */
+    spin_lock_init(&aml_hw->tx_buf_lock);
+    /* coverity[side_effect_free] - standard kernel interface */
+    spin_lock_init(&aml_hw->tx_desc_lock);
+
+    INIT_LIST_HEAD(&aml_hw->tx_desc_save);
 
     INIT_LIST_HEAD(&aml_hw->tx_amsdu_buf_free_list);
     INIT_LIST_HEAD(&aml_hw->tx_amsdu_buf_used_list);
@@ -832,8 +839,10 @@ void aml_amsdu_buf_list_init(struct aml_hw *aml_hw)
 
 #endif
 }
-void aml_amsdu_buf_list_deinit(struct aml_hw *aml_hw)
+
+void aml_sdio_usb_txbuf_deinit(struct aml_hw *aml_hw)
 {
+#ifndef CONFIG_AML_PREALLOC_BUF_STATIC
     struct tx_amsdu_param *txamsdu = NULL;
     struct tx_amsdu_param *txamsdu_tmp = NULL;
 
@@ -845,9 +854,10 @@ void aml_amsdu_buf_list_deinit(struct aml_hw *aml_hw)
         kfree(txamsdu);
     }
     spin_unlock_bh(&aml_hw->tx_buf_lock);
+#endif
 }
 
-struct tx_amsdu_param *aml_get_free_tx_amsdu_buf(struct aml_hw *aml_hw)
+static struct tx_amsdu_param *aml_get_free_tx_amsdu_buf(struct aml_hw *aml_hw)
 {
     struct tx_amsdu_param *txamsdu = NULL;
 
@@ -865,7 +875,7 @@ struct tx_amsdu_param *aml_get_free_tx_amsdu_buf(struct aml_hw *aml_hw)
     return txamsdu;
 }
 
-void aml_set_free_tx_amsdu_buf(struct aml_hw *aml_hw)
+static void aml_set_free_tx_amsdu_buf(struct aml_hw *aml_hw)
 {
     struct tx_amsdu_param *txamsdu = NULL;
     struct tx_amsdu_param *txamsdu_tmp = NULL;
@@ -876,43 +886,6 @@ void aml_set_free_tx_amsdu_buf(struct aml_hw *aml_hw)
         list_add_tail(&txamsdu->list, &aml_hw->tx_amsdu_buf_free_list);
     }
     spin_unlock_bh(&aml_hw->tx_buf_lock);
-}
-
-
-unsigned int tx_desc_index;
-
-void aml_txbuf_list_init(struct aml_hw *aml_hw)
-{
-    struct aml_txbuf *txbuf = NULL;
-    int i = 0;
-
-    /* coverity[side_effect_free] - standard kernel interface */
-    spin_lock_init(&aml_hw->tx_buf_lock);
-    /* coverity[side_effect_free] - standard kernel interface */
-    spin_lock_init(&aml_hw->tx_desc_lock);
-
-    INIT_LIST_HEAD(&aml_hw->tx_buf_free_list);
-    INIT_LIST_HEAD(&aml_hw->tx_buf_used_list);
-    INIT_LIST_HEAD(&aml_hw->tx_desc_save);
-
-    for (i = 1; i < TX_BUF_CNT + 1; i++) {
-        /* coverity[overwrite_var] */
-        txbuf = kmalloc(sizeof(struct aml_txbuf), GFP_ATOMIC);
-        if (!txbuf) {
-            ASSERT_ERR(0);
-            return;
-        }
-        txbuf->index = i;
-        txbuf->skb = NULL;
-        list_add_tail(&txbuf->list, &aml_hw->tx_buf_free_list);
-    }
-    /* coverity[leaked_storage] */
-}
-
-void aml_tx_cfmed_list_init(struct aml_hw *aml_hw)
-{
-    memset(aml_hw->read_cfm, 0, sizeof(aml_hw->read_cfm));
-    INIT_LIST_HEAD(&aml_hw->tx_cfmed_list);
 }
 
 void aml_scan_results_list_init(struct aml_hw *aml_hw)
@@ -934,7 +907,6 @@ void aml_scan_results_list_init(struct aml_hw *aml_hw)
     }
 }
 
-
 struct scan_results *aml_scan_get_scan_res_node(struct aml_hw *aml_hw)
 {
     struct scan_results *scan_res;
@@ -949,65 +921,6 @@ struct scan_results *aml_scan_get_scan_res_node(struct aml_hw *aml_hw)
     list_del(&scan_res->list);
     spin_unlock_bh(&aml_hw->scan_lock);
     return scan_res;
-}
-
-struct aml_txbuf *aml_get_from_free_txbuf(struct aml_hw *aml_hw)
-{
-    struct aml_txbuf *txbuf = NULL;
-
-    spin_lock_bh(&aml_hw->tx_buf_lock);
-    if (!list_empty(&aml_hw->tx_buf_free_list)) {
-        txbuf = list_first_entry(&aml_hw->tx_buf_free_list, struct aml_txbuf, list);
-        list_del(&txbuf->list);
-        list_add_tail(&txbuf->list, &aml_hw->tx_buf_used_list);
-
-    } else {
-        ASSERT_ERR(0);
-    }
-    spin_unlock_bh(&aml_hw->tx_buf_lock);
-
-    return txbuf;
-}
-
-struct sk_buff *aml_get_skb_from_used_txbuf(struct aml_hw *aml_hw, u32_l hostid)
-{
-    struct aml_txbuf *txbuf = NULL;
-    struct aml_txbuf *txbuf_tmp = NULL;
-    u8 find_sign = 0;
-
-    spin_lock_bh(&aml_hw->tx_buf_lock);
-    list_for_each_entry_safe(txbuf, txbuf_tmp, &aml_hw->tx_buf_used_list, list) {
-        if (hostid == txbuf->index) {
-            list_del(&txbuf->list);
-            list_add_tail(&txbuf->list, &aml_hw->tx_buf_free_list);
-            find_sign = 1;
-            break;
-        }
-    }
-    spin_unlock_bh(&aml_hw->tx_buf_lock);
-
-    if (find_sign) {
-        return txbuf->skb;
-
-    } else {
-        return NULL;
-    }
-}
-
-
-void aml_txbuf_list_deinit(struct aml_hw *aml_hw)
-{
-    struct aml_txbuf *txbuf = NULL;
-    struct aml_txbuf *txbuf_tmp = NULL;
-
-    spin_lock_bh(&aml_hw->tx_buf_lock);
-    list_for_each_entry_safe(txbuf, txbuf_tmp, &aml_hw->tx_buf_free_list, list) {
-        kfree(txbuf);
-    }
-    list_for_each_entry_safe(txbuf, txbuf_tmp, &aml_hw->tx_buf_used_list, list) {
-        kfree(txbuf);
-    }
-    spin_unlock_bh(&aml_hw->tx_buf_lock);
 }
 
 static void aml_host_send_stop_tx_to_fw(struct aml_hw *aml_hw)
@@ -2113,13 +2026,6 @@ void aml_ipc_tx_drain(struct aml_hw *aml_hw)
         skb_pull(skb, sw_txhdr->headroom);
         ieee80211_free_txskb(aml_hw->hw, skb);
 #else
-        if (aml_bus_type == SDIO_MODE) {
-            skb_pull(skb, AML_SDIO_TX_HEADROOM);
-        } else if (aml_bus_type == USB_MODE) {
-            skb_pull(skb, AML_USB_TX_HEADROOM);
-        } else {
-            skb_pull(skb, AML_TX_HEADROOM);
-        }
         dev_kfree_skb_any(skb);
 #endif /* CONFIG_AML_SOFTMAC */
     }
@@ -2154,7 +2060,8 @@ void aml_error_ind(struct aml_hw *aml_hw)
     } else {
         dump = (struct dbg_debug_dump_tag *)buf->addr;
     }
-    dev_err(aml_hw->dev, "(type %d): dump received\n", dump->dbg_info.error_type);
+    dev_err(aml_hw->dev, "(type %d): dump received, %s\n",
+        dump->dbg_info.error_type, (char *)dump->dbg_info.error);
 #ifdef LIGHT_WEIGHT_MEM
     aml_umh_done(aml_hw);
 #else

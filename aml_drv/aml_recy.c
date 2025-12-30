@@ -33,6 +33,7 @@
 #include "wifi_intf_addr.h"
 #include "chip_pmu_reg.h"
 #include "wifi_top_addr.h"
+#include "aml_recy_notify.h"
 
 #ifdef CONFIG_AML_RECOVERY
 
@@ -588,7 +589,10 @@ static int aml_recy_vif_restart(struct aml_hw *aml_hw)
         }
 
         /* should keep AP operations after STA mode */
-        if (AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_AP) {
+        // sap_vif is added to aml_hw->vif_table in @aml_open, but it may not start or start fail
+        // only when flag @AML_RECY_AP_INFO_SAVED is set, it indicates successful startup sap
+        if ((AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_AP)
+            && aml_recy_flags_chk(AML_RECY_AP_INFO_SAVED)) {
             aml_cfg80211_change_iface(aml_hw->wiphy, dev, NL80211_IFTYPE_AP,
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 12, 0)
             NULL,
@@ -729,7 +733,7 @@ int aml_recy_doit(struct aml_hw *aml_hw, void *reason, int len)
     }
 
     aml_send_me_set_ps_mode(aml_hw, aml_recy->ps_state, false);
-
+    aml_notify_recovery_event(0);
 out:
     aml_recy->link_loss.is_requested = 0;
     // recovery ps mode

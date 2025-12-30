@@ -513,7 +513,7 @@ enum mm_sub_a2e_tag {
     MM_SUB_TRIG_SEC_TEST = 76,
     MDNS_SET_WAKE_PORTS = 77,
     MM_SUB_GET_RADIO_INFO = 78,
-
+    MM_SUB_SEND_STRLOG = 79,
     /// the MAX
     MM_SUB_A2E_MAX,
     /// New members cannot be added below
@@ -2327,6 +2327,17 @@ struct sm_disconnect_ind
     u8_l vif_idx;
     /// Disconnection happen before a re-association
     bool_l reassoc;
+};
+
+/// Structure containing the parameters of the @ref SM_DISCONNECT_IND extern message.
+struct sm_linkloss_disconnect_ind
+{
+    /// reservd place for alignment
+    struct sm_disconnect_ind reserv;
+    /// the rx buf pointer to software read
+    uint32_t sw_rd;
+    /// the rx buf pointer to hardware write
+    uint32_t hw_wr;
 };
 
 /// Structure containing the parameters of the @ref SM_EXTERNAL_AUTH_REQUIRED_IND

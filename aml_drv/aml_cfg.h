@@ -53,7 +53,6 @@ struct aml_cfg_phy {
 int aml_cfg_parse(struct aml_hw *aml_hw, struct aml_cfg *cfg);
 int aml_cfg_parse_phy(struct aml_hw *aml_hw, const char *file,
         struct aml_cfg_phy *cfg, int path);
-void aml_cfg_update_rps(void);
 int aml_get_mac_addr_from_conftxt(unsigned int *efuse_data_l, unsigned int *efuse_data_h);
 
 #endif /* _AML_CFG_H_ */

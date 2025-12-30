@@ -30,6 +30,7 @@
 #include "aml_mdns_offload.h"
 #include "aml_p2p.h"
 #include "aml_regdom.h"
+#include "aml_strs.h"
 
 const struct mac_addr mac_addr_bcst = {{0xFFFF, 0xFFFF, 0xFFFF}};
 
@@ -123,7 +124,7 @@ static inline bool is_non_blocking_msg(int id)
             (id == SM_EXTERNAL_AUTH_REQUIRED_RSP));
 }
 
-static bool aml_msg_send_mtheod(int id)
+static bool aml_msg_send_method(int id)
 {
     return ((id == ME_TRAFFIC_IND_REQ) ||
         (id == SM_EXTERNAL_AUTH_REQUIRED_RSP));
@@ -419,7 +420,6 @@ bool aml_check_suspend_resume_msg(struct aml_hw *aml_hw, struct lmac_msg *msg)
                 || (*(msg->param) == MM_SUB_TKO_ACTIVATE_REQ)
                 || (*(msg->param) == MM_SUB_DHCP_REQ)
                 || (*(msg->param) == MM_SUB_SET_DYNAMIC_BUF_STATE)
-                || (*(msg->param) == ME_SET_PS_MODE_REQ)
                 || (*(msg->param) == MM_SCAN_HANG))
             {
                 return true;
@@ -450,31 +450,20 @@ static int aml_send_msg(struct aml_hw *aml_hw, const void *msg_params,
 {
     struct lmac_msg *msg;
     struct aml_cmd *cmd;
-    struct mm_other_cmd *other_cmd;
     bool nonblock;
     bool call_thread;
     int ret = -1;
-    uint32_t id;
     bool is_suspend_resume_msg;
 
     msg = container_of((void *)msg_params, struct lmac_msg, param);
 
 #ifdef CONFIG_AML_RECOVERY
     if ((aml_bus_type == USB_MODE) && aml_recy_flags_chk(AML_RECY_USB_UNPLUG)) {
-        AML_INFO("usb_unplug, cmd not allow to send, id:%d\n", msg->id);
+        AML_INFO("usb_unplug, cmd not allow to send, "MSG2STR_FORMANT"\n", AML_MSG2STR(msg));
         kfree(msg);
         return -EBUSY;
     }
 #endif
-
-    id = msg->id;
-    if (id == MM_OTHER_REQ) {
-        other_cmd = (struct mm_other_cmd *)msg_params;
-        id = other_cmd->mm_sub_index;
-    }
-
-    if (is_mdnsoffload_msg(id))
-        MDNS_OFFLOAD_DEBUG(AML_FN_ENTRY_STR);
 
 #ifdef CONFIG_AML_RECOVERY
     if ((aml_bus_type != PCIE_MODE) && (bus_state_detect.bus_err)) {
@@ -485,21 +474,20 @@ static int aml_send_msg(struct aml_hw *aml_hw, const void *msg_params,
 
     //msg allow send when state=wow
     is_suspend_resume_msg = aml_check_suspend_resume_msg(aml_hw, msg);
-
-    if (((g_pci_msg_suspend) || (!is_suspend_resume_msg)) && ((msg->param_len != 0) && (*(msg->param) != MM_SUB_SHUTDOWN))
+    if (((g_pci_msg_suspend) || (!is_suspend_resume_msg)) && ((msg->id == MM_OTHER_REQ) && (*(msg->param) != MM_SUB_SHUTDOWN))
 #ifdef CONFIG_AML_RECOVERY
         && (!aml_recy_flags_chk(AML_RECY_STATE_ONGOING))
 #endif
     ) {
-        AML_INFO("driver in suspend, cmd not allow to send, id:%d,aml_hw->state:%d g_pci_msg_suspend:%d\n",
-            msg->id, aml_hw->state, g_pci_msg_suspend);
+        AML_INFO("driver in suspend, cmd not allow to send,aml_hw->state:%d g_pci_msg_suspend:%d"MSG2STR_FORMANT"\n",
+            aml_hw->state, g_pci_msg_suspend, AML_MSG2STR(msg));
         kfree(msg);
         return -EBUSY;
     }
 #ifdef CONFIG_AML_RECOVERY
     if ((aml_recy != NULL) && (aml_recy_flags_chk(AML_RECY_IPC_ONGOING)))
     {
-        AML_INFO("ipc recy ongoing, cmd not allow to send, id:%d\n", msg->id);
+        AML_INFO("ipc recy ongoing, cmd not allow to send, "MSG2STR_FORMANT"\n", AML_MSG2STR(msg));
         kfree(msg);
         return -EBUSY;
     }
@@ -511,22 +499,21 @@ static int aml_send_msg(struct aml_hw *aml_hw, const void *msg_params,
         reqid != MM_MSG_BYPASS_ID && reqid != PRIV_SET_RESUME_CFM &&
         reqid != ME_CONFIG_CFM && reqid != ME_SET_PS_MODE_CFM &&
         reqid != ME_CHAN_CONFIG_CFM && reqid != PRIV_EFUSE_GET_RESULT) {
-        AML_ERR(" bypassing (AML_DEV_RESTARTING set) 0x%02x\n", reqid);
+        AML_ERR("bypassing (AML_DEV_RESTARTING set) "MSG2STR_FORMANT"\n", AML_MSG2STR(msg));
         kfree(msg);
         return -EBUSY;
     } else if (!aml_hw->ipc_env) {
-        AML_ERR( " bypassing (restart must have failed)\n");
+        AML_ERR( "bypassing (restart must have failed)"MSG2STR_FORMANT"\n", AML_MSG2STR(msg));
         kfree(msg);
         return -EBUSY;
     }
 
     nonblock = is_non_blocking_msg(msg->id);
-    if ((msg->param_len != 0) && (*(msg->param) == MM_SUB_SHUTDOWN) && (msg->id == MM_OTHER_REQ)) {
-           nonblock = true;
+    if ((msg->param_len != 0) && ((msg->id == MM_OTHER_REQ) && *(msg->param) == MM_SUB_SHUTDOWN)) {
+        nonblock = true;
     }
 
-    call_thread = aml_msg_send_mtheod(msg->id);
-
+    call_thread = aml_msg_send_method(msg->id);
     cmd = kzalloc(sizeof(struct aml_cmd), nonblock ? GFP_ATOMIC : GFP_KERNEL);
     if (!cmd) {
         kfree(msg);
@@ -550,7 +537,7 @@ static int aml_send_msg(struct aml_hw *aml_hw, const void *msg_params,
     if (aml_hw->cmd_mgr.queue)
         ret = aml_hw->cmd_mgr.queue(&aml_hw->cmd_mgr, cmd);
     else
-        AML_INFO("====> aml_hw->cmd_mgr.queue null xxxxxxx\n");
+        AML_INFO("====> aml_hw->cmd_mgr.queue null"MSG2STR_FORMANT"\n", AML_MSG2STR(msg));
 
     if (!ret) {
         if (nonblock) {
@@ -3718,6 +3705,7 @@ static struct aml_wake_reason_id aml_wake_reason_tbl[AML_WAKE_REASON_NUM] = {
     {0x05, "DISCONNECT"},
     {0x06, "MAGIC"},
     {0x07, "GOOGLE_CAST"},
+    {0x08, "UPLOAD_TRACE"},
     {0xff, "DEFAULT"}
 };
 
@@ -4734,6 +4722,21 @@ int aml_send_fwlog_cmd(struct aml_hw *aml_hw, int mode, struct fwlog_mode_cfm *c
 
     /* coverity[leaked_storage] - fwlog_param will be freed later */
     return aml_priv_send_msg(aml_hw, fwlog_param, 1, PRIV_SEND_FWLOG_CFM, cfm);
+}
+
+int aml_send_strlog_cmd(struct aml_hw *aml_hw, int mode)
+{
+    struct Strlog_Mode_Control *str_log_param;
+
+    str_log_param = aml_priv_msg_zalloc(MM_SUB_SEND_STRLOG, sizeof(struct Strlog_Mode_Control));
+    if (!str_log_param)
+        return -ENOMEM;
+
+    str_log_param->mode = mode;
+    AML_INFO("strlog_param->mode:%d", str_log_param->mode);
+
+    /* coverity[leaked_storage] - str_log_param will be freed later */
+    return aml_priv_send_msg(aml_hw, str_log_param, 0, 0, NULL);
 }
 
 int aml_send_scc_conflict_notify(struct aml_vif *ap_vif, u8 sta_vif_idx, struct mm_scc_cfm *scc_cfm)

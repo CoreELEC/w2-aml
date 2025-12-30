@@ -692,6 +692,9 @@ extern struct ipc_shared_env_tag ipc_shared_env;
 
 #define IPC_IRQ_A2E_ALL             (IPC_IRQ_A2E_TXDESC|IPC_IRQ_A2E_MSG|IPC_IRQ_A2E_DBG)
 
+// rename IPC_IRQ_A2E_RXDESC_BACK for USB/SDIO
+#define IPC_A2E_MSG_IND             IPC_IRQ_A2E_RXDESC_BACK
+
 // IRQs from emb to app
 #define IPC_IRQ_E2A_TXCFM_POS   7
 
@@ -741,7 +744,7 @@ extern struct ipc_shared_env_tag ipc_shared_env;
 
 #else
 
-#define IPC_IRQ_E2A_TXCFM       ((1 << NX_TXQ_CNT) - 1 ) << IPC_IRQ_E2A_TXCFM_POS
+#define IPC_IRQ_E2A_TXCFM           (((1 << NX_TXQ_CNT) - 1 ) << IPC_IRQ_E2A_TXCFM_POS)
 
 #endif /* CONFIG_AML_MUMIMO_TX */
 

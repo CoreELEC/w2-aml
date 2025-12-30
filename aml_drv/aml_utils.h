@@ -23,8 +23,7 @@
 
 #define MACFMT "%02x:%02x:%02x:%02x:%02x:%02x"
 #define MACARG(a) (a)[0], (a)[1], (a)[2], (a)[3], (a)[4], (a)[5]
-//rename IRQ FOR USB OR SDIO
-#define IPC_A2E_MSG_IND CO_BIT(4)
+
 #define DEBUG_MSGE2A_BUF_CNT       130
 #define USB_AMSDU_BUF_LEN (4624)
 #define TRAFFIC_CPU_FLAG           BIT(0)
@@ -81,27 +80,6 @@ struct aml_ipc_dbgdump {
     struct mutex mutex;
     struct aml_ipc_buf buf;
 };
-
-struct aml_tx_list {
-    struct list_head list;
-    struct aml_sw_txhdr *sw_txhdr;
-};
-
-struct aml_txbuf {
-    struct list_head list;
-    uint32_t index;
-    struct sk_buff *skb;
-};
-
-struct aml_tx_cfmed {
-    struct list_head list;
-    uint32_t tx_cfmed_idx;
-};
-
-#define TX_BUF_CNT    127
-#define TX_LIST_CNT   64
-#define TXDESC_WRITE_ONCE_CNT  32
-
 
 static const u32 aml_tx_pattern = 0xCAFEFADE;
 
@@ -274,17 +252,12 @@ u32 aml_ieee80211_chan_to_freq(u32 chan, u32 band);
 u8 aml_ieee80211_freq_to_chan(u32 freq, u32 band);
 int aml_traceind(struct aml_hw *aml_hw);
 
-void aml_txbuf_list_init(struct aml_hw *aml_hw);
-void aml_tx_cfmed_list_init(struct aml_hw *aml_hw);
+void aml_sdio_usb_txbuf_init(struct aml_hw *aml_hw);
+void aml_sdio_usb_txbuf_deinit(struct aml_hw *aml_hw);
+
 struct scan_results *aml_scan_get_scan_res_node(struct aml_hw *aml_hw);
 void aml_scan_results_list_init(struct aml_hw *aml_hw);
 
-void aml_amsdu_buf_list_init(struct aml_hw *aml_hw);
-void aml_amsdu_buf_list_deinit(struct aml_hw *aml_hw);
-
-struct aml_txbuf *aml_get_from_free_txbuf(struct aml_hw *aml_hw);
-void aml_txbuf_list_deinit(struct aml_hw *aml_hw);
-struct sk_buff *aml_get_skb_from_used_txbuf(struct aml_hw *aml_hw, u32_l hostid);
 uint32_t aml_read_reg(struct net_device *dev,uint32_t reg_addr);
 void aml_get_proc_msg(struct net_device *dev);
 void aml_get_proc_rxbuff(struct net_device *dev);
@@ -292,7 +265,6 @@ void aml_get_proc_rxbuff(struct net_device *dev);
 int aml_rx_task(void *data);
 int aml_tx_task(void *data);
 int aml_msg_task(void *data);
-int aml_tx_cfm_task(void *data);
-void aml_tx_cfm_param_init(struct aml_hw *aml_hw);
+
 int aml_freq_to_idx(struct aml_hw *aml_hw, int freq);
 #endif /* _AML_IPC_UTILS_H_ */

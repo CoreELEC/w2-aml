@@ -31,6 +31,12 @@ extern const char *const aml_mm_other_id2str[MM_SUB_A2E_MAX];
                            ((aml_id2str[MSG_T(tag)])[MSG_I(tag)])) ?   \
                           (aml_id2str[MSG_T(tag)])[MSG_I(tag)] : "unknown")
 
+#define MSG2STR_FORMANT "cmd:%4d-%-24s"
+#define AML_MSG2STR(msg) ((msg->id == MM_OTHER_REQ) ? *(msg->param) : msg->id), ((msg->id == MM_OTHER_REQ) ?  \
+                ((*(msg->param) < ARRAY_SIZE(aml_mm_other_id2str)) ? \
+                (aml_mm_other_id2str[*(msg->param)] ? aml_mm_other_id2str[*(msg->param)] : "MM_OTHER_REQ") : \
+                "unknown") : AML_ID2STR(msg->id))
+
 #endif /* CONFIG_AML_FHOST */
 
 #endif /* _AML_STRS_H_ */

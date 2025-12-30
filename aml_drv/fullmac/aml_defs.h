@@ -859,7 +859,6 @@ struct aml_hw {
     struct aml_defer_rx defer_rx;
     uint32_t dynabuf_stop_tx;     /* dynamic buf switch, tx stop flag */
     uint32_t send_tx_stop_to_fw;  /* dynamic buf switch, send tx stop to fw flag */
-    uint8_t *host_buf;            /* host buf for test */
     struct assoc_info rx_assoc_info;
 
 #ifdef CONFIG_AML_PREALLOC_BUF_SKB
@@ -938,11 +937,8 @@ struct aml_hw {
     struct tx_task_param g_tx_param;
 
     struct list_head tx_desc_save;
-    struct list_head tx_buf_free_list;
-    struct list_head tx_buf_used_list;
     struct list_head tx_amsdu_buf_free_list;
     struct list_head tx_amsdu_buf_used_list;
-    struct list_head tx_cfmed_list;
     spinlock_t tx_buf_lock;
     spinlock_t tx_desc_lock;
 
@@ -963,9 +959,7 @@ struct aml_hw {
     struct semaphore aml_msg_sem;
     int aml_msg_task_quit;
 
-    struct task_struct *aml_txcfm_task;
-    struct semaphore aml_txcfm_sem;
-    int aml_txcfm_task_quit;
+    struct aml_task cfm_task;
 
     /* FIXME: move the following struct into usb_common.h/c */
     struct {

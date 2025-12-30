@@ -22,6 +22,11 @@
 #include "aml_prealloc.h"
 #include "wifi_top_addr.h"
 
+#define AML_RX_MON_SHOW_INTERVAL    (60 * USEC_PER_SEC)
+
+#define AML_RX_MON_IDLE_THRESHOLD   (1 * USEC_PER_SEC)
+#define AML_RX_MON_CHECK_INTERVAL   (AML_RX_MON_IDLE_THRESHOLD / USEC_PER_MSEC)
+
 #define AML_RX_WRAP_FLAG            RX_WRAP_FLAG
 
 /* FIXME: UNWRAP_SIZE is too long, but need cover aml_rhd_ext at least */
@@ -74,6 +79,16 @@ static inline uint32_t *aml_rx_desc_next_ptr(void *rxdesc)
 {
     BUG_ON((uintptr_t)rxdesc & (sizeof(uint32_t) - 1));
     return &aml_rhd(rxdesc)->hwvect.rhd1.new_read;
+}
+
+static inline struct sk_buff *aml_rx_alloc_skb(int headroom, int len)
+{
+    struct sk_buff *skb = __netdev_alloc_skb(NULL, headroom + len, GFP_KERNEL);
+
+    BUG_ON(in_atomic());
+    if (skb)
+        skb_reserve(skb, headroom);
+    return skb;
 }
 
 struct aml_frag {
@@ -149,11 +164,10 @@ static void aml_amsdu_to_msdu(struct sk_buff_head *msdus,
             continue;
         }
 
-        frame = dev_alloc_skb(hlen + len);
+        frame = aml_rx_alloc_skb(hlen, len);
         if (!frame)
             goto purge;
 
-        skb_reserve(frame, hlen);
         aml_frags_copy(amsdu_frags, offset, skb_put(frame, len), len);
         offset += len + padding;
 
@@ -184,6 +198,104 @@ purge:
     __skb_queue_purge(msdus);
 }
 
+#ifdef AML_RX_DEBUG
+#undef AML_FMT
+#define AML_FMT  AML_FMT_M
+static inline void aml_rx_ts_set(struct hw_rxhdr *rhd, ktime_t ts)
+{
+    if (!rhd->flags_is_80211_mpdu)
+        *(ktime_t *)&rhd->phy_info = ts;
+}
+
+static inline ktime_t aml_rx_ts_get(struct hw_rxhdr *rhd)
+{
+    BUG_ON(rhd->flags_is_80211_mpdu);
+    return *(ktime_t *)&rhd->phy_info;
+}
+
+static inline ktime_t __aml_rx_dur_update(struct aml_rx *rx, enum aml_rx_dur_id id, ktime_t prior)
+{
+    static const char *names[AML_RX_DUR_LAST] = { "FORM", "REO", "FWD", "NAPI", };
+    struct aml_rx_dur *dur = &rx->durs[id];
+    ktime_t now = ktime_get_boottime();
+    uint32_t us = ktime_us_delta(now, prior);
+
+    dur->last = now;
+    if (ktime_compare(now, dur->show) >= 0) {
+        if (dur->cnt)
+            AML_M_NOTICE(RX_STATS, "RX DUR %4s: [%6u, %6u, %6u] x %6u\n",
+                         names[id], dur->min, (int)do_div(dur->sum, dur->cnt), dur->max, dur->cnt);
+        *dur = (struct aml_rx_dur) {
+                    .show = ktime_add_us(now, USEC_PER_SEC),
+                    .last = now,
+                    .min = ~0,
+                };
+    }
+
+    if (dur->min > us)
+        dur->min = us;
+    if (dur->max < us)
+        dur->max = us;
+    dur->sum += us;
+    ++dur->cnt;
+
+    return now;
+}
+
+static inline ktime_t aml_rx_dur_update(struct aml_rx *rx, enum aml_rx_dur_id id, ktime_t prior)
+{
+    if (AML_LOG_EN(NOTICE, RX_STATS))
+        return __aml_rx_dur_update(rx, id, prior);
+    return ns_to_ktime(0);
+}
+
+static inline void aml_rx_idle_exit(struct aml_rx *rx)
+{
+    ktime_t now = ktime_get_boottime();
+
+    if (test_and_clear_bit(AML_RX_STATE_IDLE, &rx->state))
+        AML_ERR("RX IDLE %llu us\n", ktime_us_delta(now, rx->ts.indicate));
+    rx->ts.indicate = now;
+}
+
+static void aml_rx_idle_enter(struct aml_rx *rx)
+{
+    ktime_t now = ktime_get_boottime();
+    int show = ktime_compare(now, rx->ts.show) >= 0;
+
+    if (show || !test_bit(AML_RX_STATE_IDLE, &rx->state)) {
+        uint32_t indicate = ktime_us_delta(now, rx->ts.indicate);
+        struct aml_plat *plat;
+
+        if (indicate > AML_RX_MON_IDLE_THRESHOLD)
+            set_bit(AML_RX_STATE_IDLE, &rx->state);
+        else if (!show)
+            return;
+
+        plat = aml_rx2hw(rx)->plat;
+        AML_ERR("RX IDLE: indicate/fetch/confirm %6u/%6u/%6u [%x, %x] confirm %x\n",
+                indicate,
+                (uint32_t)ktime_us_delta(now, rx->ts.fetch),
+                (uint32_t)ktime_us_delta(now, rx->ts.confirm),
+                rx->fw.tail, rx->fw.head, rx->fw.confirm.last);
+        AML_ERR("RX IDLE: [%x, %x] [%x, %x]\n",
+                AML_REG_READ(plat, 0, 0x60b081d0),
+                AML_REG_READ(plat, 0, 0x60b081d4),
+                AML_REG_READ(plat, 0, RG_WIFI_IF_FW2HST_IRQ_CFG),
+                AML_REG_READ(plat, 0, SDIO_USB_A2E_RX_CONFIRM));
+        rx->ts.show = ktime_add_us(now, AML_RX_MON_SHOW_INTERVAL);
+    }
+}
+#undef AML_FMT
+#define AML_FMT  AML_FMT_M_FN_LN
+
+#else
+
+static inline void aml_rx_idle_exit(struct aml_rx *rx) {}
+static inline void aml_rx_idle_enter(struct aml_rx *rx) {}
+
+#endif  // AML_RX_DEBUG
+
 static int aml_sdio_usb_rx_napi_poll(struct napi_struct *napi, int budget)
 {
     struct aml_rx *rx = container_of(napi, struct aml_rx, napi);
@@ -193,6 +305,10 @@ static int aml_sdio_usb_rx_napi_poll(struct napi_struct *napi, int budget)
     struct sk_buff *skb;
     bool sap = false;
     int done = 0;
+
+#ifdef AML_RX_DEBUG
+    aml_rx_dur_update(rx, AML_RX_DUR_NAPI, rx->durs[AML_RX_DUR_NAPI].last);
+#endif
 
     spin_lock(&rx->napi_preq.lock);
     AML_DBG("pending q: +%d msdus\n", skb_queue_len(&rx->napi_preq));
@@ -301,6 +417,10 @@ static int aml_sdio_usb_rx_napi_poll(struct napi_struct *napi, int budget)
         aml_vif->net_stats.rx_packets++;
         aml_vif->net_stats.rx_bytes += skb->len;
 
+#ifdef AML_RX_DEBUG
+        aml_rx_dur_update(rx, AML_RX_DUR_FWD, skb_get_ktime(skb));
+#endif
+
         if (aml_hw->gro_enable) {
             AML_PROF_CNT(gro_rx, skb->len);
             napi_gro_receive(napi, skb);
@@ -334,9 +454,21 @@ static void aml_sdio_usb_rx_napi_preq_append(struct aml_rx *rx, struct sk_buff_h
     while ((skb = __skb_dequeue(frames))) {
         struct aml_skb_rxcb *rxcb = AML_SKB_RXCB(skb);
 
+#ifdef AML_RX_DEBUG
+        skb->tstamp = aml_rx_dur_update(rx, AML_RX_DUR_REO, skb_get_ktime(skb));
+#endif
         AML_DBG("%s(%4d): %32ph\n", rxcb->amsdu ? "amsdu's last": "msdu", skb->len, skb->data);
-        if (rxcb->amsdu)
+        if (rxcb->amsdu) {
+#ifdef AML_RX_DEBUG
+            if (AML_LOG_EN(NOTICE, RX_STATS)) {
+                struct sk_buff *msdu;
+
+                skb_queue_walk(&rxcb->amsdu->msdus, msdu)
+                    msdu->tstamp = skb->tstamp;
+            }
+#endif
             skb_queue_splice_tail_init(&rxcb->amsdu->msdus, &msdus);
+        }
         __skb_queue_tail(&msdus, skb);
     }
     AML_DBG("preq: +%d msdus\n", skb_queue_len(&msdus));
@@ -379,15 +511,6 @@ static inline struct aml_skb_rxcb_frag *AML_SKB_RXCB_FRAG(struct sk_buff *skb)
     return (struct aml_skb_rxcb_frag *)skb->cb;
 }
 
-static inline struct sk_buff *aml_rx_alloc_skb(struct aml_rx *rx, int len)
-{
-    struct sk_buff *skb = dev_alloc_skb(rx->skb_head_room + len);
-
-    if (skb)
-        skb_reserve(skb, rx->skb_head_room);
-    return skb;
-}
-
 static inline int aml_frag_skb_append(struct sk_buff *skb, struct aml_frag frags[2])
 {
     /* skip ethernet header if not first fragment */
@@ -419,7 +542,7 @@ static inline struct sk_buff *aml_defrag_handle(struct aml_rx *rx,
 
     if (rhd_ext->fn == 0) { /* the first fragment */
         if (!skb) {
-            skb = aml_rx_alloc_skb(rx, DEFRAG_MAX_PAYLOAD_SIZE);
+            skb = aml_rx_alloc_skb(rx->skb_head_room, DEFRAG_MAX_PAYLOAD_SIZE);
             if (!skb) {
                 AML_RLMT_ERR("no skb for fragment %d.%d: %*ph\n",
                              rhd_ext->sn, rhd_ext->fn, frags[0].len, frags[0].data);
@@ -522,7 +645,7 @@ static struct sk_buff *aml_sdio_usb_rx_desc_to_mpdu(struct aml_rx *rx,
         mpdu = __skb_dequeue_tail(&msdus);
         count = skb_queue_len(&msdus);
     } else if (frmlen <= IEEE80211_MAX_DATA_LEN) {
-        mpdu = aml_rx_alloc_skb(rx, frmlen);
+        mpdu = aml_rx_alloc_skb(rx->skb_head_room + rhd_hw->flags_is_80211_mpdu ? 0 : 2, frmlen);
         if (mpdu)
             aml_frags_copy(frags, 0, skb_put(mpdu, frmlen), frmlen);
         else
@@ -539,6 +662,11 @@ static struct sk_buff *aml_sdio_usb_rx_desc_to_mpdu(struct aml_rx *rx,
             aml_hw->stats->amsdus_rx[ARRAY_SIZE(aml_hw->stats->amsdus_rx) - 1]++;
         else
             aml_hw->stats->amsdus_rx[count]++;
+#ifdef AML_RX_DEBUG
+        mpdu->tstamp = aml_rx_dur_update(rx, AML_RX_DUR_FORM, aml_rx_ts_get(rhd_hw));
+    } else if (AML_LOG_EN(NOTICE, RX_STATS)) {
+        rx->durs[AML_RX_DUR_FORM].last = ktime_get_boottime();
+#endif
     }
 
     rxcb = AML_SKB_RXCB(mpdu);
@@ -773,11 +901,15 @@ int aml_rx_task(void *data)
 
 static inline void __aml_sdio_usb_rx_confirm(struct aml_rx *rx, addr32_t confirm)
 {
-    uint32_t cmd[2] = { 1, confirm };
+    uint32_t regs[2] = { confirm, 1 };
 
     AML_PROF_HI(rx_cfm);
-    hi_sram_write(aml_rx2hw(rx), CMD_DOWN_FIFO_FDH_ADDR, cmd, sizeof(cmd));
+    hi_sram_write(aml_rx2hw(rx), SDIO_USB_A2E_RX_CONFIRM, regs, sizeof(regs));
     AML_PROF_LO(rx_cfm);
+
+#ifdef AML_RX_DEBUG
+    rx->ts.confirm = ktime_get_boottime();
+#endif
 }
 
 int aml_sdio_usb_fw_rx_head_ind(struct aml_rx *rx, addr32_t fw_rx_head)
@@ -797,7 +929,11 @@ int aml_sdio_usb_fw_rx_head_ind(struct aml_rx *rx, addr32_t fw_rx_head)
 
     if (fw_rx_head & RX_WRAP_TEMP_FLAG)
         head |= AML_RX_WRAP_FLAG;
-    rx->fw.head = head;
+
+    if (rx->fw.head != head) {
+        aml_rx_idle_exit(rx);
+        rx->fw.head = head;
+    }
 
     rx->fw.state = fw_rx_head & (FW_BUFFER_NARROW | FW_BUFFER_EXPAND);
 
@@ -996,6 +1132,9 @@ static int aml_sdio_usb_rx_desc_fetch(struct aml_rx *rx, addr32_t fw_pos, int le
     }
 
     //AML_PROF_CNT(read, len);
+#ifdef AML_RX_DEBUG
+    rx->ts.fetch = ktime_get_boottime();
+#endif
     received = hi_rx_buffer_read(aml_rx2hw(rx), rx->buf + pos, fw_pos, len);
     //AML_PROF_CNT(read, 0);
     if (received <= 0) {
@@ -1060,7 +1199,7 @@ static int aml_sdio_usb_rx_desc_fetch(struct aml_rx *rx, addr32_t fw_pos, int le
                     AML_REG_READ(aml_plat, 0, 0x60b081d0),
                     AML_REG_READ(aml_plat, 0, 0x60b081d4),
                     AML_REG_READ(aml_plat, 0, RG_WIFI_IF_FW2HST_IRQ_CFG),
-                    AML_REG_READ(aml_plat, 0, CMD_DOWN_FIFO_FDH_ADDR + 4),
+                    AML_REG_READ(aml_plat, 0, SDIO_USB_A2E_RX_CONFIRM),
                     received);
 
             AML_ERR("fw|pos %x|%d len %d, pkt_len %d, frag0 %d tot_len %d next %x to end %x(%d) %d\n",
@@ -1129,6 +1268,10 @@ static int aml_sdio_usb_rx_desc_fetch(struct aml_rx *rx, addr32_t fw_pos, int le
             AML_ERR("pos %d fw_pos %x tot_len %d len %d\n", pos, fw_pos, tot_len, len);
             BUG_ON(1);
         }
+
+#ifdef AML_RX_DEBUG
+        aml_rx_ts_set(aml_rhd(rxdesc), rx->ts.fetch);
+#endif
 
         rxdesc = (struct rxdesc *)(rx->buf + pos);
     }
@@ -1430,6 +1573,29 @@ void aml_sdio_usb_rx_restart(struct aml_rx *rx)
     aml_shared_mem_layout_appy(rx, AML_RX_BUF_EXPAND);
 }
 
+static void aml_rx_status_mon(struct aml_rx *rx)
+{
+    aml_rx_idle_enter(rx);
+}
+
+static void aml_rx_status_mon_work(struct work_struct *work)
+{
+    struct aml_rx *rx = container_of(work, struct aml_rx, status_mon.work);
+    unsigned int msecs = AML_RX_MON_CHECK_INTERVAL;
+
+    msleep(2000);
+    while (!test_bit(AML_RX_STATE_DEINIT, &rx->state)) {
+        if ((msecs = msleep_interruptible(msecs))) {
+            AML_ERR("msleep_interruptible exit\n");
+            continue;
+        }
+
+        if (aml_rx2hw(rx)->state == WIFI_SUSPEND_STATE_NONE)
+            aml_rx_status_mon(rx);
+        msecs = AML_RX_MON_CHECK_INTERVAL;
+    }
+}
+
 int aml_sdio_usb_rx_init(struct aml_rx *rx)
 {
     size_t buf_sz = PREALLOC_BUF_TYPE_RXBUF_SIZE;
@@ -1469,11 +1635,25 @@ int aml_sdio_usb_rx_init(struct aml_rx *rx)
     netif_napi_add_weight(&rx->napi_dev, &rx->napi,
                           aml_sdio_usb_rx_napi_poll, NAPI_POLL_WEIGHT);
 
+    INIT_WORK(&rx->status_mon.work, aml_rx_status_mon_work);
+    rx->status_mon.workqueue = alloc_workqueue("aml_rx_st_mon", WQ_UNBOUND | WQ_MEM_RECLAIM, 1);
+    if (!rx->status_mon.workqueue) {
+        AML_ERR("failed to initial rx status monitor!\n");
+        return -1;
+    }
+
+    clear_bit(AML_RX_STATE_DEINIT, &rx->state);
+    queue_work(rx->status_mon.workqueue, &rx->status_mon.work);
+
     return 0;
 }
 
 void aml_sdio_usb_rx_deinit(struct aml_rx *rx)
 {
+    set_bit(AML_RX_STATE_DEINIT, &rx->state);
+    cancel_work_sync(&rx->status_mon.work);
+    destroy_workqueue(rx->status_mon.workqueue);
+
     __skb_queue_purge(&rx->napi_preq);
     __skb_queue_purge(&rx->napi_pending);
 

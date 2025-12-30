@@ -234,7 +234,7 @@ static void aml_cfg_store_chipid(struct file *fp, struct aml_cfg *cfg)
 
 static void aml_cfg_store_macaddr(struct file *fp, struct aml_cfg *cfg)
 {
-    char mac_str[strlen("00:00:00:00:00:00") + 1];
+    char mac_str[18];  // 18 is strlen("00:00:00:00:00:00") + 1
 
     sprintf(mac_str, MACFMT, MACARG(cfg->vif0_mac));
     aml_cfg_store_tag(fp, "VIF0_MACADDR", mac_str);
@@ -677,55 +677,4 @@ int aml_cfg_parse_phy(struct aml_hw *aml_hw, const char *filename,
     release_firmware(cfg_fw);
 
     return 0;
-}
-
-#define AML_CFG_RPS_CPUS(is_sta)  do { \
-    char path[128]; \
-    struct file *fp; \
-    int i;\
-    for (i = 0; i < 4; i++) { \
-        snprintf(path, sizeof(path), "/sys/class/net/%s/queues/rx-%d/rps_cpus", \
-                (is_sta == 1) ? "wlan0": "ap0", i); \
-        fp = aml_cfg_open(path, O_RDWR, 0666); \
-        if (!fp) return; \
-        aml_cfg_write(fp, "f", 1); \
-        aml_cfg_close(fp); \
-    } \
-} while (0);
-
-#define AML_CFG_RPS_FLOW(is_sta)  do { \
-    char path[128]; \
-    struct file *fp; \
-    int i;\
-    for (i = 0; i < 4; i++) { \
-        snprintf(path, sizeof(path), "/sys/class/net/%s/queues/rx-%d/rps_flow_cnt", \
-                (is_sta == 1) ? "wlan0": "ap0", i); \
-        fp = aml_cfg_open(path, O_RDWR, 0666); \
-        if (!fp) return; \
-        aml_cfg_write(fp, "4096", strlen("4096")); \
-        aml_cfg_close(fp); \
-    } \
-} while (0);
-
-#define AML_CFG_RPS_SOCK()  do { \
-    char path[128]; \
-    struct file *fp; \
-    snprintf(path, sizeof(path), "/proc/sys/net/core/rps_sock_flow_entries"); \
-    fp = aml_cfg_open(path, O_RDWR, 0666); \
-    if (!fp) return; \
-    aml_cfg_write(fp, "16384", strlen("16384")); \
-    aml_cfg_close(fp); \
-} while (0);
-
-void aml_cfg_update_rps(void)
-{
-    /* wlan0 interface */
-    AML_CFG_RPS_CPUS(1);
-    AML_CFG_RPS_FLOW(1);
-
-    /* ap0 interface */
-    AML_CFG_RPS_CPUS(0);
-    AML_CFG_RPS_FLOW(0);
-
-    AML_CFG_RPS_SOCK();
 }

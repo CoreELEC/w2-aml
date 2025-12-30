@@ -33,6 +33,7 @@ ddk_module(
         "aml_drv/aml_bus/w2_sdio.c",
         "aml_drv/aml_bus/aml_static_buf.c",
         "aml_drv/aml_bus/w2_usb.c",
+        "aml_drv/aml_bus/aml_recy_notify.c",
     ],
     hdrs = [
         "//common_drivers:soc_headers",

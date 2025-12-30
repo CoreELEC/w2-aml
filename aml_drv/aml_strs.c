@@ -192,6 +192,8 @@ const char *const aml_mm_other_id2str[MM_SUB_A2E_MAX] = {
     [MM_SUB_SET_APF_MODE]            = "MM_SUB_SET_APF_MODE",
     [MM_SUB_GET_APF_STATUS]          = "MM_SUB_GET_APF_STATUS",
     [MM_SUB_SET_EARLY_SUSPEND_REQ]   = "MM_SUB_SET_EARLY_SUSPEND_REQ",
+    [MM_SUB_SEND_STRLOG]              = "MM_SUB_SEND_STRLOG",
+
 };
 
 static const char *const aml_dbgid2str[MSG_I(DBG_MAX)] = {

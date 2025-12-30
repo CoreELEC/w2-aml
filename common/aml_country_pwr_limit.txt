@@ -3,7 +3,7 @@
 version=1
 
 #EN: 0-disable, 1-enable (default 0)
-country_pwr_limit_en=0
+country_pwr_limit_en=1
 
 #2.4G
 ####       US_FCC_1    EU_CE_2     JP_ARIB_3     CN_SRRC_4    BR_ANATEL_5

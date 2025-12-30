@@ -21,7 +21,7 @@
 extern unsigned char g_pci_shutdown;
 extern unsigned char g_pci_msg_suspend;
 
-#define AML_WAKE_REASON_NUM 9
+#define AML_WAKE_REASON_NUM 10
 
 struct aml_wake_reason_id {
     unsigned int wake_reason_id;
@@ -301,5 +301,6 @@ int aml_regdom_en(struct aml_hw *aml_hw, uint32_t reg_en);
 int aml_set_phy_maskfilter_param_req(struct aml_hw *aml_hw, struct COUNTRY_PWR_LIMIT_CFG *country_pwr_limit_cfg, unsigned char ofdm_power);
 int _aml_trig_sec_test(struct aml_hw *aml_hw);
 int aml_get_radio_info(struct aml_hw *aml_hw, struct mm_get_radio_cfm *cfm);
+int aml_send_strlog_cmd(struct aml_hw *aml_hw, int mode);
 
 #endif /* _AML_MSG_TX_H_ */

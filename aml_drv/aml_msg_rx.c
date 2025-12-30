@@ -621,6 +621,9 @@ static inline int aml_rx_traffic_req_ind(struct aml_hw *aml_hw,
     struct aml_sta *sta = aml_hw->sta_table + ind->sta_idx;
 
     AML_DBG(AML_FN_ENTRY_STR);
+    if (!sta->valid) {
+        AML_M_ERR(MSG_RX, "sta is invalid staid:%d\n", ind->sta_idx);
+    }
 
     netdev_dbg(aml_hw->vif_table[sta->vif_idx]->ndev,
                "Sta %d, asked for %d pkt", sta->sta_idx, ind->pkt_cnt);
@@ -926,7 +929,13 @@ static inline int aml_rx_me_tkip_mic_failure_ind(struct aml_hw *aml_hw,
 {
     struct me_tkip_mic_failure_ind *ind = (struct me_tkip_mic_failure_ind *)msg->param;
     struct aml_vif *aml_vif = aml_hw->vif_table[ind->vif_idx];
-    struct net_device *dev = aml_vif->ndev;
+    struct net_device *dev;
+
+    if (!aml_vif) {
+        AML_M_ERR(MSG_RX, "aml_vif is null vid:%d\n", ind->vif_idx);
+        return 0;
+    }
+    dev = aml_vif->ndev;
 
     if (ind->vif_idx > NX_ITF_MAX) {
         AML_ERR("vif_idx:%d\n", ind->vif_idx);
@@ -1083,11 +1092,17 @@ static inline int aml_rx_sm_connect_ind(struct aml_hw *aml_hw,
 {
     struct sm_connect_ind *ind = (struct sm_connect_ind *)msg->param;
     struct aml_vif *aml_vif = aml_hw->vif_table[ind->vif_idx];
-    struct net_device *dev = aml_vif->ndev;
+    struct net_device *dev;
     const u8 *req_ie, *rsp_ie;
     const u8 *extcap_ie;
     const struct ieee_types_extcap *extcap;
     unsigned char ipv4_addr[IPV4_ADDR_LEN] = {0};
+
+    if (!aml_vif) {
+        AML_M_ERR(MSG_RX, "aml_vif is null vid:%d\n", ind->vif_idx);
+        return 0;
+    }
+    dev = aml_vif->ndev;
 
     AML_INFO("vif_idx:%d, status_code:%d, sta_idx:%d,"
             "center_freq:%d, center_freq1:%d, roamed:%d, mac:%pM",
@@ -1347,7 +1362,9 @@ static inline int aml_rx_sm_disconnect_ind(struct aml_hw *aml_hw,
 #ifdef CONFIG_AML_RECOVERY
     if (aml_recy && aml_recy->link_loss.is_enabled
         && ind->reason_code == AML_RECY_REASON_CODE_LINK_LOSS) {
-        AML_INFO("link loss disconnect happen, statistics scan and evaluates for recovery");
+        struct sm_linkloss_disconnect_ind *linkloss = (struct sm_linkloss_disconnect_ind *)ind;
+        AML_ERR("link loss disconnect happen, statistics scan and evaluates for recovery, sw_rd:%x, hw_wr:%x\n",
+                linkloss->sw_rd, linkloss->hw_wr);
         aml_recy->link_loss.is_happened = true;
         aml_recy->link_loss.scan_cnt = 0;
         ind->reason_code = HOST_REQUEST_DISCONNECT | MAC_RS_DEAUTH_SENDER_LEFT_IBSS_ESS;
@@ -1375,10 +1392,16 @@ static inline int aml_rx_sm_external_auth_required_ind(struct aml_hw *aml_hw,
         (struct sm_external_auth_required_ind *)msg->param;
     struct aml_vif *aml_vif = aml_hw->vif_table[ind->vif_idx];
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0)
-    struct net_device *dev = aml_vif->ndev;
+    struct net_device *dev;
     struct cfg80211_external_auth_params params;
 
     AML_DBG(AML_FN_ENTRY_STR);
+
+    if (!aml_vif) {
+        AML_M_ERR(MSG_RX, "aml_vif is null vid:%d\n", ind->vif_idx);
+        return 0;
+    }
+    dev = aml_vif->ndev;
 
     params.action = NL80211_EXTERNAL_AUTH_START;
     memcpy(params.bssid, ind->bssid.array, ETH_ALEN);
@@ -1407,7 +1430,8 @@ static inline int aml_rx_sm_external_auth_required_ind(struct aml_hw *aml_hw,
 #endif
 
 #else
-    aml_send_sm_external_auth_required_rsp(aml_hw, aml_vif,
+    if (aml_vif)
+        aml_send_sm_external_auth_required_rsp(aml_hw, aml_vif,
                                             WLAN_STATUS_UNSPECIFIED_FAILURE);
 #endif
     return 0;
@@ -1422,6 +1446,10 @@ static inline int aml_rx_sm_ft_auth_ind(struct aml_hw *aml_hw,
     struct sk_buff *skb;
     size_t data_len = (offsetof(struct ieee80211_mgmt, u.auth.variable) +
                        ind->ft_ie_len);
+    if (!aml_vif) {
+        AML_M_ERR(MSG_RX, "aml_vif is null vid:%d\n", ind->vif_idx);
+        return 0;
+    }
 
     skb = __dev_alloc_skb(data_len, in_interrupt() ? GFP_ATOMIC : GFP_KERNEL);
     if (skb) {
@@ -1443,6 +1471,12 @@ static inline int aml_rx_sm_ft_auth_rsp_timeout_ind(struct aml_hw *aml_hw,
 {
     struct aml_ft_auth_timeout *ft_auth_timeout = (struct aml_ft_auth_timeout *)msg->param;
     struct aml_vif *aml_vif = aml_hw->vif_table[ft_auth_timeout->vif_idx];
+
+    if (!aml_vif) {
+        AML_M_ERR(MSG_RX, "aml_vif is null vid:%d\n", ft_auth_timeout->vif_idx);
+        return 0;
+    }
+
     aml_vif->sta.flags &= ~(AML_STA_FT_OVER_AIR | AML_STA_FT_OVER_DS);
     AML_INFO(" vif idx %d, flags 0x%08x\n", ft_auth_timeout->vif_idx, aml_vif->sta.flags);
     return 0;
@@ -1695,6 +1729,15 @@ static inline int aml_rx_apm_probe_client_ind(struct aml_hw *aml_hw,
     struct apm_probe_client_ind *ind = (struct apm_probe_client_ind *)msg->param;
     struct aml_vif *aml_vif = aml_hw->vif_table[ind->vif_idx];
     struct aml_sta *aml_sta = aml_hw->sta_table + ind->sta_idx;
+
+    if (!aml_vif) {
+        AML_M_ERR(MSG_RX, "aml_vif is null vid:%d\n", ind->vif_idx);
+        return 0;
+    }
+
+    if (!aml_sta->valid) {
+        AML_M_ERR(MSG_RX, "aml_sta is invalid staid:%d\n", ind->sta_idx);
+    }
 
     aml_sta->stats.last_act = jiffies;
     cfg80211_probe_status(aml_vif->ndev, aml_sta->mac_addr, (u64)ind->probe_id,

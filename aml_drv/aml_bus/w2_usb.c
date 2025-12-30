@@ -60,15 +60,15 @@ static inline void __auc_cmd_rxrd_set(u32 flag, u32 rxrd)
 {
     unsigned char *p = &g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX];
 
-    *p++ = flag & 0xff;
-    *p++ = (flag >> 8) & 0xff;
-    *p++ = (flag >> 16) & 0xff;
-    *p++ = (flag >> 24) & 0xff;
-
     *p++ = rxrd & 0xff;
     *p++ = (rxrd >> 8) & 0xff;
     *p++ = (rxrd >> 16) & 0xff;
     *p++ = (rxrd >> 24) & 0xff;
+
+    *p++ = flag & 0xff;
+    *p++ = (flag >> 8) & 0xff;
+    *p++ = (flag >> 16) & 0xff;
+    *p++ = (flag >> 24) & 0xff;
 }
 
 static inline void auc_cmd_rxrd_clear(void)
@@ -80,7 +80,7 @@ int auc_cmd_rxrd_set(u32 rxrd)
 {
     USB_BEGIN_LOCK();
     /* RX read pointer (confirm) is already embedded in command? */
-    if (*(u32 *)&g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX]) {
+    if (*(u32 *)&g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX + 4]) {
         USB_END_LOCK();
         return -1;
     }

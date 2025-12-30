@@ -247,6 +247,12 @@ static inline int __mdnsOffload_setOffloadState(struct wiphy *wiphy,
     u32_boolean enabled = 0;
     u32_boolean *p_enabled = NULL;
     u32_boolean reply = 0;
+    struct aml_vif *vif;
+
+    vif = container_of(wdev, struct aml_vif, wdev);
+    if ((AML_VIF_TYPE(vif) != NL80211_IFTYPE_STATION) || !vif->up) {
+        return -EPERM;
+    }
 
     MDNS_OFFLOAD_DEBUG("mdnsOffload: setOffloadState\n");
     nla_for_each_attr(iter, data, len, rem) {
@@ -289,6 +295,12 @@ static inline int __mdnsOffload_resetAll(struct wiphy *wiphy,
 {
     struct aml_hw *aml_hw = wiphy_priv(wiphy);
     int err = 0;
+    struct aml_vif *vif;
+
+    vif = container_of(wdev, struct aml_vif, wdev);
+    if ((AML_VIF_TYPE(vif) != NL80211_IFTYPE_STATION) || !vif->up) {
+        return -EPERM;
+    }
 
     MDNS_OFFLOAD_DEBUG("mdnsOffload: resetAll\n");
     if (mdns_offload_ops.resetAll)
@@ -319,6 +331,12 @@ static inline int __mdnsOffload_addProtocolResponses(struct wiphy *wiphy,
     unsigned char *pkt_data = NULL;
     matchCriteria *criteriaList = NULL;
     char *qname = NULL;
+    struct aml_vif *vif;
+
+    vif = container_of(wdev, struct aml_vif, wdev);
+    if ((AML_VIF_TYPE(vif) != NL80211_IFTYPE_STATION) || !vif->up) {
+        return -EPERM;
+    }
 
     memset(ifname, 0, sizeof(ifname));
     memset(&offloadData, 0, sizeof(offloadData));
@@ -425,6 +443,12 @@ static inline int __mdnsOffload_setWakePorts(struct wiphy *wiphy,
     uint32_t num = 0;
     uint32_t *p_num = NULL;
     wakePort_info *port = NULL;
+    struct aml_vif *vif;
+
+    vif = container_of(wdev, struct aml_vif, wdev);
+    if ((AML_VIF_TYPE(vif) != NL80211_IFTYPE_STATION) || !vif->up) {
+        return -EPERM;
+    }
 
     nla_for_each_attr(iter, data, len, rem) {
         type = nla_type(iter);
@@ -494,6 +518,12 @@ static inline int __mdnsOffload_removeProtocolResponses(struct wiphy *wiphy,
     const struct nlattr *iter;
     int recordKey = -1;
     int *p_recordKey = NULL;
+    struct aml_vif *vif;
+
+    vif = container_of(wdev, struct aml_vif, wdev);
+    if ((AML_VIF_TYPE(vif) != NL80211_IFTYPE_STATION) || !vif->up) {
+        return -EPERM;
+    }
 
     MDNS_OFFLOAD_DEBUG("mdnsOffload: removeProtocolResponses\n");
     nla_for_each_attr(iter, data, len, rem) {
@@ -537,6 +567,12 @@ static inline int __mdnsOffload_getAndResetHitCounter(struct wiphy *wiphy,
     int recordKey = -1;
     int *p_recordKey = NULL;
     int reply = 0;
+    struct aml_vif *vif;
+
+    vif = container_of(wdev, struct aml_vif, wdev);
+    if ((AML_VIF_TYPE(vif) != NL80211_IFTYPE_STATION) || !vif->up) {
+        return -EPERM;
+    }
 
     MDNS_OFFLOAD_DEBUG("mdnsOffload: getAndResetHitCounter\n");
     nla_for_each_attr(iter, data, len, rem) {
@@ -581,6 +617,12 @@ static inline int __mdnsOffload_getAndResetMissCounter(struct wiphy *wiphy,
     struct aml_hw *aml_hw = wiphy_priv(wiphy);
     int err = 0;
     int reply = 0;
+    struct aml_vif *vif;
+
+    vif = container_of(wdev, struct aml_vif, wdev);
+    if ((AML_VIF_TYPE(vif) != NL80211_IFTYPE_STATION) || !vif->up) {
+        return -EPERM;
+    }
 
     MDNS_OFFLOAD_DEBUG("mdnsOffload: getAndResetMissCounter\n");
     if (mdns_offload_ops.getAndResetMissCounter) {
@@ -611,6 +653,12 @@ static inline int __mdnsOffload_addToPassthroughList(struct wiphy *wiphy,
     char qname[64];
     char *p_qname = NULL;
     u32_boolean reply = 0;
+    struct aml_vif *vif;
+
+    vif = container_of(wdev, struct aml_vif, wdev);
+    if ((AML_VIF_TYPE(vif) != NL80211_IFTYPE_STATION) || !vif->up) {
+        return -EPERM;
+    }
 
     MDNS_OFFLOAD_DEBUG("mdnsOffload: addToPassthroughList\n");
     memset(ifname, 0, sizeof(ifname));
@@ -665,6 +713,12 @@ static inline int __mdnsOffload_removeFromPassthroughList(struct wiphy *wiphy,
     char *p_ifname = NULL;
     char qname[64];
     char *p_qname = NULL;
+    struct aml_vif *vif;
+
+    vif = container_of(wdev, struct aml_vif, wdev);
+    if ((AML_VIF_TYPE(vif) != NL80211_IFTYPE_STATION) || !vif->up) {
+        return -EPERM;
+    }
 
     MDNS_OFFLOAD_DEBUG("mdnsOffload: removeFromPassthroughList\n");
     memset(ifname, 0, sizeof(ifname));
@@ -714,6 +768,13 @@ static inline int __mdnsOffload_setPassthroughBehavior(struct wiphy *wiphy,
     char *p_ifname = NULL;
     int behavior = -1;
     int *p_behavior = NULL;
+    struct aml_vif *vif;
+
+    vif = container_of(wdev, struct aml_vif, wdev);
+    if ((AML_VIF_TYPE(vif) != NL80211_IFTYPE_STATION) || !vif->up) {
+        return -EPERM;
+    }
+
 
     MDNS_OFFLOAD_DEBUG("mdnsOffload: setPassthroughBehavior\n");
     memset(ifname, 0, sizeof(ifname));

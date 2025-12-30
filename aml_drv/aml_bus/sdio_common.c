@@ -274,6 +274,8 @@ static void  aml_sdio_remove(struct sdio_func *func)
     u64 start_time_ns;
     u64 elapsed_time_ns = 0;
     u64 wait_wifi_time_ns = 12000000000; //wait wifi 12s
+    struct sdio_func *func = dev_to_sdio_func(device);
+    unsigned int reg_value;
 
     elapsed_time_ns = 0;
     if (atomic_read(&g_wifi_pm.wifi_enable))
@@ -307,6 +309,12 @@ static void  aml_sdio_remove(struct sdio_func *func)
             printk("Detect a bus error or ongoing recovery, return\n");
             return -1;
         }
+
+        if (func->num == SDIO_FUNC1) {
+            reg_value = aml_sdio_self_define_domain_read8(RG_SDIO_PMU_HOST_REQ);
+            reg_value |= HOST_SLEEP_REQ;
+            aml_sdio_self_define_domain_write8(RG_SDIO_PMU_HOST_REQ, reg_value);
+        }
     }
 
     ret = aml_sdio_suspend(device);
@@ -317,6 +325,7 @@ static void  aml_sdio_remove(struct sdio_func *func)
     {
         AML_INFO("aml_sdio_pm_suspend, cnt:0x%x \n", atomic_read(&g_wifi_pm.bus_suspend_cnt));
     }
+
     return ret;
 }
 

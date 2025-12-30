@@ -356,10 +356,14 @@ netdev_tx_t aml_start_xmit(struct sk_buff *skb, struct net_device *dev);
 int aml_start_mgmt_xmit(struct aml_vif *vif, struct aml_sta *sta,
                          struct cfg80211_mgmt_tx_params *params, bool offchan,
                          u64 *cookie);
+int aml_task_fn_tx_cfm(struct aml_task *t);
 int aml_txdatacfm(void *pthis, void *host_id);
 
 struct aml_hw;
 struct aml_sta;
+
+int aml_tx_cfm(struct aml_hw *aml_hw, struct tx_cfm_tag *cfm, struct sk_buff *skb, int headroom);
+
 void aml_set_traffic_status(struct aml_hw *aml_hw,
                              struct aml_sta *sta,
                              bool available,

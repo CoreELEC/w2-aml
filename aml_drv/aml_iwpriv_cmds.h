@@ -165,6 +165,7 @@ enum aml_iwpriv_subcmd
     AML_IWP_PT_SEC_TEST  = 143,
     AML_IWP_GET_RF_GAIN_IDX = 144,
     AML_IWP_GET_EFUSE_VENDOR_SN_TIMES = 145,
+    AML_IWP_GET_STR_LOG = 146,
 };
 
 #define IW_PRIV_INT_SIZE_MASK   0x01FF

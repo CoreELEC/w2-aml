@@ -39,7 +39,7 @@ static int aml_sdio_usb_irq_task(struct aml_hw *aml_hw)
         /* process TX confirmation */
         if (status & IPC_IRQ_E2A_TXCFM) {
             hi_sram_read(aml_hw, aml_hw->read_cfm, SRAM_TXCFM_START_ADDR, sizeof(aml_hw->read_cfm));
-            up(&aml_hw->aml_txcfm_sem);
+            aml_task_schedule(&aml_hw->cfm_task);
         }
     }
 

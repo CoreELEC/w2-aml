@@ -630,12 +630,6 @@ struct Coexist_Cmd
     unsigned char reserve1[38];
 };
 
-
-struct New_Cmd
-{
-    unsigned char cmd_buffer[APP_CMD_PERFIFO_LEN];
-};
-
 /* channel switch flag */
 enum {
     CHANNEL_RESTORE_FLAG = BIT(0),
@@ -667,6 +661,13 @@ typedef struct Fwlog_Mode_Control
     unsigned char mode; //0x00:fw  0x01:host
     unsigned char reserved[2];
 } Fwlog_Mode_Control;
+
+typedef struct Strlog_Mode_Control
+{
+    unsigned char Cmd;
+    unsigned char mode;
+    unsigned char reserved[2];
+} Strlog_Mode_Control;
 
 // event
 typedef struct channel_switch_event
@@ -731,7 +732,6 @@ typedef union FI_CMDFIFO_PARAM
     struct AddPatternCmd add_pattern_cmd;
     struct Bmfm_Info_Cmd bmfm_info_cmd;
     struct Coexist_Cmd coexist_cmd;
-    struct New_Cmd new_cmd;
 
     struct Channel_Switch channel_switch_cmd;
     struct DPD_Memory_Download dpd_download_cmd;

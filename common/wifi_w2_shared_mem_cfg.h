@@ -78,8 +78,6 @@ LA ON: rx buffer large size 0x30000, small size: 0x20000
 #define USB_RX_BUFFER_LEN_LA_LARGE           (USB_RXBUF_END_ADDR_LA_LARGE - RXBUF_START_ADDR)
 #define USB_RX_BUFFER_LEN_TRACE_LARGE        (USB_RXBUF_END_ADDR_TRACE_LARGE - RXBUF_START_ADDR)
 
-#define SDIO_USB_EXTEND_E2A_IRQ_STATUS CMD_DOWN_FIFO_FDN_ADDR
-
 /* SDIO USB E2A EXTEND IRQ TYPE */
 enum sdio_usb_e2a_irq_type {
     DYNAMIC_BUF_HOST_TX_STOP  = 1,
@@ -112,12 +110,12 @@ enum sdio_usb_e2a_irq_type {
 #define DYNAMIC_BUF_IS_ON_TX  ((sdio_buffer_ctrl.buffer_status) & (BUFFER_TX_USED))
 #define DYNAMIC_BUF_IS_ON_RX  ((sdio_buffer_ctrl.buffer_status) & (BUFFER_RX_USED))
 
-//RG_WIFI_IF_FW2HST_IRQ_CFG buffer flag for firmware to host
+// the E2A flags in RG_WIFI_IF_FW2HST_IRQ_CFG
 #define RX_WRAP_TEMP_FLAG               BIT(19)
 #define FW_BUFFER_NARROW                BIT(20)
 #define FW_BUFFER_EXPAND                BIT(21)
 
-//CMD_DOWN_FIFO_FDH_ADDR + 4 buffer flag for host to firmware
+// the A2E flags in SDIO_USB_A2E_RX_CONFIRM
 #define RX_ENLARGE_READ_RX_DATA_FINISH  BIT(25)
 #define HOST_RXBUF_ENLARGE_FINISH       BIT(26)
 #define RX_REDUCE_READ_RX_DATA_FINISH   BIT(27)
