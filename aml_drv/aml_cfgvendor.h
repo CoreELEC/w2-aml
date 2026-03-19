@@ -46,8 +46,6 @@ enum andr_vendor_subcmd {
 };
 
 #ifdef CONFIG_AML_APF
-extern struct mutex apf_mutex;
-
 enum apf_attributes {
     APF_ATTRIBUTE_VERSION,
     APF_ATTRIBUTE_MAX_LEN,

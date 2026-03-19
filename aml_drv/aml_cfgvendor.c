@@ -19,14 +19,12 @@
 
 #ifdef CONFIG_AML_APF
 
-struct mutex apf_mutex;
-
 #define APF_LOCK() do {\
-    mutex_lock(&apf_mutex);\
+    mutex_lock(&aml_hw->apf_params.apf_mutex);\
 } while (0)
 
 #define APF_UNLOCK() do {\
-    mutex_unlock(&apf_mutex);\
+    mutex_unlock(&aml_hw->apf_params.apf_mutex);\
 } while (0)
 
 #ifdef APF_DEBUG

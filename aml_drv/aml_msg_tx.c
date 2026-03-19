@@ -3689,7 +3689,8 @@ int aml_set_suspend_tx_flush(struct aml_hw *aml_hw, int tx_flush_enable)
     fw_tx_flush_enable = aml_priv_msg_zalloc(MM_SUB_TX_FLUSH, sizeof(int));
     if (fw_tx_flush_enable == NULL)
         return -ENOMEM;
-    AML_INFO("suspend notify fw tx flush \n");
+    AML_INFO("suspend notify fw tx flush host_cfm_idx:%d, fw_cfm_idx:%d\n",
+              aml_hw->ipc_env->txcfm_idx, (aml_bus_type == PCIE_MODE) ? 0xff : AML_REG_READ(aml_hw->plat, 0, SRAM_SYNC_FW_CFM_IDX));
     *fw_tx_flush_enable = tx_flush_enable;
 
     /* coverity[leaked_storage] - fw_tx_flush_enable will be freed later */
@@ -4998,6 +4999,9 @@ int aml_apf_get_capabilities(struct aml_hw *aml_hw)
 {
     void *apf_req;
 
+    if (aml_hw->apf_params.apf_cap.apf_mem_addr != 0)
+        return 0;
+
     apf_req = aml_priv_msg_zalloc(MM_SUB_GET_APF_CAPABILITIES, 0);
     if (!apf_req)
         return -ENOMEM;
@@ -5225,5 +5229,76 @@ int aml_get_radio_info(struct aml_hw *aml_hw, struct mm_get_radio_cfm *cfm)
 
     /* coverity[leaked_storage] - void_param will be freed later */
     return aml_priv_send_msg(aml_hw, void_param, 1, PRIV_GET_RADIO_CFM, cfm);
+}
+
+int aml_set_rf_tnum_cfg(struct aml_hw * aml_hw, u8 rf_tnum_cfg)
+{
+    struct mm_rf_tnum_cfg_req *req;
+
+    req = aml_priv_msg_zalloc(MM_SUB_SET_RF_TNUM_CFG, sizeof(struct mm_rf_tnum_cfg_req));
+    if (!req)
+        return -ENOMEM;
+
+    req->rf_tnum_cfg = rf_tnum_cfg;
+    AML_M_INFO(GENERIC, "set rf_tnum_cfg:%d", rf_tnum_cfg);
+
+    /* coverity[leaked_storage] - mcc_ratio_param will be freed later */
+    return aml_priv_send_msg(aml_hw, req, 0, MM_MSG_BYPASS_ID, NULL);
+}
+
+int aml_set_wfa_rts_based_txop(struct aml_vif *aml_vif, int enable)
+{
+    struct aml_hw *aml_hw = aml_vif->aml_hw;
+    struct wfa_test_req *wfa_test_param = NULL;
+
+    wfa_test_param = aml_priv_msg_zalloc(MM_SUB_SET_WFA_INFO, sizeof(struct wfa_test_req));
+    if (!wfa_test_param)
+        return -ENOMEM;
+
+    wfa_test_param->wfa_set_rts_based_txop_dur = enable;
+    /* coverity[leaked_storage] - wfa_test_param will be freed later */
+    return aml_priv_send_msg(aml_hw, wfa_test_param, 0, 0, NULL);
+}
+
+int aml_set_wmm_ie(struct aml_vif *aml_vif, int enable)
+{
+    struct aml_hw *aml_hw = aml_vif->aml_hw;
+    struct wfa_test_req *wfa_test_param = NULL;
+
+    wfa_test_param = aml_priv_msg_zalloc(MM_SUB_SET_WFA_INFO, sizeof(struct wfa_test_req));
+    if (!wfa_test_param)
+        return -ENOMEM;
+
+    wfa_test_param->wfa_set_wmm_ie = !enable;
+    /* coverity[leaked_storage] - wfa_test_param will be freed later */
+    return aml_priv_send_msg(aml_hw, wfa_test_param, 0, 0, NULL);
+}
+
+int aml_set_wfa_agg_tx_cnt_thres(struct aml_vif *aml_vif, int enable)
+{
+    struct aml_hw *aml_hw = aml_vif->aml_hw;
+    struct wfa_test_req *wfa_test_param = NULL;
+
+    wfa_test_param = aml_priv_msg_zalloc(MM_SUB_SET_WFA_INFO, sizeof(struct wfa_test_req));
+    if (!wfa_test_param)
+        return -ENOMEM;
+
+    wfa_test_param->wfa_set_agg_tx_cnt_thres = enable;
+    /* coverity[leaked_storage] - wfa_test_param will be freed later */
+    return aml_priv_send_msg(aml_hw, wfa_test_param, 0, 0, NULL);
+}
+
+int aml_reset_edca(struct aml_vif *aml_vif, int enable)
+{
+    struct aml_hw *aml_hw = aml_vif->aml_hw;
+    struct wfa_test_req *wfa_test_param = NULL;
+
+    wfa_test_param = aml_priv_msg_zalloc(MM_SUB_SET_WFA_INFO, sizeof(struct wfa_test_req));
+    if (!wfa_test_param)
+        return -ENOMEM;
+
+    wfa_test_param->wfa_reset_edca = enable;
+    /* coverity[leaked_storage] - wfa_test_param will be freed later */
+    return aml_priv_send_msg(aml_hw, wfa_test_param, 0, 0, NULL);
 }
 

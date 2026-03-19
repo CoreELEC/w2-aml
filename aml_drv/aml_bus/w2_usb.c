@@ -1045,40 +1045,6 @@ void auc_read_sram_by_ep_for_bt(unsigned char *buf,unsigned char *sram_addr, uns
     }
 }
 
-struct tx_trb_info_ex
-{
-    /* The number of pages needed for a single transfer */
-    unsigned int packet_num;
-    /* Actual size used for each page */
-    unsigned short buffer_size[128];
-};
-
-void aml_usb_build_tx_packet_info(struct crg_msc_cbw *cbw_buf, unsigned char cdb1,
-    struct tx_trb_info_ex * trb_info)
-{
-    cbw_buf->sig = trb_info->buffer_size[0] | trb_info->buffer_size[1] << 16;
-    cbw_buf->tag = trb_info->buffer_size[2] | trb_info->buffer_size[3] << 16;
-    cbw_buf->data_len = trb_info->buffer_size[4] | trb_info->buffer_size[5] << 16;
-    cbw_buf->flag = trb_info->packet_num; //packet nums 1byte
-    cbw_buf->len = trb_info->buffer_size[13] & 0xff;
-    cbw_buf->lun = (trb_info->buffer_size[13] >> 8) & 0xff;
-    cbw_buf->cdb[0] = cdb1 | trb_info->buffer_size[12] << 16;
-    cbw_buf->cdb[1] = trb_info->buffer_size[6] | trb_info->buffer_size[7] << 16;
-    cbw_buf->cdb[2] = trb_info->buffer_size[8] | trb_info->buffer_size[9] << 16;
-    cbw_buf->cdb[3] = trb_info->buffer_size[10] | trb_info->buffer_size[11] << 16;
-
-    {
-        int i=0,j;
-        if (trb_info->packet_num >= 15) {
-            for (j=14;j<trb_info->packet_num;j++) {
-                cbw_buf->resv[i] = trb_info->buffer_size[j] & 0xff;
-                cbw_buf->resv[i+1] = (trb_info->buffer_size[j]>> 8) & 0xff;
-                i=i+2;
-            }
-        }
-    }
-}
-
 struct usb_sg_request_ex {
     struct usb_sg_request sgr;
     struct timer_list timer;
@@ -1172,7 +1138,8 @@ int w2_usb_send_frame(struct scatterlist *scat_list, int n_sg)
     int i;
     int actual_length = 0;
     struct usb_device *udev = g_udev;
-    struct tx_trb_info_ex trb_info = {};
+    uint16_t buffer_size[128];
+    int len = sizeof(*buffer_size) * n_sg;
 
 #ifdef CONFIG_AML_RECOVERY
     if (bus_state_detect.bus_err || bus_state_detect.bus_reset_ongoing) {
@@ -1181,17 +1148,19 @@ int w2_usb_send_frame(struct scatterlist *scat_list, int n_sg)
         return 0;
     }
 #endif
-    USB_BEGIN_LOCK();
 
-    /* build page_info array */
-    trb_info.packet_num = n_sg;
+    BUG_ON(n_sg >= ARRAY_SIZE(buffer_size));
     for_each_sg(scat_list, sg, n_sg, i) {
-        trb_info.buffer_size[i] = sg->length;
+        buffer_size[i] = sg->length;
         actual_length += sg->length;
     }
 
+    USB_BEGIN_LOCK();
+
     AML_PROF_CNT(SG, - actual_length);
-    aml_usb_build_tx_packet_info(g_cmd_buf, CMD_WRITE_PACKET, &trb_info);
+
+    auc_build_cbw_add_data(g_cmd_buf, AML_XFER_TO_DEVICE, len,
+                           CMD_WRITE_PACKET, 0, 0, len, (unsigned char *)buffer_size);
     /* cmd stage */
     ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, USB_EP1),
                        g_cmd_buf, sizeof(*g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);

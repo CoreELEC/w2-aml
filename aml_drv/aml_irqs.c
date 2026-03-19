@@ -29,6 +29,12 @@ static int aml_sdio_usb_irq_task(struct aml_hw *aml_hw)
         if (aml_hw->aml_irq_task_quit)
             return -1;
 
+        if ((status & SDIO_IRQ_E2A_MSG) &&
+            (aml_hw->tx_stop & ~SDIO_USB_IPC_EXT_HOST_ONLY) == SDIO_USB_IPC_EXT_NOTIFY_FW_MAC_RST) {
+            //aml_hw->tx_stop |= SDIO_USB_IPC_EXT_E2A_DEFER;
+            //status &= ~SDIO_IRQ_E2A_MSG;
+        }
+
         /* process high priority interrupts */
         ipc_host_irq(aml_hw->ipc_env, status & ~(IPC_IRQ_E2A_RXDESC | IPC_IRQ_E2A_TXCFM));
 
@@ -38,7 +44,7 @@ static int aml_sdio_usb_irq_task(struct aml_hw *aml_hw)
 
         /* process TX confirmation */
         if (status & IPC_IRQ_E2A_TXCFM) {
-            hi_sram_read(aml_hw, aml_hw->read_cfm, SRAM_TXCFM_START_ADDR, sizeof(aml_hw->read_cfm));
+            hi_sram_read(aml_hw, aml_hw->tx_cfm_buf, SRAM_TXCFM_START_ADDR, sizeof(struct compact_tx_cfm_tag) * COMPACT_TXCFM_CNT);
             aml_task_schedule(&aml_hw->cfm_task);
         }
     }

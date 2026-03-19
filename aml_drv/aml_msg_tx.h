@@ -302,5 +302,9 @@ int aml_set_phy_maskfilter_param_req(struct aml_hw *aml_hw, struct COUNTRY_PWR_L
 int _aml_trig_sec_test(struct aml_hw *aml_hw);
 int aml_get_radio_info(struct aml_hw *aml_hw, struct mm_get_radio_cfm *cfm);
 int aml_send_strlog_cmd(struct aml_hw *aml_hw, int mode);
-
+int aml_set_rf_tnum_cfg(struct aml_hw * aml_hw, u8 rf_tnum_cfg);
+int aml_set_wfa_rts_based_txop(struct aml_vif *aml_vif, int enable);
+int aml_set_wfa_agg_tx_cnt_thres(struct aml_vif *aml_vif, int enable);
+int aml_reset_edca(struct aml_vif *aml_vif, int enable);
+int aml_set_wmm_ie(struct aml_vif *aml_vif, int enable);
 #endif /* _AML_MSG_TX_H_ */

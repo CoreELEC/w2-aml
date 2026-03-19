@@ -1289,6 +1289,8 @@ static inline int aml_rx_sm_connect_ind(struct aml_hw *aml_hw,
                     cfg80211_disconnected(dev, 0, NULL, 0, false, GFP_ATOMIC);
                 }
 #endif
+                if (ind->status_code == 0)
+                    aml_recy_flags_set(AML_RECY_ASSOC_INFO_SAVED);
                 /* normal connect, but fail */
                 if (ind->status_code != 0) {
                     aml_wake_source_relax(aml_hw);
@@ -1889,23 +1891,23 @@ static inline int aml_coex_get_status_ind(struct aml_hw *aml_hw,
 
 
     AML_INFO("\nBT Link Info: \n");
-    if (ind->bt_work_status & BIT(21))
+    if (ind->bt_work_status & COEX_BT_IN_ESCO_MODE)
     {
         AML_INFO("BT work on ESCO mode; \n");
     }
-    if (ind->bt_work_status & BIT(22))
+    if (ind->bt_work_status & COEX_BT_IN_SLAVE_MODE)
     {
         AML_INFO("BT work on SLAVE mode; \n");
     }
-    if (ind->bt_work_status & BIT(24))
+    if (ind->bt_work_status & COEX_BT_ACL_WORK_FLAG)
     {
         AML_INFO("BT work with CLASSIC; \n");
     }
-    if (ind->bt_work_status & BIT(25))
+    if (ind->bt_work_status & COEX_BT_BLE_WORK_FLAG)
     {
         AML_INFO("BT work with BLE; \n");
     }
-    if (ind->bt_work_status & BIT(26))
+    if (ind->bt_work_status & COEX_BT_REQ_TDD_FLAG)
     {
         AML_INFO("BT REQ TDD; \n");
     }

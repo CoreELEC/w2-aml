@@ -2234,7 +2234,7 @@ int aml_task_fn_tx_cfm(struct aml_task *t)
     spin_lock_bh(&aml_hw->tx_lock);
 
     for (i = 0; i < COMPACT_TXCFM_CNT; i++, cur = (cur + 1) % COMPACT_TXCFM_CNT) {
-        struct compact_tx_cfm_tag *compact = &aml_hw->read_cfm[cur];
+        struct compact_tx_cfm_tag *compact = &aml_hw->tx_cfm_buf[cur];
         struct sk_buff *skb;
 
         ipc_env->txcfm_idx = cur;

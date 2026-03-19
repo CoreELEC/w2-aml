@@ -708,6 +708,7 @@ struct apf_param {
     struct apf_get_status_req apf_info;
     struct apf_capabilities apf_cap;
     u32 program_len;
+    struct mutex apf_mutex;
 };
 
 #endif
@@ -852,13 +853,13 @@ struct aml_hw {
 #ifdef CONFIG_AML_MUMIMO_TX
     struct aml_mu_info mu;
 #endif
+    uint32_t tx_stop;
+    bool mac_reset;
 
     // RX path
     struct aml_rx rx;               /* SDIO/USB only */
-
     struct aml_defer_rx defer_rx;
-    uint32_t dynabuf_stop_tx;     /* dynamic buf switch, tx stop flag */
-    uint32_t send_tx_stop_to_fw;  /* dynamic buf switch, send tx stop to fw flag */
+
     struct assoc_info rx_assoc_info;
 
 #ifdef CONFIG_AML_PREALLOC_BUF_SKB
@@ -916,7 +917,7 @@ struct aml_hw {
     struct aml_ipc_buf unsuprxvecs[IPC_UNSUPRXVECBUF_CNT];
     struct aml_ipc_buf scan_ie;
     struct aml_ipc_buf_pool txcfm_pool;
-    struct compact_tx_cfm_tag read_cfm[COMPACT_TXCFM_CNT];
+    struct compact_tx_cfm_tag *tx_cfm_buf;
 
     // miscellaneous
     struct scan_results *scan_results;
@@ -986,6 +987,7 @@ struct aml_hw {
     u8 scan_abort_enable;
     u8 scan_interval_thr;
     u8 scan_abort_flag;
+    u8 rf_tnum_cfg;
     /*management tcp session*/
     struct aml_tcp_sess_mgr ack_mgr;
 #ifdef CONFIG_AML_NAPI

@@ -923,11 +923,40 @@ struct scan_results *aml_scan_get_scan_res_node(struct aml_hw *aml_hw)
     return scan_res;
 }
 
-static void aml_host_send_stop_tx_to_fw(struct aml_hw *aml_hw)
+static int aml_tx_should_stop(struct aml_hw *aml_hw)
 {
-    uint32_t cmd[2] = { DYNAMIC_BUF_NOTIFY_FW_TX_STOP, 1 };
+    uint32_t a2e = aml_hw->tx_stop & ~SDIO_USB_IPC_EXT_E2A_DEFER;
 
-    hi_sram_write(aml_hw, SDIO_USB_EXTEND_E2A_IRQ_STATUS, cmd, sizeof(cmd));
+    switch (a2e) {
+    case SDIO_USB_IPC_EXT_NONE:
+        return 0;
+    case DYNAMIC_BUF_NOTIFY_FW_TX_STOP:
+    case SDIO_USB_IPC_EXT_NOTIFY_FW_MAC_RST:
+        /* coverity[MISSING_LOCK] --miss aml_hw->tx_buf_lock*/
+        if (aml_hw->g_tx_param.tx_page_free_num == aml_hw->g_tx_param.tx_page_tot_num) {
+            uint32_t cmd[] = { a2e, 0 /* RX confirm */, SDIO_USB_A2E_IRQ_TRIGGER_MAGIC};
+            struct aml_cmd_mgr *cmd_mgr = &aml_hw->cmd_mgr;
+
+            if (a2e == SDIO_USB_IPC_EXT_NOTIFY_FW_MAC_RST)
+                aml_sdio_usb_rx_reset(&aml_hw->rx);
+
+            spin_lock_bh(&cmd_mgr->lock);
+            while (aml_hw->mac_reset && cmd_mgr->queue_sz > 0) {
+                spin_unlock_bh(&cmd_mgr->lock);
+                msleep(10);
+                spin_lock_bh(&cmd_mgr->lock);
+            }
+            spin_unlock_bh(&cmd_mgr->lock);
+
+            aml_hw->tx_stop |= SDIO_USB_IPC_EXT_SENT_TO_FW;
+            hi_sram_write(aml_hw, SDIO_USB_EXTEND_E2A_IRQ_STATUS, cmd, sizeof(cmd));
+        }
+        break;
+    default:
+        break;
+    }
+    AML_DBG("A2E %x/%x\n", a2e, aml_hw->tx_stop);
+    return 1;
 }
 
 #define TXDESC_OFFSET           (4)
@@ -952,22 +981,12 @@ int aml_tx_task(void *data)
             AML_ERR("wait aml_tx_sem fail!\n");
             break;
         }
-        if (aml_hw->aml_tx_task_quit) {
-            break;
-        }
 
-        if (aml_hw->dynabuf_stop_tx == DYNAMIC_BUF_HOST_TX_STOP) {
-            if (aml_hw->send_tx_stop_to_fw) {
-                /* coverity[MISSING_LOCK] --miss aml_hw->tx_buf_lock*/
-                if (aml_hw->g_tx_param.tx_page_free_num == aml_hw->g_tx_param.tx_page_tot_num) {
-                    aml_hw->send_tx_stop_to_fw = 0;
-                    aml_host_send_stop_tx_to_fw(aml_hw);
-                } else {
-                    up(&aml_hw->aml_tx_sem);
-                }
-            }
+        if (aml_hw->aml_tx_task_quit)
+            break;
+
+        if (aml_tx_should_stop(aml_hw))
             continue;
-        }
 
         AML_PROF_HI(tx);
         spin_lock_bh(&aml_hw->tx_lock);
@@ -1192,7 +1211,7 @@ static void aml_sdio_ipc_txdesc_push(struct aml_hw *aml_hw, struct aml_sw_txhdr 
     struct txdesc_host *txdesc_host = &sw_txhdr->desc;
     txdesc_host->ctrl.hwq = hw_queue;
     txdesc_host->api.host.hostid = ipc_host_tx_host_ptr_to_id(aml_hw->ipc_env, skb);
-    txdesc_host->ready = 0xFFFFFFFF;
+    txdesc_host->ready = W2_TX_DESC_MAGIC;
 
     if (unlikely(!txdesc_host->api.host.hostid)) {
         dev_err(aml_hw->dev, "No more tx_hostid available \n");
@@ -1215,7 +1234,7 @@ static void aml_pci_ipc_txdesc_push(struct aml_hw *aml_hw, struct aml_sw_txhdr *
 
     txdesc_host->ctrl.hwq = hw_queue;
     txdesc_host->api.host.hostid = ipc_host_tx_host_ptr_to_id(aml_hw->ipc_env, skb);
-    txdesc_host->ready = 0xFFFFFFFF;
+    txdesc_host->ready = W2_TX_DESC_MAGIC;
 
     if (unlikely(!txdesc_host->api.host.hostid)) {
         dev_err(aml_hw->dev, "No more tx_hostid available \n");
@@ -1994,8 +2013,8 @@ void aml_ipc_tx_drain(struct aml_hw *aml_hw)
         struct aml_txq *txq = sw_txhdr->txq;
 
         /* coverity[MISSING_LOCK] */
-        AML_INFO("tx_free_page_num:%d, hostid:%x, vif_idx:%d, staid:%d\n",
-            aml_hw->g_tx_param.tx_page_free_num, sw_txhdr->desc.api.host.hostid, sw_txhdr->desc.api.host.vif_idx, sw_txhdr->desc.api.host.staid);
+        AML_INFO("tx_free_page_num:%d, hostid:%x, vif_idx:%d, staid:%d, host_cfm_idx:%d\n",
+            aml_hw->g_tx_param.tx_page_free_num, sw_txhdr->desc.api.host.hostid, sw_txhdr->desc.api.host.vif_idx, sw_txhdr->desc.api.host.staid, aml_hw->ipc_env->txcfm_idx);
 
         aml_txq_confirm_any(aml_hw, txq, hwq, sw_txhdr);
 

@@ -224,9 +224,9 @@ static void aml_tcp_sess_ageout(struct aml_tcp_sess_mgr *ack_mgr)
         }
 
         if (aml_bus_type == USB_MODE)
-            drop_cnt = MAX_DROP_TCP_ACK_CNT_USB;
+            drop_cnt = USB_MAX_DROP_TCP_ACK_CNT;
         else
-            drop_cnt = MAX_DROP_TCP_ACK_CNT;
+            drop_cnt = SDIO_MAX_DROP_TCP_ACK_CNT;
 
         /* need enable dynamic adjust drop number when do rx throughput test with less than 10 pair */
         if (atomic_read(&ack_mgr->dynamic_adjust)) {
@@ -473,12 +473,11 @@ void aml_tcp_delay_ack_init(struct aml_hw *aml_hw)
     spin_lock_init(&ack_mgr->lock);
     atomic_set(&ack_mgr->max_timeout, MAX_TCP_ACK_TIMEOUT);
     if (aml_bus_type == USB_MODE) {
-        atomic_set(&ack_mgr->max_drop_cnt, MAX_DROP_TCP_ACK_CNT_USB);
-        atomic_set(&ack_mgr->dynamic_adjust, 0);
+        atomic_set(&ack_mgr->max_drop_cnt, USB_MAX_DROP_TCP_ACK_CNT);
     } else {
-        atomic_set(&ack_mgr->max_drop_cnt, MAX_DROP_TCP_ACK_CNT);
-        atomic_set(&ack_mgr->dynamic_adjust, 1);
+        atomic_set(&ack_mgr->max_drop_cnt, SDIO_MAX_DROP_TCP_ACK_CNT);
     }
+    atomic_set(&ack_mgr->dynamic_adjust, 0);
     ack_mgr->last_time = jiffies;
     /* coverity[missing_lock] */
     ack_mgr->total_drop_cnt = 0;
@@ -667,9 +666,9 @@ int aml_filter_tx_tcp_ack(struct net_device *dev,
         u8 drop_cnt;
 
         if (aml_bus_type == USB_MODE)
-            drop_cnt = MAX_DROP_TCP_ACK_CNT_USB;
+            drop_cnt = USB_MAX_DROP_TCP_ACK_CNT;
         else
-            drop_cnt = MAX_DROP_TCP_ACK_CNT;
+            drop_cnt = SDIO_MAX_DROP_TCP_ACK_CNT;
 
         tcp_info = ack_mgr->tcp_info + index;
         /* need enable dynamic adjust drop number when do rx throughput test with less than 10 pair */

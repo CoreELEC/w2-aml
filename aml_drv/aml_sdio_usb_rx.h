@@ -39,7 +39,7 @@
  *  - f/w: call rxbuf_reduce_process() to reduce RX buffer,
  *         clear internal flags: BUFFER_RX_WAIT_READ_DATA,
  *         clear FW_BUFFER_NARROW,
- *         set DYNAMIC_BUF_HOST_TX_START to SDIO_USB_EXTEND_E2A_IRQ_STATUS.
+ *         set SDIO_USB_IPC_EXT_TX_START to SDIO_USB_EXTEND_E2A_IRQ_STATUS.
  *  - host: allow TX,
  *          set HOST_RXBUF_REDUCE_FINISH by aml_sdio_usb_rx_confirm()
  *          if FW_BUFFER_NARROW is cleared.
@@ -61,7 +61,7 @@
  *  - f/w: call rxbuf_enlarge_process() to enlarge RX buffer,
  *         clear internal flags: BUFFER_RX_WAIT_READ_DATA,
  *         clear FW_BUFFER_EXPAND,
- *         set DYNAMIC_BUF_HOST_TX_START to SDIO_USB_EXTEND_E2A_IRQ_STATUS.
+ *         set SDIO_USB_IPC_EXT_TX_START to SDIO_USB_EXTEND_E2A_IRQ_STATUS.
  *  - host: allow TX,
  *          set HOST_RXBUF_ENLARGE_FINISH by aml_sdio_usb_rx_confirm()
  *          if FW_BUFFER_EXPAND is cleared.
@@ -235,6 +235,12 @@ static inline enum aml_rx_buf_layout aml_shared_mem_layout_get(struct aml_rx *rx
                 ? AML_RX_BUF_EXPAND : AML_RX_BUF_NARROW;
 }
 
+static inline int aml_sdio_usb_rx_start(struct aml_rx *rx)
+{
+    return test_and_set_bit(AML_RX_STATE_START, &rx->state) ? -1 /* already started */ : 0;
+}
+
+int aml_sdio_usb_rx_reset(struct aml_rx *rx);
 int aml_sdio_usb_rx_stop(struct aml_rx *rx);
 void aml_sdio_usb_rx_restart(struct aml_rx *rx);
 

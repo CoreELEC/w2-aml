@@ -69,7 +69,7 @@ static int _aml_sdio_request_byte(unsigned char func_num,
     {
         ERROR_DEBUG_OUT("kmalloc buf fail\n");
         AML_BT_WIFI_MUTEX_OFF();
-        return SDIOH_API_RC_FAIL;
+        return -ENOMEM;
     }
     memcpy(kmalloc_buf, byte, len);
 
@@ -99,7 +99,7 @@ static int _aml_sdio_request_byte(unsigned char func_num,
 
     FREE(kmalloc_buf, "sdio_write");
     AML_BT_WIFI_MUTEX_OFF();
-    return (err_ret == 0) ? SDIOH_API_RC_SUCCESS : SDIOH_API_RC_FAIL;
+    return err_ret;
 }
 
 //cmd52, func 0, for self define domain
@@ -250,7 +250,7 @@ int aml_sdio_bottom_read(unsigned char func_num, int addr, void *buf, size_t len
     if (kmalloc_buf == NULL) {
         ERROR_DEBUG_OUT("kmalloc buf fail kmalloc_buf %p buf %p SDIO_FUNC %d\n", (void *)kmalloc_buf, buf, func_num);
         AML_BT_WIFI_MUTEX_OFF();
-        return SDIOH_API_RC_FAIL;
+        return -ENOMEM;
     }
 
     result = _aml_sdio_request_buffer(func_num, incr_addr, SDIO_READ, addr, kmalloc_buf, len);
@@ -425,19 +425,21 @@ static int aml_sdio_rx_buffer_read(void *buf, u32 addr, unsigned int len, unsign
         u32 base = addr - addr_lo;
 
         if (base != rx_buffer_base_addr) {
+            ret = aml_sdio_self_define_domain_write32(RG_SCFG_FUNC6_BADDR_A, base);
+            if (ret)
+                return ret;
             rx_buffer_base_addr = base;
-            aml_sdio_self_define_domain_write32(RG_SCFG_FUNC6_BADDR_A, base);
         }
         ret = aml_sdio_bottom_read(SDIO_FUNC6, addr_lo, buf, read_len, SDIO_OPMODE_INCREMENT);
         if (ret)
-            break;
+            return ret;
 
         len -= read_len;
         buf += read_len;
         addr += read_len;
         received += read_len;
     }
-    return received ? : ret;
+    return received;
 }
 
 //sdio func7 for bt

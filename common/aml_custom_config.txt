@@ -10,3 +10,5 @@ enable_2g4_20m=0
 mcc_ratio=2
 scan_abort_enable=0
 scan_interval_thr=22
+# 0:default 2T2R, 1:1T2R
+rf_tnum_cfg=0

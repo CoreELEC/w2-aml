@@ -514,6 +514,8 @@ enum mm_sub_a2e_tag {
     MDNS_SET_WAKE_PORTS = 77,
     MM_SUB_GET_RADIO_INFO = 78,
     MM_SUB_SEND_STRLOG = 79,
+    MM_SUB_SET_RF_TNUM_CFG = 80,
+    MM_SUB_SET_WFA_INFO = 81,
     /// the MAX
     MM_SUB_A2E_MAX,
     /// New members cannot be added below
@@ -3723,6 +3725,19 @@ struct mm_get_radio_cfm {
     uint8_t ap_num;
     uint8_t rev;
     uint16_t ap_weight;
+};
+
+/// Structure containing the parameters of the @ref MM_SUB_SET_RF_TNUM_CFG message.
+struct mm_rf_tnum_cfg_req {
+    uint8_t rf_tnum_cfg;
+};
+
+struct wfa_test_req
+{
+    bool wfa_set_rts_based_txop_dur;
+    bool wfa_set_agg_tx_cnt_thres;
+    bool wfa_reset_edca;
+    bool wfa_set_wmm_ie;
 };
 
 #endif // LMAC_MSG_H_

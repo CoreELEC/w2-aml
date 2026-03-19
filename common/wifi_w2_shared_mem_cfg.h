@@ -78,18 +78,25 @@ LA ON: rx buffer large size 0x30000, small size: 0x20000
 #define USB_RX_BUFFER_LEN_LA_LARGE           (USB_RXBUF_END_ADDR_LA_LARGE - RXBUF_START_ADDR)
 #define USB_RX_BUFFER_LEN_TRACE_LARGE        (USB_RXBUF_END_ADDR_TRACE_LARGE - RXBUF_START_ADDR)
 
-/* SDIO USB E2A EXTEND IRQ TYPE */
-enum sdio_usb_e2a_irq_type {
-    DYNAMIC_BUF_HOST_TX_STOP  = 1,
-    DYNAMIC_BUF_HOST_TX_START,
-    DYNAMIC_BUF_NOTIFY_FW_TX_STOP,
+enum sdio_usb_ipc_ext_state {
+    SDIO_USB_IPC_EXT_NONE = 0,
+
+    SDIO_USB_IPC_EXT_TX_START,
+
+    DYNAMIC_BUF_HOST_TX_STOP,
+    DYNAMIC_BUF_NOTIFY_FW_TX_STOP,      /* to f/w */
     DYNAMIC_BUF_LA_SWITCH_FINISH,
 
-    /* DYNAMIC_BUF_RESERVEDx can be reused */
-    DYNAMIC_BUF_RESERVED0,
-    DYNAMIC_BUF_RESERVED1,
+    SDIO_USB_IPC_EXT_MAC_RST,
+    SDIO_USB_IPC_EXT_NOTIFY_FW_MAC_RST, /* to f/w */
 
-    EXCEPTION_IRQ,
+    EXCEPTION_IRQ,                      /* used by Rev-C ROM code */
+
+    /* host only */
+    SDIO_USB_IPC_EXT_E2A_DEFER  = (1 << 14),
+    SDIO_USB_IPC_EXT_SENT_TO_FW = (1 << 15),
+    SDIO_USB_IPC_EXT_HOST_ONLY  = (SDIO_USB_IPC_EXT_E2A_DEFER | SDIO_USB_IPC_EXT_SENT_TO_FW),
+    SDIO_USB_IPC_EXT_MAC_RST_FLAG = (1 << 31),
 };
 
 #define BUFFER_TX_USED             BIT(0)

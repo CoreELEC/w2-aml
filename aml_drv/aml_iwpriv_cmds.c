@@ -1416,9 +1416,9 @@ static int aml_set_max_drop_num(struct net_device *dev, int num)
     if (num < 0)
     {
         if (aml_bus_type == USB_MODE)
-            num = MAX_DROP_TCP_ACK_CNT_USB;
+            num = USB_MAX_DROP_TCP_ACK_CNT;
         else
-            num = MAX_DROP_TCP_ACK_CNT;
+            num = SDIO_MAX_DROP_TCP_ACK_CNT;
         atomic_set(&ack_mgr->max_drop_cnt, num);
         atomic_set(&ack_mgr->dynamic_adjust, 1);
     }
@@ -3626,8 +3626,8 @@ static int aml_recovery_iwpriv_process(struct aml_hw *aml_hw)
 static int aml_recy_ctrl(struct net_device *dev, int recy_id)
 {
     struct aml_vif *aml_vif = netdev_priv(dev);
-#ifdef CONFIG_AML_RECOVERY
     struct aml_hw *aml_hw = aml_vif->aml_hw;
+#ifdef CONFIG_AML_RECOVERY
     struct aml_cmd_mgr *cmd_mgr = &aml_hw->cmd_mgr;
 #endif
 
@@ -3657,8 +3657,12 @@ static int aml_recy_ctrl(struct net_device *dev, int recy_id)
             break;
 #endif
         case 4:
-            AML_INFO("do firmware soft reset");
-            aml_fw_reset(aml_vif);
+            if (aml_hw->tx_stop == SDIO_USB_IPC_EXT_NONE) {
+                AML_INFO("do MAC/PHY hard reset\n");
+                aml_fw_reset(aml_vif);
+            } else {
+                AML_NOTICE("skip MAC/PHY hard reset (%x)\n", aml_hw->tx_stop);
+            }
             break;
         case 6:
             AML_INFO("Get Wi-Fi Recovery Info");
@@ -4309,7 +4313,7 @@ static void aml_set_wifi_mac_addr(struct net_device *dev, char* arg_iw)
     unsigned int mac_val_second = 0;
     unsigned int efuse_data_l = 0;
     unsigned int efuse_data_h = 0;
-    char mac_addr[ETH_ALEN] = {0};
+    unsigned char mac_addr[ETH_ALEN] = {0};
     bool succ;
     struct aml_vif *aml_vif = netdev_priv(dev);
 
@@ -4413,7 +4417,7 @@ static int aml_get_mac_addr(struct net_device *dev,union iwreq_data *wrqu, char 
 static int aml_set_efuse_vendor_sn(struct net_device *dev, char *arg)
 {
     struct aml_vif *aml_vif = netdev_priv(dev);
-    char argv[2];
+    unsigned char argv[2];
     unsigned int efuse_data = 0;
     unsigned int efuse_data_l = 0;
     unsigned int efuse_data_m = 0;
@@ -4531,7 +4535,7 @@ static void aml_set_bt_mac_addr(struct net_device *dev, char* arg_iw)
     unsigned int mac_val_second = 0;
     unsigned int efuse_data_l = 0;
     unsigned int efuse_data_h = 0;
-    char mac_addr[ETH_ALEN] = {0};
+    unsigned char mac_addr[ETH_ALEN] = {0};
     bool succ;
     struct aml_vif *aml_vif = netdev_priv(dev);
 
@@ -5031,6 +5035,42 @@ int aml_set_regdom_en(struct net_device *dev, int reg_en)
     return 0;
 }
 
+int aml_iwpriv_set_rts_based_txop(struct net_device *dev, int enable)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+
+    aml_set_wfa_rts_based_txop(aml_vif, enable);
+
+    return 0;
+}
+
+int aml_iwpriv_set_wmm_ie(struct net_device *dev, int enable)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+
+    aml_set_wmm_ie(aml_vif, enable);
+
+    return 0;
+}
+
+int aml_iwpriv_set_agg_tx_cnt_thres(struct net_device *dev, int enable)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+
+    aml_set_wfa_agg_tx_cnt_thres(aml_vif, enable);
+
+    return 0;
+}
+
+int aml_iwpriv_reset_edca(struct net_device *dev, int enable)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+
+    aml_reset_edca(aml_vif, enable);
+
+    return 0;
+}
+
 #if defined(CONFIG_WEXT_PRIV)
 static int aml_iwpriv_send_para1(struct net_device *dev,
     struct iw_request_info *info, union iwreq_data *wrqu, char *extra)
@@ -5202,6 +5242,18 @@ static int aml_iwpriv_send_para1(struct net_device *dev,
             break;
         case AML_IWP_GET_STR_LOG:
             aml_get_str_log_cmd(dev, set1);
+            break;
+        case AML_IWP_SET_RTS_BASED_TXOP:
+            aml_iwpriv_set_rts_based_txop(dev, set1);
+            break;
+        case AML_IWP_SET_AGG_TX_CNT_THRES:
+            aml_iwpriv_set_agg_tx_cnt_thres(dev, set1);
+            break;
+        case AML_IWP_RESET_EDCA:
+            aml_iwpriv_reset_edca(dev, set1);
+            break;
+        case AML_IWP_SET_WMM_IE:
+            aml_iwpriv_set_wmm_ie(dev, set1);
             break;
         default:
             AML_ERR("param err\n");
@@ -6279,6 +6331,18 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
     {
         AML_IWP_SET_MCC_RATIO,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "set_mcc_ratio"},
+    {
+        AML_IWP_SET_RTS_BASED_TXOP,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "set_wfa_rts_on"},
+    {
+        AML_IWP_SET_AGG_TX_CNT_THRES,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "set_wfa_agg"},
+    {
+        AML_IWP_RESET_EDCA,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "reset_wfa_edca"},
+    {
+        AML_IWP_SET_WMM_IE,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "set_wfa_wmm_ie"},
     {
         AML_IWP_LOG_LEVELS,
         IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK,

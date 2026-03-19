@@ -50,6 +50,7 @@
 
 #define SDIO_USB_A2E_RX_CONFIRM         (MAC_SRAM_BASE + 0x38)
 #define SDIO_USB_A2E_IRQ_TRIGGER        (MAC_SRAM_BASE + 0x3c)
+#define   SDIO_USB_A2E_IRQ_TRIGGER_MAGIC    1
 
 /*wifi operate mode */
 #define MODE_IBSS 0
@@ -72,7 +73,6 @@
  * for expanding buffer of rxcomplete status to avoid overlapping or overwriting. */
 #define WIFI_MAX_RXFRAME  255 //127
 #define PHY_VMAC_ID  (0x20)
-#define TX_ADDRESSTABLE_NUM  256
 
 #ifdef DHCP_OFFLOAD
 #define RX_TMP_MAX_LEN  512

@@ -15,6 +15,14 @@
 
 #include "aml_types.h"
 
+#define W2_TX_DESC_MAGIC        0x5458504b          /* "TXPK" */
+
+#define W2_TXHW_HDR_LEN_USB     0
+#define W2_TXHW_HDR_LEN_SDIO    12                  /* sizeof(struct HW_TxBufferInfo) */
+
+#define SDIO_PAGE_MAX           65
+#define USB_PAGE_MAX            25
+
 /*
  * compact TX confirmation tag for SDIO/USB
  */

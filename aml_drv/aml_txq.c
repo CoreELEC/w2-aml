@@ -677,8 +677,8 @@ static void aml_txq_drop_dump(struct aml_vif *vif, const char *txq_name)
     AML_ERR("VIF%d/%s: Dropped packet(s) in %s TXQ(s)\n",
             vif->vif_index, vif->ndev->name, txq_name);
     spin_lock_bh(&vif->aml_hw->tx_buf_lock);
-    AML_ERR("tot_page_num=%d, free_page_num=%d\n",
-            vif->aml_hw->g_tx_param.tot_page_num, vif->aml_hw->g_tx_param.tx_page_free_num);
+    AML_ERR("tot_page_num=%d, free_page_num=%d, host_cfm_idx:%d\n",
+            vif->aml_hw->g_tx_param.tot_page_num, vif->aml_hw->g_tx_param.tx_page_free_num, vif->aml_hw->ipc_env->txcfm_idx);
     spin_unlock_bh(&vif->aml_hw->tx_buf_lock);
 
     aml_wq_do_ptr(aml_vif_txqs_dump, vif->aml_hw, vif);

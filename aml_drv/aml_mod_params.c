@@ -66,7 +66,11 @@ struct aml_mod_params aml_mod_params = {
     COMMON_PARAM(listen_itv, 0, 0)
     COMMON_PARAM(listen_bcmc, true, true)
     COMMON_PARAM(lp_clk_ppm, 20, 20)
+#ifdef CONFIG_PT_MODE
+    COMMON_PARAM(ps_on, false, false)
+#else
     COMMON_PARAM(ps_on, true, true)
+#endif
     COMMON_PARAM(tx_lft, AML_TX_LIFETIME_MS, AML_TX_LIFETIME_MS)
     COMMON_PARAM(amsdu_maxnb, NX_TX_PAYLOAD_MAX, NX_TX_PAYLOAD_MAX)
     // By default, only enable UAPSD for Voice queue (see IEEE80211_DEFAULT_UAPSD_QUEUE comment)
@@ -79,7 +83,11 @@ struct aml_mod_params aml_mod_params = {
     COMMON_PARAM(tdls, true, true)
     COMMON_PARAM(uf, true, true)
     COMMON_PARAM(ftl, "", "")
+#ifdef CONFIG_PT_MODE
+    COMMON_PARAM(ps_on, false, false)
+#else
     COMMON_PARAM(dpsm, true, true)
+#endif
     COMMON_PARAM(tx_to_bk, 0, 0)
     COMMON_PARAM(tx_to_be, 0, 0)
     COMMON_PARAM(tx_to_vi, 0, 0)
@@ -761,6 +769,8 @@ static void aml_set_softmac_flags(struct aml_hw *aml_hw)
 void aml_set_vht_capa(struct aml_hw *aml_hw, struct wiphy *wiphy)
 {
     struct ieee80211_supported_band *band_5GHz = wiphy->bands[NL80211_BAND_5GHZ];
+    struct ieee80211_supported_band *band_2GHz = wiphy->bands[NL80211_BAND_2GHZ];
+
     int i;
     int nss = aml_hw->mod_params->nss;
     int mcs_map;
@@ -849,6 +859,7 @@ void aml_set_vht_capa(struct aml_hw *aml_hw, struct wiphy *wiphy)
 #endif
         band_5GHz->vht_cap.cap &= ~IEEE80211_VHT_CAP_SHORT_GI_80;
     }
+    band_2GHz->vht_cap = band_5GHz->vht_cap;
 }
 
 void aml_set_ht_capa(struct aml_hw *aml_hw, struct wiphy *wiphy, int band_2g20m_only)

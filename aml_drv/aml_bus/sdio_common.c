@@ -60,10 +60,7 @@ extern void aml_sdio_random_word_write(unsigned int addr, unsigned int data);
 extern unsigned int aml_sdio_random_word_read(unsigned int addr);
 extern unsigned char aml_sdio_self_define_domain_read8(int addr);
 extern unsigned char aml_sdio_self_define_domain_write8(int addr, unsigned char data);
-
-#if defined(CONFIG_AML_PLATFORM_ANDROID) && \
-    !defined(CONFIG_AML_SDIO_IRQ_VIA_GPIO) && \
-    LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0)
+#if defined(CONFIG_AML_PLATFORM_ANDROID) || defined(CONFIG_AML_SDIO_IRQ_VIA_GPIO)
 extern void sdio_clk_always_on(int on);
 #endif
 
@@ -178,7 +175,7 @@ int _aml_sdio_request_buffer(unsigned char func_num,
     sdio_release_host(func);
     AML_PROF_CNT(cmd53, 0);
 
-    return (err_ret == 0) ? SDIOH_API_RC_SUCCESS : SDIOH_API_RC_FAIL;
+    return err_ret;
 }
 
 
@@ -415,10 +412,8 @@ int aml_sdio_pm_resume(struct device *device)
     struct sdio_func *func = dev_to_sdio_func(device);
 
     if (func->num == SDIO_FUNC1) {
-        if (aml_wake_fw_req() != 0) {
+        if (aml_wake_fw_req() != 0)
             AML_ERR("host wake fw fail \n");
-            return -1;
-        }
     }
 
     atomic_dec(&g_wifi_pm.bus_suspend_cnt);
@@ -503,8 +498,10 @@ int aml_sdio_init(void)
     LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0)
     /* kernel-4.9 needs to set sdio clock always on for data1 interrupt */
     sdio_clk_always_on(1);
+#elif defined(CONFIG_AML_SDIO_IRQ_VIA_GPIO)
+    AML_INFO("aml sdio auto clk\n");
+    sdio_clk_always_on(0);
 #endif
-
     err = sdio_register_driver(&aml_sdio_driver);
     if (err) {
         AML_ERR("failed to register sdio driver: %d \n", err);

@@ -109,23 +109,6 @@ static int aml_cfg_retrieve(const char *path, u8 **pbuf, u32 len)
     return ret;
 }
 
-static int aml_cfg_create(const char *path, struct file **fpp)
-{
-    struct file *fp;
-
-    fp = aml_cfg_open(path, O_RDONLY, 0);
-    if (!fp) {
-        fp = aml_cfg_open(path, O_CREAT | O_RDWR, 0666);
-        if (!fp) {
-            return AML_CFG_ERROR;
-        }
-        *fpp = fp;
-        return AML_CFG_CREATE;
-    }
-    *fpp = fp;
-    return AML_CFG_EXIST;
-}
-
 static const u8 *aml_cfg_find_tag(const u8 *file_data, unsigned int file_size,
         const char *tag_name, unsigned int tag_len)
 {
@@ -209,8 +192,8 @@ static int aml_cfg_get_macaddr(struct aml_hw *aml_hw, u8 *mac_addr)
         efuse_data_h = aml_efuse_read(aml_hw, AML_EFUSE_MACADDR_HIGH);
     }
 
-    if (efuse_data_l == 0 || efuse_data_h == 0) {
-        AML_INFO("get mac address from efuse failed, use random mac");
+    if ((efuse_data_h & 0xffff) == 0) {
+        AML_INFO("get mac address from efuse failed, use random mac\n");
         return -1;
     }
 
@@ -331,6 +314,24 @@ static int aml_cfg_to_file(struct aml_hw *aml_hw, struct aml_cfg *cfg, struct fi
     }
 
     return 0;
+}
+
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 5, 0))
+static int aml_cfg_create(const char *path, struct file **fpp)
+{
+    struct file *fp;
+
+    fp = aml_cfg_open(path, O_RDONLY, 0);
+    if (!fp) {
+        fp = aml_cfg_open(path, O_CREAT | O_RDWR, 0666);
+        if (!fp) {
+            return AML_CFG_ERROR;
+        }
+        *fpp = fp;
+        return AML_CFG_CREATE;
+    }
+    *fpp = fp;
+    return AML_CFG_EXIST;
 }
 
 static int aml_cfg_from_file(struct aml_hw *aml_hw, struct aml_cfg *cfg, struct file *fp)
@@ -468,23 +469,26 @@ static int aml_cfg_from_file(struct aml_hw *aml_hw, struct aml_cfg *cfg, struct 
     kfree(fbuf);
     return 0;
 }
+#endif
 
 int aml_cfg_parse(struct aml_hw *aml_hw, struct aml_cfg *cfg)
 {
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 5, 0))
     const char *path = AML_CFG_DEFAULT_PATH;
     struct file *fp = NULL;
     int status;
 
     status = aml_cfg_create(path, &fp);
     switch (status) {
-        case AML_CFG_EXIST:
-            aml_cfg_from_file(aml_hw, cfg, fp);
-            break;
         case AML_CFG_CREATE:
             aml_cfg_to_file(aml_hw, cfg, fp);
             fp->f_pos = 0;
             aml_cfg_from_file(aml_hw, cfg, fp);
             break;
+        case AML_CFG_EXIST:
+            if (aml_cfg_from_file(aml_hw, cfg, fp) == 0)
+                break;
+            fallthrough;
         case AML_CFG_ERROR:
             /* when fp == NULL, just update */
             aml_cfg_to_file(aml_hw, cfg, NULL);
@@ -495,6 +499,9 @@ int aml_cfg_parse(struct aml_hw *aml_hw, struct aml_cfg *cfg)
     }
     if (fp)
         aml_cfg_close(fp);
+#else
+    aml_cfg_to_file(aml_hw, cfg, NULL);
+#endif
 
     return 0;
 }
@@ -678,3 +685,4 @@ int aml_cfg_parse_phy(struct aml_hw *aml_hw, const char *filename,
 
     return 0;
 }
+

@@ -32,7 +32,7 @@ static void cmd_dump(const struct aml_cmd *cmd)
 {
 #ifndef CONFIG_AML_FHOST
     pr_err("tkn[%d]  flags:%04x  result:%3d  cmd:%4d-%-24s - reqcfm(%4d-%-s)\n",
-           cmd->tkn, cmd->flags, cmd->result, cmd->id, AML_ID2STR(cmd->id),
+           cmd->tkn, cmd->flags, cmd->result, cmd->id, cmd->id == MM_OTHER_REQ ? AML_MM_OTHER_CMD2STR(cmd) : AML_ID2STR(cmd->id),
            cmd->reqid, ((cmd->flags & AML_CMD_FLAG_REQ_CFM) &&
                (cmd->reqid != (lmac_msg_id_t)-1)) ? AML_ID2STR(cmd->reqid) : "none");
 #endif
@@ -163,11 +163,23 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
     unsigned long tout = msecs_to_jiffies(AML_80211_CMD_TIMEOUT_MS * (cmd_mgr->queue_sz + 1));
 #endif
     long ret;
+    int wait_reset_time = AML_80211_CMD_TIMEOUT_MS / 20;
 
     trace_msg_send(cmd->id);
 
     if (cmd_mgr->queue_sz + 1 > 2)
         tout = msecs_to_jiffies(AML_80211_CMD_TIMEOUT_MS * 2);
+
+    while (aml_hw->mac_reset) {
+        msleep(10);
+        wait_reset_time--;
+        if (wait_reset_time < 0)
+            break;
+    }
+    if (wait_reset_time < 0) {
+        AML_INFO("send msg during mac reset");
+        aml_hw->mac_reset = false;
+    }
 
     spin_lock_bh(&cmd_mgr->lock);
 
@@ -201,12 +213,6 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
         if (cmd_mgr->queue_sz == cmd_mgr->max_queue_sz) {
             AML_ERR("Too many cmds (%d) already queued\n",
                    cmd_mgr->max_queue_sz);
-            cmd->result = -ENOMEM;
-            kfree(cmd->a2e_msg);
-            if (cmd->flags & AML_CMD_FLAG_NONBLOCK)
-                kfree(cmd);
-            spin_unlock_bh(&cmd_mgr->lock);
-            return -ENOMEM;
         }
         last = list_entry(cmd_mgr->cmds.prev, struct aml_cmd, list);
         if (last->flags & (AML_CMD_FLAG_WAIT_ACK | AML_CMD_FLAG_WAIT_PUSH | AML_CMD_FLAG_WAIT_CFM)) {
@@ -215,7 +221,6 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
         }
     }
     #endif
-
     cmd->flags |= AML_CMD_FLAG_WAIT_ACK;
     if (cmd->flags & AML_CMD_FLAG_REQ_CFM)
         cmd->flags |= AML_CMD_FLAG_WAIT_CFM;
@@ -259,7 +264,6 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
         }
         spin_unlock_bh(&cmd_mgr->lock);
     }
-
 
     if (!(cmd_flags & AML_CMD_FLAG_NONBLOCK)) {
         #ifdef CONFIG_AML_FHOST
@@ -333,7 +337,7 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
 #endif
             if (aml_bus_type != USB_MODE) {
                 for (i = 0; i < CMD_CRASH_FW_PC_NUM; i++) {
-                    AML_INFO("fw_pc:%08x\n", AML_REG_READ(aml_hw->plat, AML_ADDR_MAC_PHY, AML_FW_PC_POINTER));
+                    AML_INFO("fw_pc:%08x\n", AML_REG_READ(aml_hw->plat, AML_ADDR_MAC_PHY, AML_FW_PC_POINTER)/0x40);
                     mdelay(100);
                 }
             }

@@ -16,6 +16,7 @@
 #include "aml_sap.h"
 
 #define AML_MIN_ROC_DUR   102
+#define SUSPEND_TX_REQ_FLUSH_READ   3000000000ULL //3s
 #define SUSPEND_TX_REQ_FLUSH_TO   5000000000 //5s
 #define SUSPEND_TX_FLUSH_TO       10000000000 //10s
 

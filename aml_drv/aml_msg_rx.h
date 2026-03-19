@@ -13,6 +13,12 @@
 #ifndef _AML_MSG_RX_H_
 #define _AML_MSG_RX_H_
 
+#define COEX_BT_IN_ESCO_MODE  BIT(18) //RG_BT_PMU_A16
+#define COEX_BT_IN_SLAVE_MODE BIT(19) //RG_BT_PMU_A16
+#define COEX_BT_ACL_WORK_FLAG BIT(24) //RG_BT_PMU_A16
+#define COEX_BT_BLE_WORK_FLAG BIT(25) //RG_BT_PMU_A16
+#define COEX_BT_REQ_TDD_FLAG  BIT(26) //RG_BT_PMU_A16
+
 struct aml_ft_auth_timeout {
     uint8_t vif_idx;
 };

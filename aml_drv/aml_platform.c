@@ -1136,8 +1136,7 @@ static int aml_sdio_usb_platform_on(struct aml_hw *aml_hw, void *config)
     mac_clk_reg = AML_REG_READ(aml_plat, AML_ADDR_MAC_PHY, RG_INTF_MACCORE_CLK);
     mac_clk_reg |= 0x30000;
     AML_REG_WRITE(mac_clk_reg, aml_plat, AML_ADDR_MAC_PHY, RG_INTF_MACCORE_CLK);
-    aml_hw->dynabuf_stop_tx = 0;
-    aml_hw->send_tx_stop_to_fw = 0;
+    aml_hw->tx_stop = SDIO_USB_IPC_EXT_NONE;
     if (aml_platform_reset(aml_plat))
         return -1;
 
@@ -1229,10 +1228,23 @@ static int aml_sdio_usb_platform_on(struct aml_hw *aml_hw, void *config)
         usb_init_urb(&aml_hw->usb->urb);
     }
 
+    aml_hw->tx_cfm_buf = kzalloc(sizeof(struct compact_tx_cfm_tag) * COMPACT_TXCFM_CNT, GFP_DMA | GFP_ATOMIC);
+    if (!aml_hw->tx_cfm_buf)
+    {
+        AML_ERR("aml_hw->tx_cfm_buf malloc fail!\n");
+        return -ENOMEM;
+    }
+
     if (aml_sdio_usb_create_thread(aml_hw)) {
         if (aml_hw->usb) {
             usb_free_urb(&aml_hw->usb->urb);
             aml_hw->usb = NULL;
+        }
+
+        if (aml_hw->tx_cfm_buf)
+        {
+            kfree(aml_hw->tx_cfm_buf);
+            aml_hw->tx_cfm_buf = NULL;
         }
         aml_sdio_usb_destroy_thread(aml_hw);
         if (aml_hw->plat->disable)
@@ -1577,6 +1589,12 @@ void aml_platform_off(struct aml_hw *aml_hw, void **config)
         usb_free_urb(&aml_hw->usb->urb);
         aml_hw->usb = NULL;
     }
+
+    if (aml_hw->tx_cfm_buf)
+    {
+        kfree(aml_hw->tx_cfm_buf);
+        aml_hw->tx_cfm_buf = NULL;
+    }
     aml_hw->plat->enabled = false;
 }
 
@@ -1892,6 +1910,10 @@ int aml_platform_register_sdio_drv(void)
     void *drv_data = NULL;
     struct sdio_func *func = aml_priv_to_func(SDIO_FUNC7);
 
+    if (!g_sdio_driver_insmoded) {
+        ret = aml_sdio_init();
+    }
+
     if ((!g_sdio_after_porbe) || wifi_drv_rmmod_ongoing) {
          AML_INFO("***** please confirm whether the sdio is probe or w2_comm.ko rmmod success last time\n");
          return -ENODEV;
@@ -1907,7 +1929,6 @@ int aml_platform_register_sdio_drv(void)
 
     aml_plat->dev = &func->dev;
     aml_plat->hif_sdio_ops = &g_hif_sdio_ops;
-    bus_state_detect.insmod_drv = aml_platform_register_sdio_drv;
 
     ipc_basic_address = (u8 *)IPC_BASIC_ADDRESS;
     aml_plat->get_address = aml_get_address;
@@ -1922,6 +1943,7 @@ int aml_platform_register_sdio_drv(void)
        AML_INFO("aml_platform_init error, ret: %d !!!\n", ret);
        return ret;
     }
+    bus_state_detect.insmod_drv = aml_platform_register_sdio_drv;
     dev_set_drvdata(&func->dev, drv_data);
     g_aml_hw = drv_data;
 
@@ -1955,6 +1977,7 @@ void aml_platform_unregister_sdio_drv(void)
     wifi_drv_rmmod_ongoing = 1;
     bus_state_detect.is_drv_load_finished = 0;
 err_drvdata:
+    bus_state_detect.insmod_drv = NULL;
     if (aml_plat)
         kfree(aml_plat);
     dev_set_drvdata(&func->dev, NULL);

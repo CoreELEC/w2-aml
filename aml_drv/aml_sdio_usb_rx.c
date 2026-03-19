@@ -899,9 +899,11 @@ int aml_rx_task(void *data)
 #undef AML_MODULE
 #define AML_MODULE  RX_IRQ
 
+static void aml_sdio_usb_rx_error(struct aml_rx *rx);
+
 static inline void __aml_sdio_usb_rx_confirm(struct aml_rx *rx, addr32_t confirm)
 {
-    uint32_t regs[2] = { confirm, 1 };
+    uint32_t regs[2] = { confirm, SDIO_USB_A2E_IRQ_TRIGGER_MAGIC };
 
     AML_PROF_HI(rx_cfm);
     hi_sram_write(aml_rx2hw(rx), SDIO_USB_A2E_RX_CONFIRM, regs, sizeof(regs));
@@ -914,6 +916,7 @@ static inline void __aml_sdio_usb_rx_confirm(struct aml_rx *rx, addr32_t confirm
 
 int aml_sdio_usb_fw_rx_head_ind(struct aml_rx *rx, addr32_t fw_rx_head)
 {
+    struct aml_hw *hw = aml_rx2hw(rx);
     addr32_t head;
 
     if (fw_rx_head == 0)    /* device is initializing */
@@ -931,6 +934,10 @@ int aml_sdio_usb_fw_rx_head_ind(struct aml_rx *rx, addr32_t fw_rx_head)
         head |= AML_RX_WRAP_FLAG;
 
     if (rx->fw.head != head) {
+        if (hw->tx_stop || test_bit(AML_RX_STATE_RESET, &rx->state))
+            AML_WARN("ipc state %x fw [%x, %x ==> %x) last RX confirm %x\n",
+                    hw->tx_stop, rx->fw.tail, rx->fw.head, head, rx->fw.confirm.last);
+
         aml_rx_idle_exit(rx);
         rx->fw.head = head;
     }
@@ -1071,16 +1078,6 @@ static inline int aml_sdio_usb_rx_buf_get(int head, int tail, int buf_sz, int le
     return -1;
 }
 
-static void aml_sdio_usb_rx_error(struct aml_rx *rx)
-{
-    if (test_bit(AML_RX_STATE_RESET, &rx->state))
-        return;
-
-    AML_NOTICE("bus error detected!\n");
-    set_bit(AML_RX_STATE_RESET, &rx->state);
-    clear_bit(AML_RX_STATE_START, &rx->state);
-}
-
 static int aml_sdio_usb_rx_desc_fetch(struct aml_rx *rx, addr32_t fw_pos, int len)
 {
     int last = rx->last;
@@ -1188,20 +1185,6 @@ static int aml_sdio_usb_rx_desc_fetch(struct aml_rx *rx, addr32_t fw_pos, int le
                 tot_len, next_pos, rx->fw.end - fw_pos, rx->fw.end - fw_pos);
 
         if (!aml_sdio_usb_rx_pos_in_range(rx, next_pos, 0)) {
-            struct rxdesc temp;
-            struct aml_plat *aml_plat = aml_rx2hw(rx)->plat;
-
-            hi_rx_buffer_read(aml_rx2hw(rx), &temp, fw_pos, sizeof(temp));
-            if (memcmp(rxdesc, &temp, sizeof(temp)))
-                AML_ERR("RX temp desc next pos %x\n", *aml_rx_desc_next_ptr(&temp));
-
-            AML_ERR("[%x, %x], rd:%x, wr:%x, [%x, %x], len %d", rx->fw.tail, rx->fw.head,
-                    AML_REG_READ(aml_plat, 0, 0x60b081d0),
-                    AML_REG_READ(aml_plat, 0, 0x60b081d4),
-                    AML_REG_READ(aml_plat, 0, RG_WIFI_IF_FW2HST_IRQ_CFG),
-                    AML_REG_READ(aml_plat, 0, SDIO_USB_A2E_RX_CONFIRM),
-                    received);
-
             AML_ERR("fw|pos %x|%d len %d, pkt_len %d, frag0 %d tot_len %d next %x to end %x(%d) %d\n",
                     fw_pos, pos, len, pkt_len, frag0,
                     tot_len, next_pos, rx->fw.end - fw_pos, rx->fw.end - fw_pos, reach_end);
@@ -1332,20 +1315,24 @@ int aml_sdio_usb_rxdataind(struct aml_rx *rx)
 
     if (test_bit(AML_RX_STATE_RESET, &rx->state)) {
 #define NXMAC_RX_BUF_1_RD_PTR_ADDR   0x60B081D0
-        addr32_t new_tail = hi_reg_read(aml_hw, NXMAC_RX_BUF_1_RD_PTR_ADDR);
+        uint32_t ptrs[2];   /* tail/head(HW read/write) position */
+        addr32_t new_tail;
 
+        hi_random_read(aml_hw, ptrs, NXMAC_RX_BUF_1_RD_PTR_ADDR, sizeof(ptrs));
+        new_tail = ptrs[0];
         if (!aml_sdio_usb_rx_pos_in_range(rx, new_tail & ~AML_RX_WRAP_FLAG, 0)) {
             AML_WARN("device rx tail %x is invalid!\n", new_tail);
             return -1;
         }
-        AML_NOTICE("fw[%x, %x) rx buffer is reset, new tail is %x. drop frag %d, %d\n",
-                   rx->fw.tail, rx->fw.head, new_tail, rx->fw.frag0, rx->frag0);
-        clear_bit(AML_RX_STATE_RESET, &rx->state);
+        AML_WARN("RX reset fw[%x, %x) => [%x, %x) last RX confirm %x. drop frag %d, %d\n",
+                 rx->fw.tail, rx->fw.head, new_tail, ptrs[1], rx->fw.confirm.last,
+                 rx->fw.frag0, rx->frag0);
         rx->frag0 = 0;
         rx->fw.frag0 = 0;
         rx->fw.skip = 0;
         rx->fw.tail = new_tail;
-        rx_tail = new_tail & ~AML_RX_WRAP_FLAG;
+        rx->fw.head = new_tail;
+        clear_bit(AML_RX_STATE_RESET, &rx->state);
     }
 
     if (rx->fw.tail == rx->fw.head) {
@@ -1491,30 +1478,30 @@ void aml_shared_mem_layout_update(struct aml_rx *rx)
     rx->layouts[AML_RX_BUF_EXPAND] = expand;
 }
 
-static inline int aml_sdio_usb_rx_msdu_has_pending(struct aml_rx *rx)
+static inline int aml_sdio_usb_rx_msdu_is_pending(struct aml_rx *rx)
 {
     /* FIXME: skb_queue_len_lockless */
     return skb_queue_len(&rx->napi_pending) || skb_queue_len(&rx->napi_preq);
 }
 
-static inline int aml_sdio_usb_rx_desc_has_pending(struct aml_rx *rx)
+static inline int aml_sdio_usb_rx_desc_is_pending(struct aml_rx *rx)
 {
     int pos = *aml_rx_desc_next_ptr(rx->buf + rx->tail) & ~AML_RX_WRAP_FLAG;
 
     return (pos >= 0 && pos < rx->buf_sz);
 }
 
-static inline int aml_sdio_usb_rx_reading(struct aml_rx *rx)
+static inline int aml_sdio_usb_rx_is_reading(struct aml_rx *rx)
 {
     return test_bit(AML_RX_STATE_READING, &rx->state);
 }
 
-static int aml_sdio_usb_rx_drain_check(struct aml_rx *rx,
-                                       const char *name, int (*has_pending)(struct aml_rx *rx))
+static int aml_sdio_usb_rx_state_check(struct aml_rx *rx,
+                                       const char *name, int (*is_pending)(struct aml_rx *rx))
 {
     ktime_t start = ktime_get_boottime();
 
-    if (has_pending(rx)) {
+    if (is_pending(rx)) {
         ktime_t now = start;
         ktime_t show = ktime_add_ns(now, NSEC_PER_MSEC);
 
@@ -1524,12 +1511,37 @@ static int aml_sdio_usb_rx_drain_check(struct aml_rx *rx,
                 show = ktime_add_ns(now, NSEC_PER_MSEC);
                 AML_NOTICE("rx %s is pending\n", name);
             }
-            usleep_range(100, 200);
-        } while (has_pending(rx));
+            cpu_relax();
+        } while (is_pending(rx));
         AML_ERR("all rx %s is done in %u us.\n", name, (int)ktime_us_delta(now, start));
         return 1;
     }
     return 0;
+}
+
+static inline int __aml_sdio_usb_rx_reset(struct aml_rx *rx, int fetching /* in irq task */)
+{
+    if (test_bit(AML_RX_STATE_RESET, &rx->state))
+        return -1;  /* already under reset */
+
+    clear_bit(AML_RX_STATE_START, &rx->state);
+
+    if (!fetching)
+        aml_sdio_usb_rx_state_check(rx, "reset", aml_sdio_usb_rx_is_reading);
+
+    set_bit(AML_RX_STATE_RESET, &rx->state);
+    return 0;
+}
+
+int aml_sdio_usb_rx_reset(struct aml_rx *rx)
+{
+    return __aml_sdio_usb_rx_reset(rx, 0);
+}
+
+static void aml_sdio_usb_rx_error(struct aml_rx *rx)
+{
+    if (__aml_sdio_usb_rx_reset(rx, 1) == 0)
+        AML_NOTICE("bus error detected!\n");
 }
 
 static inline void aml_sdio_usb_rx_napi_enable(struct aml_rx *rx)
@@ -1551,13 +1563,13 @@ int aml_sdio_usb_rx_stop(struct aml_rx *rx)
     clear_bit(AML_RX_STATE_START, &rx->state);  /* stop fetch rx desc */
 
     /* must check them in correct order */
-    aml_sdio_usb_rx_drain_check(rx, "reading", aml_sdio_usb_rx_reading);
-    aml_sdio_usb_rx_drain_check(rx, "desc", aml_sdio_usb_rx_desc_has_pending);
+    aml_sdio_usb_rx_state_check(rx, "reading", aml_sdio_usb_rx_is_reading);
+    aml_sdio_usb_rx_state_check(rx, "desc", aml_sdio_usb_rx_desc_is_pending);
 
     aml_reo_reset_all(rx);
 
     aml_sdio_usb_rx_napi_disable(rx);
-    aml_sdio_usb_rx_drain_check(rx, "msdu", aml_sdio_usb_rx_msdu_has_pending);
+    aml_sdio_usb_rx_state_check(rx, "msdu", aml_sdio_usb_rx_msdu_is_pending);
 
     return 0;
 }
@@ -1566,9 +1578,11 @@ void aml_sdio_usb_rx_restart(struct aml_rx *rx)
 {
     aml_sdio_usb_rx_napi_enable(rx);
 
+    /* force to reset */
     set_bit(AML_RX_STATE_RESET, &rx->state);
-    if (test_and_set_bit(AML_RX_STATE_START, &rx->state))
-        return;
+
+    if (aml_sdio_usb_rx_start(rx))
+        return; /* already started */
 
     aml_shared_mem_layout_appy(rx, AML_RX_BUF_EXPAND);
 }
