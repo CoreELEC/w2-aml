@@ -244,7 +244,7 @@ static int aml_cfg_to_file(struct aml_hw *aml_hw, struct aml_cfg *cfg, struct fi
 {
     u8 vif0_mac[ETH_ALEN] = { 0x1c, 0xa4, 0x10, 0x11, 0x22, 0x33 };
     u8 vif1_mac[ETH_ALEN] = { 0x1e, 0xa4, 0x10, 0x11, 0x22, 0x33 };
-    u8 vif2_mac[ETH_ALEN] = { 0x1e, 0xa4, 0x10, 0x11, 0x22, 0x32 };
+    u8 vif2_mac[ETH_ALEN] = { 0x1a, 0xa4, 0x10, 0x11, 0x22, 0x33 };
 
     if (!aml_hw || !cfg)
         return -1;
@@ -299,7 +299,7 @@ static int aml_cfg_to_file(struct aml_hw *aml_hw, struct aml_cfg *cfg, struct fi
     ether_addr_copy(vif1_mac, vif0_mac);
     vif1_mac[0] |= BIT(1);
     ether_addr_copy(vif2_mac, vif1_mac);
-    vif2_mac[5] ^= BIT(0);
+    vif2_mac[0] ^= BIT(2);
 
     /* update mac address to cfg->vifx_mac */
     ether_addr_copy(cfg->vif0_mac, vif0_mac);
@@ -381,7 +381,7 @@ static int aml_cfg_from_file(struct aml_hw *aml_hw, struct aml_cfg *cfg, struct 
         ether_addr_copy(cfg->vif1_mac, cfg->vif0_mac);
         cfg->vif1_mac[0] |= BIT(1);
         ether_addr_copy(cfg->vif2_mac, cfg->vif1_mac);
-        cfg->vif2_mac[5] ^= BIT(0);
+        cfg->vif2_mac[0] ^= BIT(2);
         AML_INFO("vif0 mac address:%pM, vif1 mac address: %pM, vif2 mac address: %pM\n",
                 cfg->vif0_mac, cfg->vif1_mac, cfg->vif2_mac);
     }
@@ -460,7 +460,7 @@ static int aml_cfg_from_file(struct aml_hw *aml_hw, struct aml_cfg *cfg, struct 
             ether_addr_copy(cfg->vif1_mac, cfg->vif0_mac);
             cfg->vif1_mac[0] |= BIT(1);
             ether_addr_copy(cfg->vif2_mac, cfg->vif1_mac);
-            cfg->vif2_mac[5] ^= BIT(0);
+            cfg->vif2_mac[0] ^= BIT(2);
             AML_INFO("renew vif0 mac:%pM, vif1 mac:%pM, vif2 mac:%pM\n",
                     cfg->vif0_mac, cfg->vif1_mac, cfg->vif2_mac);
         }

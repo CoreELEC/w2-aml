@@ -184,11 +184,7 @@ static int auc_resume(struct usb_interface *interface)
 extern lp_shutdown_func g_lp_shutdown_func;
 extern bt_shutdown_func g_bt_shutdown_func;
 
-#if LINUX_VERSION_CODE <= KERNEL_VERSION(6, 8, 0)
 void auc_shutdown(struct device *dev)
-#else
-void auc_shutdown(struct usb_interface *intf)
-#endif
 {
     AML_INFO("auc_shutdown begin \n");
 
@@ -237,8 +233,6 @@ static struct usb_driver aml_usb_common_driver = {
 #endif
 #if LINUX_VERSION_CODE <= KERNEL_VERSION(6, 8, 0)
     .drvwrap.driver.shutdown = auc_shutdown,
-#else
-    .shutdown = auc_shutdown,
 #endif
 };
 
@@ -313,7 +307,6 @@ void aml_usb_rmmod(void)
 {
     usb_deregister(&aml_usb_common_driver);
     auc_driver_insmoded = 0;
-    wifi_drv_rmmod_ongoing = 0;
     FREE(g_cmd_buf, "cmd stage");
     FREE(g_kmalloc_buf, "reg tmp");
     USB_LOCK_DESTROY();

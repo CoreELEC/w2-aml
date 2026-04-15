@@ -4713,6 +4713,7 @@ int aml_send_notify_ip(struct aml_vif *aml_vif, u8_l ip_ver, u8_l *ip_addr)
 int aml_send_fwlog_cmd(struct aml_hw *aml_hw, int mode, struct fwlog_mode_cfm *cfm)
 {
     struct Fwlog_Mode_Control *fwlog_param;
+    int ret = 0;
 
     fwlog_param = aml_priv_msg_zalloc(MM_SUB_SEND_FWLOG, sizeof(struct Fwlog_Mode_Control));
     if (!fwlog_param)
@@ -4722,7 +4723,11 @@ int aml_send_fwlog_cmd(struct aml_hw *aml_hw, int mode, struct fwlog_mode_cfm *c
     AML_INFO("fwlog_param->mode:%d", fwlog_param->mode);
 
     /* coverity[leaked_storage] - fwlog_param will be freed later */
-    return aml_priv_send_msg(aml_hw, fwlog_param, 1, PRIV_SEND_FWLOG_CFM, cfm);
+    ret = aml_priv_send_msg(aml_hw, fwlog_param, 1, PRIV_SEND_FWLOG_CFM, cfm);
+
+    if (mode == TRACE_TO_HOST)
+        ret = aml_send_sync_trace(aml_hw);
+    return ret;
 }
 
 int aml_send_strlog_cmd(struct aml_hw *aml_hw, int mode)

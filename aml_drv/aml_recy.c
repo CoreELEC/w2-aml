@@ -266,6 +266,7 @@ int aml_recy_fw_reload_for_usb_sdio(struct aml_hw *aml_hw)
     int ret = 0;
 #ifndef CONFIG_PT_MODE
     int try_cnt = 0;
+    bool hw_reset = false;
 #endif
 
     AML_DBG("reload fw start");
@@ -277,6 +278,7 @@ Try_again:
 #endif
     if (aml_bus_type == USB_MODE) {
         bus_state_detect.bus_reset_ongoing = 1;
+        hw_reset = true;
         aml_platform_off(aml_hw, NULL);
         ret = aml_usb_reset();
         if (ret) {
@@ -300,10 +302,15 @@ Try_again:
     }
     if (aml_bus_type == SDIO_MODE) {
         struct sdio_func *func;
+
         aml_platform_off(aml_hw, NULL);
-        aml_sdio_reset();
-        func = aml_priv_to_func(SDIO_FUNC7);
-        dev_set_drvdata(&func->dev, aml_hw);
+        if ((bus_state_detect.bus_err == 1) || (try_cnt >= 1)
+            || (aml_recy->reason != RECY_REASON_CODE_CMD_CRASH)) {
+            hw_reset = true;
+            aml_sdio_reset();
+            func = aml_priv_to_func(SDIO_FUNC7);
+            dev_set_drvdata(&func->dev, aml_hw);
+        }
     }
     if (aml_platform_on(aml_hw, NULL)) {
         AML_DBG("reload fw platform on failed");
@@ -342,6 +349,9 @@ out:
 #endif
     bus_state_detect.is_recy_ongoing = 0;
     aml_recy_flags_clr(AML_RECY_FW_ONGOING);
+
+    if (!ret && hw_reset)
+        aml_notify_recovery_event(0);
     return ret;
 }
 
@@ -421,7 +431,6 @@ static int aml_recy_fw_reload_for_pcie(struct aml_hw *aml_hw)
     }
 
     aml_recy_flags_clr(AML_RECY_FW_ONGOING);
-
     return ret;
 }
 
@@ -640,9 +649,6 @@ int aml_recy_doit(struct aml_hw *aml_hw, void *reason, int len)
     } else {
         AML_INFO("aml_wifi_wakeup_source is not initialized or active already\n");
     }
-    if (aml_bus_type != PCIE_MODE)
-        aml_send_err_info_to_diag(fbuf, strlen(fbuf));
-
     if (aml_recy_flags_chk(flags)) {
         AML_DBG("recy delay by flags: 0x%x\n", aml_recy->flags);
         spin_lock_bh(&cmd_mgr->lock);
@@ -687,6 +693,11 @@ int aml_recy_doit(struct aml_hw *aml_hw, void *reason, int len)
 
     aml_cpufreq_boost_remove(aml_hw);
 
+    if (g_trace_nl_info.enable
+        && (trace_log_file_info.trace_type == TRACE_TO_HOST)) {
+        aml_traceind(aml_hw);
+        aml_send_err_info_to_diag(fbuf, strlen(fbuf));
+    }
     aml_recy_flags_set(AML_RECY_STATE_ONGOING | AML_RECY_DROP_XMIT_PKT);
     aml_hw->traffic_busy = 0;
     aml_hw->scan_abort_flag = 0;
@@ -710,12 +721,6 @@ int aml_recy_doit(struct aml_hw *aml_hw, void *reason, int len)
         goto out;
     }
 
-    ret = aml_recy_vif_restart(aml_hw);
-    if (ret) {
-        AML_DBG("vif restart failed");
-        goto out;
-    }
-
     if (trace_log_file_info.trace_type == LOG_TO_HOST || trace_log_file_info.trace_type == LOG_TO_UART)
         aml_send_fwlog_cmd(aml_hw, trace_log_file_info.trace_type, &cfm);
     else {
@@ -727,13 +732,18 @@ int aml_recy_doit(struct aml_hw *aml_hw, void *reason, int len)
                 trace_log_file_info.end = cfm.end | 0x500000;
                 AML_INFO("aml_bus_type:%d cfm.trace_buf:%x, cfm.end:%x, trace_buf:%x, end:%x", aml_bus_type,
                         cfm.trace_buf, cfm.end, trace_log_file_info.trace_buf, trace_log_file_info.end);
+                aml_traceind(aml_hw);
             }
-            aml_send_sync_trace(aml_hw);
         }
     }
 
+    ret = aml_recy_vif_restart(aml_hw);
+    if (ret) {
+        AML_DBG("vif restart failed");
+        goto out;
+    }
+
     aml_send_me_set_ps_mode(aml_hw, aml_recy->ps_state, false);
-    aml_notify_recovery_event(0);
 out:
     aml_recy->link_loss.is_requested = 0;
     // recovery ps mode

@@ -1794,6 +1794,7 @@ void aml_platform_unregister_usb_drv(void)
     struct aml_plat *aml_plat = NULL;
 
     AML_DBG(AML_FN_ENTRY_STR);
+    wifi_drv_rmmod_ongoing = 1;
     aml_log_nl_destroy();
     aml_hw = dev_get_drvdata(&g_udev->dev);
     // if usb disconnect, system can't get @drv_data from dev
@@ -1809,13 +1810,13 @@ void aml_platform_unregister_usb_drv(void)
 
     aml_plat = aml_hw->plat;
     aml_platform_deinit(aml_hw);
-    wifi_drv_rmmod_ongoing = 1;
     bus_state_detect.is_drv_load_finished = 0;
 
 err_drvdata:
     if (aml_plat)
         kfree(aml_plat);
     dev_set_drvdata(&g_udev->dev, NULL);
+    wifi_drv_rmmod_ongoing = 0;
 #ifdef CONFIG_AML_USB_HOTPLUG
     unregister_reboot_notifier(&wifinotifier);
 #endif
@@ -1960,6 +1961,7 @@ void aml_platform_unregister_sdio_drv(void)
     struct sdio_func *func = aml_priv_to_func(SDIO_FUNC7);
 
     AML_DBG(AML_FN_ENTRY_STR);
+    wifi_drv_rmmod_ongoing = 1;
     aml_log_nl_destroy();
     aml_hw = dev_get_drvdata(&func->dev);
     if (aml_hw == NULL) {
@@ -1974,13 +1976,14 @@ void aml_platform_unregister_sdio_drv(void)
 
     aml_plat = aml_hw->plat;
     aml_platform_deinit(aml_hw);
-    wifi_drv_rmmod_ongoing = 1;
     bus_state_detect.is_drv_load_finished = 0;
 err_drvdata:
     bus_state_detect.insmod_drv = NULL;
     if (aml_plat)
         kfree(aml_plat);
     dev_set_drvdata(&func->dev, NULL);
+
+    wifi_drv_rmmod_ongoing = 0;
 }
 
 

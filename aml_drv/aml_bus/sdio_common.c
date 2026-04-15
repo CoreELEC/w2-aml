@@ -36,7 +36,6 @@ struct aml_hwif_sdio g_hwif_sdio;
 unsigned char g_sdio_wifi_bt_alive;
 unsigned char g_sdio_driver_insmoded;
 unsigned char g_sdio_after_porbe;
-unsigned char g_wifi_in_insmod;
 extern unsigned int chip_id;
 unsigned char *g_func_kmalloc_buf = NULL;
 unsigned char wifi_irq_enable = 0;
@@ -44,7 +43,6 @@ unsigned int  shutdown_i = 0;
 unsigned char wifi_sdio_shutdown = 0;
 unsigned char wifi_in_insmod;
 unsigned char wifi_in_rmmod;
-unsigned char  chip_en_access;
 extern unsigned char wifi_sdio_shutdown;
 extern unsigned char wifi_drv_rmmod_ongoing;
 extern struct aml_bus_state_detect bus_state_detect;
@@ -491,8 +489,6 @@ int aml_sdio_init(void)
 {
     int err = 0;
 
-    //amlwifi_set_sdio_host_clk(200000000);//200MHZ
-
 #if defined(CONFIG_AML_PLATFORM_ANDROID) && \
     !defined(CONFIG_AML_SDIO_IRQ_VIA_GPIO) && \
     LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0)
@@ -502,18 +498,16 @@ int aml_sdio_init(void)
     AML_INFO("aml sdio auto clk\n");
     sdio_clk_always_on(0);
 #endif
+    g_sdio_driver_insmoded = 1;
     err = sdio_register_driver(&aml_sdio_driver);
     if (err) {
+        g_sdio_driver_insmoded = 0;
         AML_ERR("failed to register sdio driver: %d \n", err);
         return err;
     }
 
-    g_sdio_driver_insmoded = 1;
-    g_wifi_in_insmod = 0;
-
     wifi_in_insmod = 0;
     wifi_in_rmmod = 0;
-    chip_en_access = 0;
     wifi_sdio_shutdown = 0;
     AML_INFO("*****************aml sdio common driver is insmoded********************\n");
 
@@ -523,10 +517,12 @@ int aml_sdio_init(void)
 void  aml_sdio_exit(void)
 {
     AML_INFO("aml_sdio_exit++ \n");
-    sdio_unregister_driver(&aml_sdio_driver);
-    g_sdio_driver_insmoded = 0;
-    g_sdio_after_porbe = 0;
 
+    if (g_sdio_driver_insmoded == 0)
+        return;
+    g_sdio_driver_insmoded = 0;
+    sdio_unregister_driver(&aml_sdio_driver);
+    g_sdio_after_porbe = 0;
     AML_INFO("*****************aml sdio common driver is rmmoded********************\n");
 }
 
@@ -605,15 +601,12 @@ int aml_sdio_insmod(void)
         return -1;
     }
 #endif
-
-    AML_INFO("start...\n");
     return 0;
 }
 
 void aml_sdio_rmmod(void)
 {
     aml_sdio_exit();
-    wifi_drv_rmmod_ongoing = 0;
 }
 
 EXPORT_SYMBOL(aml_sdio_reset);
@@ -625,7 +618,6 @@ EXPORT_SYMBOL(g_hwif_sdio);
 EXPORT_SYMBOL(aml_sdio_exit);
 EXPORT_SYMBOL(aml_sdio_init);
 EXPORT_SYMBOL(g_sdio_driver_insmoded);
-EXPORT_SYMBOL(g_wifi_in_insmod);
 EXPORT_SYMBOL(g_sdio_after_porbe);
 EXPORT_SYMBOL(host_wake_req);
 EXPORT_SYMBOL(host_suspend_req);
