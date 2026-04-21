@@ -1,5 +1,6 @@
 load("//build/kernel/kleaf:kernel.bzl", "ddk_headers", "ddk_module")
 load("//driver_modules/wifi_bt/wifi:configs/wifi_ko_list.bzl", "driver_files")
+load("//driver_modules/wifi_bt/wifi:configs/wifi_args.bzl", "w2_args")
 
 driver_files()
 
@@ -57,7 +58,7 @@ ddk_module(
         "SCC_STA_SOFTAP",  #hostapd cannot handle sta+softap scc mode,so do sta_softap scc in fw&drv
         "SYSTEM64",
         "SYSTEM_TYPE=SYSTEM64",
-    ],
+    ] + w2_args,
     copts = [
         "-Wno-sometimes-uninitialized",
         "-Wno-uninitialized",
@@ -154,7 +155,7 @@ ddk_module(
         "DEBUG_CODE",
         "DRV_P2P_SCC_MODE",  # drv scc mode for p2p
         "SCC_STA_SOFTAP",  #hostapd cannot handle sta+softap scc mode,so do sta_softap scc in fw&drv
-    ],
+    ] + w2_args,
     copts = [
         "-Wno-sometimes-uninitialized",
         "-Wno-uninitialized",
