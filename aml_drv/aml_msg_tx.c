@@ -952,12 +952,14 @@ int aml_send_cancel_roc(struct aml_hw *aml_hw)
 {
     struct mm_remain_on_channel_req *req;
 
-    if (aml_hw->roc)
-        aml_hw->roc_is_canceling = true;
-
     AML_DBG(AML_FN_ENTRY_STR);
 
+    spin_lock_bh(&aml_hw->roc_lock);
+    if (aml_hw->roc)
+        aml_hw->roc_is_canceling = true;
     aml_tx_cfm_wait_rsp(aml_hw, false, (u8 *)__func__, __LINE__);
+    spin_unlock_bh(&aml_hw->roc_lock);
+
     /* Build the MM_REMAIN_ON_CHANNEL_REQ message */
     req = aml_msg_zalloc(MM_REMAIN_ON_CHANNEL_REQ, TASK_MM, DRV_TASK_ID,
                           sizeof(struct mm_remain_on_channel_req));

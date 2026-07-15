@@ -21,6 +21,7 @@
 #include "aml_interface.h"
 #include "aml_mdns_offload.h"
 #include "aml_msg_rx.h"
+#include "chip_intf_reg.h"
 
 extern unsigned int aml_bus_type;
 extern char *bus_type;
@@ -226,7 +227,7 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
         cmd->flags |= AML_CMD_FLAG_WAIT_CFM;
 
     cmd->tkn    = cmd_mgr->next_tkn++;
-    cmd->result = -EINTR;
+    cmd->result = -ETIMEDOUT;
 
     if (!(cmd->flags & AML_CMD_FLAG_NONBLOCK))
         init_completion(&cmd->complete);
@@ -315,6 +316,15 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
             }
             spin_unlock_bh(&cmd_mgr->lock);
             AML_ERR("cmd timed-out\n");
+            if (aml_bus_type == SDIO_MODE) {
+                u32 regs[2] = {0};
+
+                AML_ERR("irq clr:%08x\n", AML_REG_READ(aml_hw->plat, 0, RG_WIFI_IF_FW2HST_CLR));
+                AML_ERR("irq mask:%08x\n", AML_REG_READ(aml_hw->plat, 0, RG_WIFI_IF_FW2HST_MASK));
+                AML_ERR("RG_AON_A1:%08x\n", aml_hw->plat->hif_sdio_ops->hi_random_word_read(RG_AON_A1));
+                aml_hw->plat->hif_sdio_ops->hi_desc_read(regs, RG_WIFI_IF_FW2HST_IRQ_CFG, sizeof(regs));
+                AML_ERR("get status %08x, %08x", regs[0], regs[1]);
+            }
             cmd_dump(cmd);
             spin_lock_bh(&cmd_mgr->lock);
             cmd_mgr->state = AML_CMD_MGR_STATE_CRASHED;

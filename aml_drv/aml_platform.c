@@ -1238,6 +1238,7 @@ static int aml_sdio_usb_platform_on(struct aml_hw *aml_hw, void *config)
     if (aml_sdio_usb_create_thread(aml_hw)) {
         if (aml_hw->usb) {
             usb_free_urb(&aml_hw->usb->urb);
+            kfree(aml_hw->usb);
             aml_hw->usb = NULL;
         }
 

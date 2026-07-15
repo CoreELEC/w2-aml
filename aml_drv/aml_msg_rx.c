@@ -702,7 +702,6 @@ static inline int aml_rx_scanu_start_cfm(struct aml_hw *aml_hw,
         && !aml_recy->link_loss.scan_result_cnt
         && aml_recy->link_loss.scan_cnt++ >= 3) {
         aml_recy->link_loss.is_requested = 1;
-        aml_recy->link_loss.scan_cnt = 0;
         aml_recy->link_loss.is_happened = 0;
     }
     if (aml_recy->link_loss.scan_result_cnt) {
@@ -1365,9 +1364,12 @@ static inline int aml_rx_sm_disconnect_ind(struct aml_hw *aml_hw,
     if (aml_recy && aml_recy->link_loss.is_enabled
         && ind->reason_code == AML_RECY_REASON_CODE_LINK_LOSS) {
         struct sm_linkloss_disconnect_ind *linkloss = (struct sm_linkloss_disconnect_ind *)ind;
+
         AML_ERR("link loss disconnect happen, statistics scan and evaluates for recovery, sw_rd:%x, hw_wr:%x\n",
                 linkloss->sw_rd, linkloss->hw_wr);
         aml_recy->link_loss.is_happened = true;
+        if (aml_bus_type != USB_MODE && aml_hw->vif_started == 1)
+            aml_recy->link_loss.is_requested = 1;
         aml_recy->link_loss.scan_cnt = 0;
         ind->reason_code = HOST_REQUEST_DISCONNECT | MAC_RS_DEAUTH_SENDER_LEFT_IBSS_ESS;
     }

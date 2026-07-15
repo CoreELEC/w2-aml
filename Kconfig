@@ -198,3 +198,7 @@ config NX_TXQ_CNT
 	int "NX_TXQ_CNT"
 	default 5 if AML_BCMC
 	default 4 if !AML_BCMC
+
+config CONFIG_ODMSN_TXT
+	bool "android odmsn txt"
+	default n

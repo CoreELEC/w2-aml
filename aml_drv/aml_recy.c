@@ -257,10 +257,19 @@ static int aml_recy_sta_connect(struct aml_hw *aml_hw, void *data, int len)
     return ret;
 }
 
-extern void aml_platform_off(struct aml_hw *aml_hw, void **config);
-extern unsigned char g_usb_after_probe;
-extern void aml_sdio_reset(void);
-extern struct usb_device *g_udev;
+void aml_recy_light_reset(struct aml_hw *aml_hw)
+{
+    AML_INFO("light recovery start");
+
+    AML_REG_WRITE(0x00070000 | PHY_RESET | MAC_RESET | CPU_RESET, aml_hw->plat, AML_ADDR_AON, RG_PMU_A22);
+    AML_REG_WRITE(0x00070000 | CPU_RESET, aml_hw->plat, AML_ADDR_AON, RG_PMU_A22);
+    AML_REG_WRITE(PHY_RESET | MAC_RESET, aml_hw->plat, AML_ADDR_AON, RG_PMU_A17);
+    AML_REG_WRITE(0, aml_hw->plat, AML_ADDR_AON, RG_PMU_A17);
+
+    AML_REG_WRITE(0x00070000 | PHY_RESET | MAC_RESET | CPU_RESET, aml_hw->plat, AML_ADDR_AON, RG_PMU_A22);
+    AML_REG_WRITE(0x00070000 | CPU_RESET, aml_hw->plat, AML_ADDR_AON, RG_PMU_A22);
+}
+
 int aml_recy_fw_reload_for_usb_sdio(struct aml_hw *aml_hw)
 {
     int ret = 0;
@@ -278,7 +287,9 @@ Try_again:
 #endif
     if (aml_bus_type == USB_MODE) {
         bus_state_detect.bus_reset_ongoing = 1;
+#ifndef CONFIG_PT_MODE
         hw_reset = true;
+#endif
         aml_platform_off(aml_hw, NULL);
         ret = aml_usb_reset();
         if (ret) {
@@ -304,12 +315,20 @@ Try_again:
         struct sdio_func *func;
 
         aml_platform_off(aml_hw, NULL);
-        if ((bus_state_detect.bus_err == 1) || (try_cnt >= 1)
-            || (aml_recy->reason != RECY_REASON_CODE_CMD_CRASH)) {
+        if ((bus_state_detect.bus_err == 1)
+#ifndef CONFIG_PT_MODE
+            || (try_cnt >= 1)
+#endif
+            || ((aml_recy->reason == RECY_REASON_CODE_FW_LINKLOSS) && (aml_recy->link_loss.scan_cnt >= 3))
+            || (aml_recy->reason == RECY_REASON_CODE_TX_TIMEOUT)) {
+#ifndef CONFIG_PT_MODE
             hw_reset = true;
+#endif
             aml_sdio_reset();
             func = aml_priv_to_func(SDIO_FUNC7);
             dev_set_drvdata(&func->dev, aml_hw);
+        } else {
+            aml_recy_light_reset(aml_hw);
         }
     }
     if (aml_platform_on(aml_hw, NULL)) {
@@ -350,8 +369,10 @@ out:
     bus_state_detect.is_recy_ongoing = 0;
     aml_recy_flags_clr(AML_RECY_FW_ONGOING);
 
+#ifndef CONFIG_PT_MODE
     if (!ret && hw_reset)
         aml_notify_recovery_event(0);
+#endif
     return ret;
 }
 
@@ -375,7 +396,7 @@ static int aml_recy_fw_reload_for_pcie(struct aml_hw *aml_hw)
     regval = AML_REG_READ(aml_plat, AML_ADDR_SYSTEM, AML_AGCCNTL_ADDR);
     regval |= (1 << 12);
     AML_REG_WRITE(regval, aml_plat, AML_ADDR_SYSTEM, AML_AGCCNTL_ADDR);
-    msleep(150);
+    msleep(10);
 
     if (aml_hw->plat->disable)
         aml_hw->plat->disable(aml_hw);
@@ -386,9 +407,7 @@ static int aml_recy_fw_reload_for_pcie(struct aml_hw *aml_hw)
     AML_REG_WRITE(regval | NXMAC_SOFT_RESET_BIT, aml_plat, AML_ADDR_SYSTEM, NXMAC_MAC_CNTRL_2_ADDR);
     aml_hw->plat->enabled = false;
 
-    /* reset mac/phy */
-    AML_REG_WRITE(0x00070000 | PHY_RESET | MAC_RESET | CPU_RESET | USB_RESET | SDIO_RESET, aml_plat, AML_ADDR_AON, RG_PMU_A22);
-    AML_REG_WRITE(0x00070000 | CPU_RESET, aml_plat, AML_ADDR_AON, RG_PMU_A22);
+    aml_recy_light_reset(aml_hw);
 
     aml_plat_mpif_sel(aml_plat);
     aml_hw->phy.cnt = 1;
@@ -746,6 +765,7 @@ int aml_recy_doit(struct aml_hw *aml_hw, void *reason, int len)
     aml_send_me_set_ps_mode(aml_hw, aml_recy->ps_state, false);
 out:
     aml_recy->link_loss.is_requested = 0;
+    aml_recy->link_loss.scan_cnt = 0;
     // recovery ps mode
     /* clear suspend state flag */
     atomic_set(&g_wifi_pm.bus_suspend_cnt, 0);

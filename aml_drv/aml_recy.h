@@ -19,7 +19,7 @@
 
 #ifdef CONFIG_AML_RECOVERY
 
-#define AML_RECY_RECONNECT_TIMES    (5)
+#define AML_RECY_RECONNECT_TIMES    (2)
 #define AML_RECY_MON_INTERVAL       (4 * HZ)
 #define AML_WAKE_SRC_INTERVAL       (3 * HZ)
 
@@ -144,4 +144,8 @@ void aml_wake_source_init(struct aml_hw *aml_hw);
 void aml_usb_probe_wifi_process(void);
 void aml_usb_disconnect_wifi_process(void);
 
+extern unsigned char g_usb_after_probe;
+extern void aml_sdio_reset(void);
+extern struct usb_device *g_udev;
+void aml_recy_light_reset(struct aml_hw *aml_hw);
 #endif  //__AML_RECY__

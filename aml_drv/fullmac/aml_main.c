@@ -3737,7 +3737,7 @@ static int aml_cfg80211_mgmt_tx(struct wiphy *wiphy, struct wireless_dev *wdev,
             // Test if current RoC can be re-used
             if ((roc->vif != aml_vif) ||
                 (roc->chan->center_freq != params->chan->center_freq)
-                || ((params->wait) && (remain_duration < params->wait))) {
+                || ((AML_VIF_TYPE(aml_vif) != NL80211_IFTYPE_STATION) && (params->wait) && (remain_duration < params->wait))) {
                 AML_INFO("roc chan=%d, params chan=%d, remain_duration=%d, wait=%d\n",
                     roc->chan->center_freq, params->chan->center_freq, remain_duration, params->wait);
                 lunch_roc = true;
@@ -6436,6 +6436,9 @@ static int aml_parse_custom_param(struct aml_hw *aml_hw, char *varbuf, int len)
     return 0;
 }
 
+#ifdef CONFIG_ODMSN_TXT
+extern int get_txt_odmsn(void);
+#endif
 static int aml_get_cali_param(struct aml_hw *aml_hw, struct Cali_Param *cali_param)
 {
     const struct firmware *cfg_fw = NULL;
@@ -6457,6 +6460,12 @@ static int aml_get_cali_param(struct aml_hw *aml_hw, struct Cali_Param *cali_par
     }
     vendor_sn = vendor_sn & 0xffff;
 
+#ifdef CONFIG_ODMSN_TXT
+    if (get_txt_odmsn() >= 0) {
+        sprintf(vendor_rf, "aml_w2_rf_%04x_%04x_%04x.txt", product_id, vendor_sn, get_txt_odmsn());
+    }
+    else
+#endif
     if (calib_path != 0) {
         sprintf(vendor_rf, "aml_w2_rf_%04x_%04x_%d.txt", product_id, vendor_sn, calib_path);
     } else {
@@ -7724,8 +7733,8 @@ void aml_cfg80211_deinit(struct aml_hw *aml_hw)
 #ifdef CONFIG_AML_APF
     unregister_early_suspend(&aml_hw->wifi_early_suspend);
 #endif
-#ifndef CONFIG_PT_MODE
     aml_wake_source_deinit(aml_hw);
+#ifndef CONFIG_PT_MODE
     aml_sync_trace_deinit(aml_hw);
     aml_wq_deinit(aml_hw);
 #endif

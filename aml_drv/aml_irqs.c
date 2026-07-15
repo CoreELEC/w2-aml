@@ -98,10 +98,7 @@ int aml_sdio_irq_claim(struct aml_hw *aml_hw)
 {
     extern int wifi_irq_num(void);
 
-    unsigned int irq_flag = IRQF_ONESHOT | \
-                            IORESOURCE_IRQ | \
-                            IORESOURCE_IRQ_LOWLEVEL | \
-                            IORESOURCE_IRQ_SHAREABLE;
+    unsigned int irq_flag = IRQF_TRIGGER_LOW | IRQF_SHARED | IRQF_ONESHOT;
     int ret;
 
     aml_hw->irq = wifi_irq_num();

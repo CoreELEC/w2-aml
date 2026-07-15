@@ -184,7 +184,11 @@ static int auc_resume(struct usb_interface *interface)
 extern lp_shutdown_func g_lp_shutdown_func;
 extern bt_shutdown_func g_bt_shutdown_func;
 
-void auc_shutdown(struct device *dev)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
+static void auc_shutdown(struct usb_interface *intf)
+#else
+static void auc_shutdown(struct device *dev)
+#endif
 {
     AML_INFO("auc_shutdown begin \n");
 
@@ -231,7 +235,11 @@ static struct usb_driver aml_usb_common_driver = {
     .suspend = auc_suspend,
     .resume = auc_resume,
 #endif
-#if LINUX_VERSION_CODE <= KERNEL_VERSION(6, 8, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
+    .shutdown = auc_shutdown,
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(6, 8, 0)
+    .driver.shutdown = auc_shutdown,
+#else
     .drvwrap.driver.shutdown = auc_shutdown,
 #endif
 };

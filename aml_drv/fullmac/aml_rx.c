@@ -378,7 +378,9 @@ static void aml_rx_mgmt(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
     sp_ret = aml_filter_sp_mgmt_frame(aml_vif, skb->data, SP_STATUS_RX, skb->len, NULL, 0);
 
     if (sp_ret & AML_GAS_INIT_RSP_FRAME) {
+        spin_lock_bh(&aml_hw->roc_lock);
         aml_tx_cfm_wait_rsp(aml_hw, true, (u8 *)__func__, __LINE__);
+        spin_unlock_bh(&aml_hw->roc_lock);
     }
 
     if (((sp_ret & AML_GAS_ACTION_FRAME) && (aml_vif->vif_index != AML_STA_VIF_IDX))

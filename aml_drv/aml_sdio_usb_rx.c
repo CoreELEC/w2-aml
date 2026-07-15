@@ -1212,10 +1212,9 @@ static int aml_sdio_usb_rx_desc_fetch(struct aml_rx *rx, addr32_t fw_pos, int le
                 len = RX_DESC_SIZE + RX_PD_LEN;
             } else {
                 rx->fw.skip = RX_PD_LEN;
-                if (len > pkt_len + sizeof(u64) + sizeof(u32)) {    /* pkt_len + icv + fcs */
-                    AML_ERR("new frag0/skip: %d/%d, pkt len %d, fw pos %x next %x\n",
-                            len, rx->fw.skip, pkt_len, fw_pos, next_pos);
-                    BUG_ON(1);
+                if (len > pkt_len + 16 + sizeof(u32)) {    /* pkt_len + icv + fcs */
+                    AML_WARN("new frag0/skip: %d/%d, pkt len %d, fw pos %x next %x\n",
+                             len, rx->fw.skip, pkt_len, fw_pos, next_pos);
                 }
             }
             AML_INFO("new frag0/skip: %d/%d, pkt len %d\n", len, rx->fw.skip, pkt_len);
