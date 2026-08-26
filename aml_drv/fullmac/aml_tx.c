@@ -1476,7 +1476,18 @@ u32 aml_filter_sp_data_frame(const u8 *frame, int len, struct aml_vif *aml_vif,
     if (aml_filter_rtsp_frame(aml_vif, len, frame, sp_status)) {
         return true;
     }
+#if 0
+    // debug 8010 port pkt print
+    if (ethhdr->h_proto == htons(ETH_P_IP)) {
+        iphdr = (struct iphdr *)(skb->data + ETH_HDR_LEN);
+        iphdrlen = iphdr->ihl * 4;
 
+        struct tcphdr *tcphdr = (struct tcphdr *)(skb->data + ETH_HDR_LEN + iphdrlen);
+        if ((ntohs(tcphdr->source) == 0x1f4a) || (ntohs(tcphdr->dest) == 0x1f4a)) {
+            AML_INFO("8010 %s, ip.id:%08x", sp_frame_status_trace[sp_status],	ntohs(iphdr->id));
+        }
+    }
+#endif
     //filter dhcp
     if (ethhdr->h_proto == htons(ETH_P_IPV6)) {
         ipv6hdr = (const struct ipv6hdr *)(ethhdr + 1);

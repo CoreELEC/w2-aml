@@ -5650,12 +5650,8 @@ static int aml_ps_wow_suspend_sta(struct aml_hw *aml_hw, struct aml_vif *aml_vif
                 return ret;
             }
         }
+
 #ifdef AML_WOW_GOOGLE_CAST_EN
-        /*
-        if (aml_hw->google_cast == 1)
-            filter |= WOW_FILTER_OPTION_GOOGLE_CAST_EN;
-        else
-        */
         filter |= WOW_FILTER_OPTION_GOOGLE_CAST_EN;
 #endif
 #ifdef AML_WOW_MAGIC_PACKET_EN
@@ -5720,6 +5716,7 @@ static int aml_ps_wow_suspend(struct aml_hw *aml_hw, struct cfg80211_wowlan *wow
     struct aml_vif *aml_vif;
     unsigned int filter = 0;
     int ret;
+    unsigned int filter = 0;
 
     if ((ret = aml_ps_wow_suspend_check(aml_hw)) != 0)
         return ret;
@@ -5756,7 +5753,6 @@ static int aml_ps_wow_suspend(struct aml_hw *aml_hw, struct cfg80211_wowlan *wow
     aml_send_sync_trace(aml_hw);
 
     aml_hw->state = WIFI_SUSPEND_STATE_WOW;
-    AML_INFO("suspend_offload_filter: %x\n", filter);
     ret = aml_send_suspend_req(aml_hw, filter, WIFI_SUSPEND_STATE_WOW);
     if (ret) {
         goto err;
