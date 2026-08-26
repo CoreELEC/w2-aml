@@ -352,7 +352,7 @@ static void cmd_mgr_next_cmd(struct aml_hw *aml_hw, struct aml_cmd_mgr *cmd_mgr,
 {
     struct aml_cmd *cur;
     int ret;
-    bool found = false;
+    bool found;
 
     do {
         cmd->flags &= ~AML_CMD_FLAG_WAIT_PUSH;
@@ -370,7 +370,6 @@ static void cmd_mgr_next_cmd(struct aml_hw *aml_hw, struct aml_cmd_mgr *cmd_mgr,
             cmd->flags &= ~(AML_CMD_FLAG_WAIT_ACK | AML_CMD_FLAG_WAIT_CFM);
             cmd_complete(cmd_mgr, cmd);
             found = false;
-            /* coverity[UNREACHABLE], just loop one time for find next cmd */
             list_for_each_entry(cur, &cmd_mgr->cmds, list) {
                 if ((cur->list.next != &cmd_mgr->cmds) && (cur->flags & AML_CMD_FLAG_WAIT_PUSH)) {
                     cmd = cur;

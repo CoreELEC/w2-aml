@@ -58,7 +58,6 @@
 #include "wifi_aon_addr.h"
 #include "aml_mdns_offload.h"
 #include "chip_intf_reg.h"
-#include "aml_rate.h"
 #include "aml_cfgvendor.h"
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 14, 0))
@@ -3544,7 +3543,7 @@ aml_cfg80211_remain_on_channel(struct wiphy *wiphy, struct wireless_dev *wdev,
         aml_txq_offchan_deinit(aml_vif);
     } else {
         if (cookie)
-            *cookie = (u64)(unsigned long)roc;
+            *cookie = (u64)roc;
     }
 
     return error;
@@ -3803,8 +3802,8 @@ static int aml_cfg80211_mgmt_tx(struct wiphy *wiphy, struct wireless_dev *wdev,
         if (aml_hw->roc->tx_cnt < NX_ROC_TX)
             aml_hw->roc->tx_cookie[aml_hw->roc->tx_cnt] = *cookie;
         else
-            wiphy_warn(wiphy, "%d frames sent within the same Roc (> NX_ROC_TX), type:0x%x",
-                       aml_hw->roc->tx_cnt + 1, mgmt->frame_control);
+            wiphy_warn(wiphy, "%d frames sent within the same Roc (> NX_ROC_TX)",
+                       aml_hw->roc->tx_cnt + 1);
         if (!ieee80211_is_probe_resp(mgmt->frame_control))
             aml_hw->roc->tx_cnt++;
     }
@@ -5245,6 +5244,9 @@ extern unsigned char g_usb_after_probe;
  */
 static void aml_check_usb_device_status(struct aml_hw *aml_hw)
 {
+    int ret;
+    struct device_link *dev_link;
+
     // If the USB has been re-enumerated and the usb_dev has changed,
     // the device information corresponding to aml_hw needs to be updated,
     // and the URB needs to be refilled
@@ -5256,16 +5258,14 @@ static void aml_check_usb_device_status(struct aml_hw *aml_hw)
         set_wiphy_dev(aml_hw->wiphy, aml_hw->dev);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 10, 0)
-        {
-            struct device_link * dev_link = device_link_add(&aml_hw->wiphy->dev, &g_udev->dev, DL_FLAG_PM_RUNTIME);
-            if (!dev_link) {
-                AML_INFO("device_link_add fail\n");
-            }
-            else {
-                AML_INFO("device_link_add success\n");
-            }
+        dev_link = device_link_add(&aml_hw->wiphy->dev, &g_udev->dev, DL_FLAG_PM_RUNTIME);
+        if (!dev_link) {
+            AML_INFO("device_link_add fail\n");
+        } else {
+            AML_INFO("device_link_add success\n");
         }
 #endif
+       aml_usb_irq_urb_init(aml_hw, g_udev);
     } else {
         AML_INFO(" usb device no need update\n");
     }
@@ -5493,7 +5493,6 @@ static bool aml_ps_wow_flush_tx(struct aml_hw *aml_hw)
             remain_packet = true;
             AML_INFO("tx_hostid_pushed is not empty\n");
         }
-        /* coverity[MISSING_LOCK] */
         else if ((aml_bus_type != PCIE_MODE) && (aml_hw->g_tx_param.tx_page_free_num != aml_hw->g_tx_param.tx_page_tot_num)) {
             remain_packet = true;
         }
@@ -5650,12 +5649,14 @@ static int aml_ps_wow_suspend_sta(struct aml_hw *aml_hw, struct aml_vif *aml_vif
                 return ret;
             }
         }
-
 #ifdef AML_WOW_GOOGLE_CAST_EN
-        filter |= WOW_FILTER_OPTION_GOOGLE_CAST_EN;
+        if (aml_hw->google_cast == 1)
+            filter |= WOW_FILTER_OPTION_GOOGLE_CAST_EN;
+        else
+            filter |= WOW_FILTER_OPTION_GOOGLE_CAST_EN;
 #endif
 #ifdef AML_WOW_MAGIC_PACKET_EN
-        filter |= WOW_FILTER_OPTION_MAGIC_PACKET;
+            filter |= WOW_FILTER_OPTION_MAGIC_PACKET;
 #endif
         aml_vif->filter = filter;
         ret = aml_send_dhcp_req(aml_hw, aml_vif, 1);
@@ -5714,9 +5715,11 @@ static int aml_ps_wow_suspend_done(struct aml_hw *aml_hw)
 static int aml_ps_wow_suspend(struct aml_hw *aml_hw, struct cfg80211_wowlan *wow)
 {
     struct aml_vif *aml_vif;
+    int count = 0;
+    unsigned int reg_value;
     unsigned int filter = 0;
+    enum nl80211_iftype iftype;
     int ret;
-    unsigned int filter = 0;
 
     if ((ret = aml_ps_wow_suspend_check(aml_hw)) != 0)
         return ret;
@@ -7283,7 +7286,63 @@ static void aml_unregister_panic_notifier(void)
     atomic_notifier_chain_unregister(&panic_notifier_list, &aml_panic_notifier);
 }
 
-int aml_interface_add_all(struct aml_hw *aml_hw, bool custchan)
+#ifdef CONFIG_AML_APF
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0))
+const struct nla_policy apf_attribute_policy[APF_ATTRIBUTE_MAX] = {
+    [APF_ATTRIBUTE_VERSION] = { .type = NLA_U32 },
+    [APF_ATTRIBUTE_MAX_LEN] = { .type = NLA_U32 },
+    [APF_ATTRIBUTE_PROGRAM] = { .type = NLA_BINARY },
+    [APF_ATTRIBUTE_PROGRAM_LEN] = { .type = NLA_U32 },
+};
+#endif /* LINUX_VERSION >= 5.3 */
+#endif
+
+const struct wiphy_vendor_command aml_wiphy_vendor_commands[] =
+{
+    ANDROID_MDNS_OFFLOAD_VENDOR_CMD,
+#ifdef CONFIG_AML_APF
+    {
+        {
+        .vendor_id = GOOGLE_VENDOR_OUI,
+        .subcmd = APF_SUBCMD_GET_CAPABILITIES
+        },
+        .flags = WIPHY_VENDOR_CMD_NEED_WDEV | WIPHY_VENDOR_CMD_NEED_NETDEV,
+        .doit = aml_cfgvendor_apf_get_capabilities,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0))
+        .policy = apf_attribute_policy,
+        .maxattr = APF_ATTRIBUTE_MAX
+#endif /* LINUX_VERSION >= 5.3 */
+    },
+
+    {
+        {
+        .vendor_id = GOOGLE_VENDOR_OUI,
+        .subcmd = APF_SUBCMD_SET_FILTER
+        },
+        .flags = WIPHY_VENDOR_CMD_NEED_WDEV | WIPHY_VENDOR_CMD_NEED_NETDEV,
+        .doit = aml_cfgvendor_apf_set_filter,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0))
+        .policy = apf_attribute_policy,
+        .maxattr = APF_ATTRIBUTE_MAX
+#endif /* LINUX_VERSION >= 5.3 */
+    },
+
+    {
+        {
+        .vendor_id = GOOGLE_VENDOR_OUI,
+        .subcmd = APF_SUBCMD_READ_FILTER_DATA
+        },
+        .flags = WIPHY_VENDOR_CMD_NEED_WDEV | WIPHY_VENDOR_CMD_NEED_NETDEV,
+        .doit = aml_cfgvendor_apf_read_filter_data,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0))
+        .policy = apf_attribute_policy,
+        .maxattr = APF_ATTRIBUTE_MAX
+#endif /* LINUX_VERSION >= 5.3 */
+    },
+#endif /* CONFIG_AML_APF */
+};
+
+static int aml_interface_add_all(struct aml_hw *aml_hw, bool custchan)
 {
     struct wireless_dev *wdev;
     enum nl80211_iftype iftype;
@@ -7349,19 +7408,13 @@ int aml_cfg80211_init(struct aml_plat *aml_plat, void **platform_data)
     set_wiphy_dev(wiphy, aml_hw->dev);
 #endif
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 10, 0)
-    if (aml_bus_type == SDIO_MODE)
-        aml_sdio_wifi_pm_link(aml_hw);
-#endif
-
 #ifdef CONFIG_AML_APF
     aml_hw->wifi_early_suspend.level = EARLY_SUSPEND_LEVEL_DISABLE_FB;
     aml_hw->wifi_early_suspend.suspend = aml_wifi_earlysuspend;
     aml_hw->wifi_early_suspend.resume = aml_wifi_lateresume;
     aml_hw->wifi_early_suspend.param = aml_hw;
-    aml_hw->apf_params.apf_cap.apf_mem_addr = 0;
     register_early_suspend(&aml_hw->wifi_early_suspend);
-    mutex_init(&aml_hw->apf_params.apf_mutex);
+    mutex_init(&apf_mutex);
 #endif
     /* init sw context buffers */
     if ((ret = aml_hwctx_buf_init(aml_hw))) {
@@ -7719,6 +7772,10 @@ void aml_cfg80211_deinit(struct aml_hw *aml_hw)
     del_timer_sync(&aml_hw->txq_cleanup);
 #ifdef CONFIG_AML_APF
     unregister_early_suspend(&aml_hw->wifi_early_suspend);
+#endif
+#ifndef CONFIG_PT_MODE
+#ifdef CONFIG_AML_RECOVERY
+    aml_recy_deinit();
 #endif
 #ifndef CONFIG_PT_MODE
     aml_wake_source_deinit(aml_hw);

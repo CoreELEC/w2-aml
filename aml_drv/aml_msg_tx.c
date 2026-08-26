@@ -4643,7 +4643,7 @@ extern uint8_t apf_macaddr3;
 extern uint8_t apf_macaddr4;
 extern uint8_t apf_macaddr5;
 // Used to dynamically modify the MAC address in the program via the iwpriv command.
-void aml_apf_set_mac_addr(struct net_device *dev, u8 mac_addr3, u8 mac_addr4, u8 mac_addr5)
+int aml_apf_set_mac_addr(struct net_device *dev, u8 mac_addr3, u8 mac_addr4, u8 mac_addr5)
 {
     apf_macaddr3 = mac_addr3;
     apf_macaddr4 = mac_addr4;
@@ -5300,5 +5300,197 @@ int aml_reset_edca(struct aml_vif *aml_vif, int enable)
     wfa_test_param->wfa_reset_edca = enable;
     /* coverity[leaked_storage] - wfa_test_param will be freed later */
     return aml_priv_send_msg(aml_hw, wfa_test_param, 0, 0, NULL);
+}
+
+#ifdef CONFIG_AML_APF
+/**
+ * aml_apf_get_capabilities - Retrieve Android Packet Filter (APF) capabilities from hardware
+ * @aml_hw: Pointer to the AML hardware structure
+ *
+ * This function queries the hardware for APF capabilities, including the maximum
+ * length of APF programs that can be supported. It updates the APF capabilities
+ * in the AML hardware structure.
+ *
+ * Return:
+ *   0 on success, or a negative error code on failure.
+ */
+int aml_apf_get_capabilities(struct aml_hw *aml_hw)
+{
+    void *apf_req;
+
+    apf_req = aml_priv_msg_zalloc(MM_SUB_GET_APF_CAPABILITIES, 0);
+    if (!apf_req)
+        return -ENOMEM;
+
+    return aml_priv_send_msg(aml_hw, apf_req, 1, PRIV_APF_GET_CAPABILITIES_CFM, &aml_hw->apf_params.apf_cap);
+}
+
+/**
+ * aml_apf_add_filter - Add Android Packet Filter (APF) filter to hardware
+ * @aml_hw: Pointer to the AML hardware structure
+ * @program: Pointer to the APF filter program buffer
+ * @program_len: Length of the APF filter program buffer
+ *
+ * This function adds an APF filter program to the hardware. It takes the APF filter
+ * program buffer and its length as input parameters and configures the hardware
+ * accordingly.
+ *
+ * Return:
+ *   0 on success, or a negative error code on failure.
+ */
+int aml_apf_add_filter(struct aml_hw *aml_hw, u8_l * program, uint32_t program_len)
+{
+    int i;
+    u8_l * dst_addr;
+    struct apf_filter * apf_add_filter_req;
+    struct aml_plat * aml_plat = aml_hw->plat;
+    uint32_t align_size = 0;
+    // Download program to firmware
+    if (aml_bus_type == USB_MODE) {
+            aml_plat->hif_ops->hi_write_sram((unsigned char *)program,
+                (unsigned char *)(aml_hw->apf_params.apf_cap.apf_mem_addr), program_len, USB_EP4);
+        } else if (aml_bus_type == SDIO_MODE) {
+            align_size = program_len / 512 * 512;
+            if (align_size != 0)
+            {
+                aml_plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)program,
+                    (unsigned char *)aml_hw->apf_params.apf_cap.apf_mem_addr, align_size);
+            }
+
+            if (program_len % 512 != 0)
+            {
+                aml_plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)program + align_size,
+                    (unsigned char *)(aml_hw->apf_params.apf_cap.apf_mem_addr + aml_hw->apf_params.apf_cap.max_len), program_len % 512);
+            }
+        } else {
+            dst_addr = AML_ADDR(aml_plat, AML_ADDR_CPU, aml_hw->apf_params.apf_cap.apf_mem_addr);
+            for (i = 0; i < program_len; i++) {
+                *(dst_addr)++ = *program++;
+            }
+    }
+
+    // send msg
+    apf_add_filter_req = aml_priv_msg_zalloc(MM_SUB_ADD_APF_FILTER, sizeof(struct apf_filter));
+    if (!apf_add_filter_req)
+        return -ENOMEM;
+
+    apf_add_filter_req->program_len = program_len;
+    apf_add_filter_req->need_fw_copy = false;
+    if (aml_bus_type == SDIO_MODE) {
+        apf_add_filter_req->need_fw_copy = (program_len % 512 == 0) ? false :true;
+        if (apf_add_filter_req->need_fw_copy)
+        {
+            apf_add_filter_req->fw_copy_len = program_len % 512;
+            apf_add_filter_req->fw_copy_addr = aml_hw->apf_params.apf_cap.apf_mem_addr + align_size;
+            //memcpy(apf_add_filter_req->copy_data, program + align_size, program_len % 4);
+        }
+    }
+    return aml_priv_send_msg(aml_hw, apf_add_filter_req, 0, 0, NULL);
+}
+
+/**
+ * aml_apf_delete_filter - Delete Android Packet Filter (APF) filter from hardware
+ * @aml_hw: Pointer to the AML hardware structure
+ *
+ * This function deletes the currently active APF filter from the hardware
+ * associated with the provided AML hardware structure.
+ *
+ * Return:
+ *   0 on success, or a negative error code on failure.
+ */
+int aml_apf_delete_filter(struct aml_hw *aml_hw, struct apf_pgm_status * apf_pgm_status)
+{
+    void * apf_delete_req;
+
+    apf_delete_req = aml_priv_msg_zalloc(MM_SUB_DELETE_APF_FILTER, 0);
+    if (!apf_delete_req)
+        return -ENOMEM;
+
+    return aml_priv_send_msg(aml_hw, apf_delete_req, 1, PRIV_APF_DELETE_PGM, &apf_pgm_status->apf_status);
+}
+
+/**
+ * aml_apf_read_filter_data - Read Android Packet Filter (APF) filter data from hardware
+ * @aml_hw: Pointer to the AML hardware structure
+ * @buf: Pointer to the buffer where the APF filter data will be stored
+ * @buf_len: Length of the buffer allocated for APF filter data
+ *
+ * This function reads the current APF filter data from the hardware associated
+ * with the provided AML hardware structure and stores it in the specified buffer.
+ * The caller must ensure that the buffer (@buf) is large enough to hold the
+ * requested data (@buf_len).
+ *
+ * Return:
+ *   None
+ */
+void aml_apf_read_filter_data(struct aml_hw *aml_hw, u8_l * buf, uint32_t buf_len)
+{
+    int i;
+    u8_l * src_addr;
+
+    if (aml_bus_type == USB_MODE) {
+        aml_hw->plat->hif_ops->hi_read_sram((unsigned char *)buf,
+            (unsigned char *)(SYS_TYPE)aml_hw->apf_params.apf_cap.apf_mem_addr,
+            buf_len, USB_EP4);
+    } else if (aml_bus_type == SDIO_MODE) {
+        aml_hw->plat->hif_sdio_ops->hi_random_ram_read((unsigned char *)buf,
+            (unsigned char *)(SYS_TYPE)aml_hw->apf_params.apf_cap.apf_mem_addr, buf_len);
+    } else{
+        src_addr = AML_ADDR(aml_hw->plat, AML_ADDR_CPU, aml_hw->apf_params.apf_cap.apf_mem_addr);
+        for (i = 0; i < buf_len; i++) {
+            *buf++ = *src_addr++;
+        }
+    }
+}
+
+/**
+ * aml_apf_set_mode - Function to set the APF (Android Packet Filter) mode on the AML hardware.
+ * @aml_hw: Pointer to the AML hardware structure.
+ * @apf_mode: Desired APF mode (enable/disable).
+ *
+ * This function allocates and sends a message to the AML hardware to set the APF mode.
+ * It initializes an APF set mode request structure, sets the APF mode, and sends the
+ * request message to the AML hardware.
+ */
+int aml_apf_set_mode(struct aml_hw *aml_hw, bool apf_mode)
+{
+    struct apf_set_mode_req * apf_set_mode_req;
+
+    apf_set_mode_req = aml_priv_msg_zalloc(MM_SUB_SET_APF_MODE, sizeof(struct apf_set_mode_req));
+    if (!apf_set_mode_req)
+        return -ENOMEM;
+
+    // Set the APF mode in the request structure
+    apf_set_mode_req->apf_mode = apf_mode;
+
+    return aml_priv_send_msg(aml_hw, apf_set_mode_req, 0, 0, NULL);
+}
+
+int aml_apf_get_status(struct aml_hw *aml_hw)
+{
+    void *apf_req;
+
+    apf_req = aml_priv_msg_zalloc(MM_SUB_GET_APF_STATUS, 0);
+    if (!apf_req)
+        return -ENOMEM;
+
+    return aml_priv_send_msg(aml_hw, apf_req, 1, PRIV_APF_GET_STATUS, &aml_hw->apf_params.apf_info);
+}
+
+#endif /* CONFIG_AML_APF */
+
+
+int aml_set_early_suspend_mode(struct aml_hw *aml_hw, bool early_suspend_mode)
+{
+    struct early_suspend_mode_req * early_suspend_mode_req;
+
+    early_suspend_mode_req = aml_priv_msg_zalloc(MM_SUB_SET_EARLY_SUSPEND_REQ, sizeof(struct early_suspend_mode_req));
+    if (!early_suspend_mode_req)
+        return -ENOMEM;
+
+    // Set the APF mode in the request structure
+    early_suspend_mode_req->early_suspend_mode = early_suspend_mode;
+
+    return aml_priv_send_msg(aml_hw, early_suspend_mode_req, 0, 0, NULL);
 }
 

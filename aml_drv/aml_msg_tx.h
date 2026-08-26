@@ -281,10 +281,6 @@ int aml_mdns_set_passthrough_behavior(struct aml_hw *aml_hw, int behavior);
 int aml_set_mcc_ratio(struct aml_hw *aml_hw, int ratio);
 int aml_set_suspend_tx_flush(struct aml_hw *aml_hw, int tx_flush_enable);
 int aml_set_linkloss_threshold(struct aml_hw * aml_hw, int threshold);
-int aml_set_2g4_bindwidth(struct aml_hw * aml_hw, u8 enable_2g4_20m);
-int aml_set_custom_config(struct aml_hw *aml_hw);
-bool aml_check_suspend_resume_msg(struct aml_hw *aml_hw, struct lmac_msg *msg);
-int aml_send_sync_trace(struct aml_hw *aml_hw);
 #ifdef CONFIG_AML_APF
 int aml_apf_get_capabilities(struct aml_hw *aml_hw);
 int aml_apf_add_filter(struct aml_hw *aml_hw, u8_l * program, uint32_t program_len);
@@ -293,8 +289,9 @@ void aml_apf_read_filter_data(struct aml_hw *aml_hw, u8_l * buf, uint32_t buf_le
 int aml_apf_set_mode(struct aml_hw *aml_hw, bool apf_mode);
 int aml_apf_get_status(struct aml_hw *aml_hw);
 int aml_set_early_suspend_mode(struct aml_hw *aml_hw, bool early_suspend_mode);
-void aml_apf_set_mac_addr(struct net_device *dev, u8 mac_addr3, u8 mac_addr4, u8 mac_addr5);
+int aml_apf_set_mac_addr(struct net_device *dev, u8 mac_addr3, u8 mac_addr4, u8 mac_addr5);
 #endif /* APF */
+
 
 int aml_ps_info_get(struct net_device *dev, struct ps_info_s * ind, int debug_type);
 int aml_regdom_en(struct aml_hw *aml_hw, uint32_t reg_en);

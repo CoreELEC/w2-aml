@@ -670,8 +670,7 @@ static inline int aml_rx_scanu_start_cfm(struct aml_hw *aml_hw,
                                           struct aml_cmd *cmd,
                                           struct ipc_e2a_msg *msg)
 {
-    AML_INFO("%s, cur_chan:%d, rx beacon and probe rsp count:%d\n",
-             __func__, aml_hw->cur_chanctx, aml_hw->misc.scan_result_cnt);
+    AML_INFO("%s, cur_chan:%d", __func__, aml_hw->cur_chanctx);
 
     aml_ipc_buf_dealloc(aml_hw, &aml_hw->scan_ie);
     spin_lock_bh(&aml_hw->scan_req_lock);
@@ -1835,6 +1834,21 @@ static inline int aml_dma_dl_result_ind(struct aml_hw *aml_hw,
     return 0;
 }
 #endif
+
+int update_rxptr = 0;
+static int aml_resume_sync_rxbuf_ptr(struct aml_hw *aml_hw,
+                                               struct aml_cmd *cmd,
+                                               struct ipc_e2a_msg *msg)
+{
+    struct resume_sync_ptr *ind = (struct resume_sync_ptr *)msg->param;
+
+    aml_hw->fw_buf_pos  = ind->hw_rd;
+    AML_INFO("resume update fw_buf_pos = %x\n", aml_hw->fw_buf_pos);
+    if (update_rxptr == RXBUF_PTR_UPDATE_WAIT)
+        update_rxptr = RXBUF_PTR_UPDATE_DONE;
+
+    return 0;
+}
 
 static inline int aml_coex_get_status_ind(struct aml_hw *aml_hw,
                                       struct aml_cmd *cmd,

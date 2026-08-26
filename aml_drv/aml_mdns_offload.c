@@ -23,13 +23,9 @@ static u32_boolean setOffloadState(struct aml_hw *aml_hw, u32_boolean enabled)
 {
     uint32_t ret;
 
-#ifndef MDNS_OFFLOAD_FEATURE
-    enabled = 0;
-    AML_ERR("mdns don't support in drv!!\n");
-#endif
-    ret = aml_mdns_set_offload_state(aml_hw, enabled);
-    if (ret) {
-        AML_ERR("aml_mdns_set_offload_state fail ret:%d\n", ret);
+#ifdef MDNS_OFFLOAD_FEATURE
+    if (aml_mdns_set_offload_state(aml_hw, enabled) != 0) {
+        AML_ERR(" MDNS_OFFLOAD_FEATURE is enabled!\n");
         ret = false;
     }
 #ifndef MDNS_OFFLOAD_FEATURE

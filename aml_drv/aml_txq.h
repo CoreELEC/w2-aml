@@ -550,6 +550,9 @@ int aml_txq_pushed_bcmc_unk(struct aml_vif *aml_vif);
 void aml_hwq_init(struct aml_hw *aml_hw);
 void aml_hwq_process(struct aml_hw *aml_hw, struct aml_hwq *hwq);
 void aml_hwq_process_all(struct aml_hw *aml_hw);
-int aml_filter_sp_dns(const uint8_t *buf, uint32_t buf_len, int offset, char *qname);
+int aml_txq_is_empty(struct aml_vif *aml_vif, struct aml_sta * aml_sta);
+int aml_unktxq_is_empty(struct aml_vif *aml_vif);
+int aml_bcmctxq_is_empty(struct aml_vif *aml_vif);
+
 
 #endif /* _AML_TXQ_H_ */

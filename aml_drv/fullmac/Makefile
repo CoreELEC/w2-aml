@@ -57,6 +57,11 @@ ifeq ($(CONFIG_AML_ANDROID),16)
 CONFIG_AML_APF ?= y
 endif
 
+#Enable APF (Android Packet Filter)
+ifeq ($(CONFIG_AML_ANDROID),16)
+CONFIG_AML_APF ?= y
+endif
+
 obj-m := w2.o
 w2-y := ../aml_msg_tx.o        \
         ../aml_msg_rx.o        \
@@ -91,8 +96,7 @@ w2-y := ../aml_msg_tx.o        \
         ../aml_rps.o           \
         ../aml_sap.o           \
         ../aml_mdns_offload.o  \
-        ../aml_cfgvendor.o     \
-        ../aml_fw_trace.o
+        ../aml_cfgvendor.o
 
 obj-m += w2_comm.o
 w2_comm-objs := \
@@ -139,6 +143,7 @@ ccflags-$(CONFIG_AML_SUSPEND) += -DCONFIG_AML_SUSPEND
 ccflags-$(CONFIG_AML_LA) += -DCONFIG_AML_LA
 ccflags-$(CONIG_AML_CSA_MODE) += -DCONIG_AML_CSA_MODE
 ccflags-$(CONFIG_AML_USB_LARGE_PAGE) += -DCONFIG_AML_USB_LARGE_PAGE
+ccflags-$(CONFIG_AML_SDIO_USB_FW_REORDER) += -DCONFIG_AML_SDIO_USB_FW_REORDER
 ccflags-$(CONFIG_AML_APF) += -DCONFIG_AML_APF
 
 ifeq ($(CONFIG_AML_MUMIMO_TX), y)

@@ -14,7 +14,6 @@
 #include <net/cfg80211.h>
 #include <net/netlink.h>
 #include "aml_defs.h"
-#include "aml_log.h"
 #include "aml_cfgvendor.h"
 
 typedef uint32_t u32_boolean;

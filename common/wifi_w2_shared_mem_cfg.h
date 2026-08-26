@@ -43,11 +43,7 @@ LA ON: rx buffer large size 0x30000, small size: 0x20000
 */
 
 #define TXLBUF_TAG_SDIO_4                (0x60017d44) /* size 0x1c00*/
-#ifdef PCIE
-#define BUF_FOR_SUSPEND_USE_ADDR         (0x60068000) /* size 6k */
-#else
-#define BUF_FOR_SUSPEND_USE_ADDR         (0x60019C00) /* size 6k */
-#endif
+#define BUF_FOR_SUSPEND_USE_ADDR         (0x60019C00) /* size 2k */
 #define RXBUF_START_ADDR                 (0x6001B400) /* size 6k for offload */
 
 
@@ -114,8 +110,10 @@ enum sdio_usb_ipc_ext_state {
 #define BUFFER_LA_USED             BIT(12)
 #define BUFFER_LA_FREE             BIT(13)
 
-#define DYNAMIC_BUF_IS_ON_TX  ((sdio_buffer_ctrl.buffer_status) & (BUFFER_TX_USED))
-#define DYNAMIC_BUF_IS_ON_RX  ((sdio_buffer_ctrl.buffer_status) & (BUFFER_RX_USED))
+#define RX_ENLARGE_READ_RX_DATA_FINISH BIT(25)
+#define HOST_RXBUF_ENLARGE_FINISH      BIT(26)
+#define RX_REDUCE_READ_RX_DATA_FINISH  BIT(27)
+#define HOST_RXBUF_REDUCE_FINISH       BIT(28)
 
 // the E2A flags in RG_WIFI_IF_FW2HST_IRQ_CFG
 #define RX_WRAP_TEMP_FLAG               BIT(19)

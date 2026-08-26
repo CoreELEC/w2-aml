@@ -61,7 +61,6 @@ extern const struct pcie_mem_map_struct pcie_ep_addr_range[PCIE_TABLE_NUM];
 
 struct pci_dev *g_pci_dev = NULL;
 struct aml_hw *g_aml_hw = NULL;
-extern struct aml_pm_type g_wifi_pm;
 
 int wifi_fw_download(char *firmware_filename);
 int start_wifi(void);
@@ -1777,9 +1776,6 @@ int aml_platform_register_usb_drv(void)
         return ret;
     }
     dev_set_drvdata(&aml_plat->usb_dev->dev, drv_data);
-#ifdef CONFIG_AML_USB_HOTPLUG
-    register_reboot_notifier(&wifinotifier);
-#endif
     // if usb disconnect, system can't get @drv_data from dev, so we save it
     g_aml_hw = drv_data;
     bus_state_detect.is_drv_load_finished = 1;
@@ -1802,7 +1798,7 @@ void aml_platform_unregister_usb_drv(void)
             aml_hw = g_aml_hw;
             g_aml_hw = NULL;
         } else {
-            AML_ERR("can't get aml_hw, need to check\n");
+            AML_INFO("can't get aml_hw, need to check\n");
             goto err_drvdata;
         }
     }
@@ -1967,7 +1963,7 @@ void aml_platform_unregister_sdio_drv(void)
             aml_hw = g_aml_hw;
             g_aml_hw = NULL;
         } else {
-            AML_ERR("can't get aml_hw, need to check\n");
+            AML_INFO("can't get aml_hw, need to check\n");
             goto err_drvdata;
         }
     }
@@ -2276,10 +2272,12 @@ void aml_platform_unregister_pcie_drv(void)
             aml_hw = g_aml_hw;
             g_aml_hw = NULL;
         } else {
-            AML_ERR("can't get aml_hw, need to check\n");
-            goto err_drvdata;
+            AML_INFO("can't get aml_hw, need to check\n");
+            return;
         }
     }
+
+    aml_plat = aml_hw->plat;
 
     aml_plat = aml_hw->plat;
     aml_platform_deinit(aml_hw);

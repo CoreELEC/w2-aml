@@ -66,6 +66,7 @@ struct log_file_info trace_log_file_info;
 extern struct auc_hif_ops g_auc_hif_ops;
 extern struct pci_dev *g_pci_dev;
 extern struct aml_hw *g_aml_hw;
+extern unsigned int trace_flag;
 
 struct aml_trace_nl_info g_trace_nl_info;
 
@@ -1239,30 +1240,17 @@ static void aml_recv_netlink(struct sk_buff *skb)
         case AML_TRACE_FW_LOG_START:
             g_trace_nl_info.user_pid = nlh->nlmsg_pid;
             g_trace_nl_info.enable = 1;
-            if (!trace_log_file_info.net_switch) {
-                ret = aml_send_fwlog_cmd(aml_hw, TRACE_TO_HOST, &cfm);
-                AML_INFO("ret:%d\n", ret);
-                if (ret == 0) {
-                    /* 0x500000:convert dccm addr from fw to host */
-                    trace_log_file_info.trace_buf = cfm.trace_buf | 0x500000;
-                    trace_log_file_info.end = cfm.end | 0x500000;
-                    AML_INFO("aml_bus_type:%d cfm.trace_buf:%x, cfm.end:%x, trace_buf:%x, end:%x", aml_bus_type,
-                         cfm.trace_buf, cfm.end, trace_log_file_info.trace_buf, trace_log_file_info.end);
-                    trace_log_file_info.trace_type = TRACE_TO_HOST;
-                    trace_log_file_info.net_switch = 1;
-                } else {
-                    AML_INFO("bus_type err or trace_log_file_info init failed!");
-                }
+            if (!trace_flag) {
+                aml_send_fwlog_cmd(aml_hw, 1);
+                trace_flag = 1;
             }
-
             AML_INFO("user space process (pid: %d) start recv fw log !!!!\n", g_trace_nl_info.user_pid);
             break;
         case AML_TRACE_FW_LOG_STOP:
             g_trace_nl_info.enable = 0;
-            if (trace_log_file_info.net_switch) {
-                aml_send_fwlog_cmd(aml_hw, LOG_TO_UART, &cfm);
-                trace_log_file_info.trace_type = LOG_TO_UART;
-                trace_log_file_info.net_switch = 0;
+            if (trace_flag) {
+                aml_send_fwlog_cmd(aml_hw, 0);
+                trace_flag = 0;
             }
             AML_INFO("user space process (pid: %d) stop recv fw log !!!!\n", g_trace_nl_info.user_pid);
             break;

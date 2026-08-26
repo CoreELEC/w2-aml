@@ -1476,18 +1476,11 @@ u32 aml_filter_sp_data_frame(const u8 *frame, int len, struct aml_vif *aml_vif,
     if (aml_filter_rtsp_frame(aml_vif, len, frame, sp_status)) {
         return true;
     }
-#if 0
-    // debug 8010 port pkt print
-    if (ethhdr->h_proto == htons(ETH_P_IP)) {
-        iphdr = (struct iphdr *)(skb->data + ETH_HDR_LEN);
-        iphdrlen = iphdr->ihl * 4;
 
-        struct tcphdr *tcphdr = (struct tcphdr *)(skb->data + ETH_HDR_LEN + iphdrlen);
-        if ((ntohs(tcphdr->source) == 0x1f4a) || (ntohs(tcphdr->dest) == 0x1f4a)) {
-            AML_INFO("8010 %s, ip.id:%08x", sp_frame_status_trace[sp_status],	ntohs(iphdr->id));
-        }
-    }
-#endif
+    //wfd rtsp frame
+    if (aml_filter_rtsp_frame(aml_vif, skb->len, skb->data, sp_status))
+        return true;
+
     //filter dhcp
     if (ethhdr->h_proto == htons(ETH_P_IPV6)) {
         ipv6hdr = (const struct ipv6hdr *)(ethhdr + 1);
@@ -1601,12 +1594,16 @@ uint32_t aml_filter_sp_mgmt_frame(struct aml_vif *vif, u8 *buf, AML_SP_STATUS_E 
 
                         ret |= AML_P2P_ACTION_FRAME;
 
+                        if ((oui_subtype != P2P_ACTION_GO_NEG_CFM) && (oui_subtype != P2P_ACTION_INVIT_RSP)) {
+                            ret |= AML_REPORT_NO_ACKED;
+                        }
+
                         //P2P_ACTION_GO_NEG_RSP & P2P_ACTION_GO_NEG_CFM & P2P_ACTION_INVIT_RSP:need sw retry
                         if ((oui_subtype == P2P_ACTION_GO_NEG_RSP)
-                                || (oui_subtype == P2P_ACTION_GO_NEG_CFM)
-                                || (oui_subtype == P2P_ACTION_INVIT_RSP)
-                                || (oui_subtype == P2P_ACTION_INVIT_REQ)
-                                || (oui_subtype == P2P_ACTION_GO_NEG_REQ)) {
+                            || (oui_subtype == P2P_ACTION_GO_NEG_CFM)
+                            || (oui_subtype == P2P_ACTION_INVIT_RSP)
+                            || (oui_subtype == P2P_ACTION_INVIT_REQ)
+                            || (oui_subtype == P2P_ACTION_GO_NEG_REQ)) {
                             ret |= AML_SP_FRAME;
 
                             if ((oui_subtype == P2P_ACTION_GO_NEG_CFM) || (oui_subtype == P2P_ACTION_INVIT_RSP)) {
@@ -1757,12 +1754,11 @@ uint32_t aml_filter_sp_mgmt_frame(struct aml_vif *vif, u8 *buf, AML_SP_STATUS_E 
                 aml_scc_save_probe_rsp(vif, (u8 *)buf, frame_len);
             }
 
-            if ((vif->vif_index == AML_P2P_DEVICE_VIF_IDX) && (sp_status == SP_STATUS_TX_START)) {
+            if (vif->vif_index == AML_P2P_DEVICE_VIF_IDX) {
                 if (aml_get_p2p_ie_offset(buf, frame_len, MAC_SHORT_MAC_HDR_LEN + PROBE_RSP_HDR_LEN)) {
                     vif->aml_hw->wfd_present = true;
                 }
             }
-
             return ret;
         }
 
@@ -2255,8 +2251,235 @@ int aml_task_fn_tx_cfm(struct aml_task *t)
 
         aml_sdio_usb_tx_cfm(aml_hw, compact, skb, headroom);
 
-        if (timer_pending(&aml_hw->txq_cleanup))
-            mod_timer(&aml_hw->txq_cleanup, jiffies + AML_TXQ_CLEANUP_INTERVAL);
+#ifdef CONFIG_SDIO_TX_ENH
+#ifdef SDIO_TX_ENH_DBG
+        cfmlog.cfm_rx_cnt++;
+        cfmlog.cfm_num = 0;
+#endif
+#endif
+
+        for (i = 0; i < SRAM_TXCFM_CNT; i++, drv_txcfm_idx = (drv_txcfm_idx + 1) % SRAM_TXCFM_CNT) {
+            if (aml_hw->aml_txcfm_task_quit) {
+                break;
+            }
+            aml_hw->ipc_env->txcfm_idx = drv_txcfm_idx;
+            cfm_data = read_cfm[drv_txcfm_idx];
+            cfm.credits = cfm_data.credits;
+            cfm.ampdu_size = cfm_data.ampdu_size;
+#ifdef CONFIG_AML_SPLIT_TX_BUF
+            cfm.amsdu_size = cfm_data.amsdu_size;
+#endif
+            cfm.status.value = (u32)cfm_data.status.value;
+            cfm.hostid = (u32_l)cfm_data.hostid;
+            skb = ipc_host_tx_host_id_to_ptr_for_sdio_usb(aml_hw->ipc_env, cfm.hostid);
+
+#ifdef CONFIG_SDIO_TX_ENH
+            if (!skb) {
+                if (aml_hw->txcfm_param.dyn_en)
+                    txcfm_analyze_handler(aml_hw, i, aml_hw->txcfm_param.pre_tag, drv_txcfm_idx);
+
+                #ifdef SDIO_TX_ENH_DBG
+                cfmlog.drv_txcfm_idx = drv_txcfm_idx;
+                #endif
+
+                break;
+            }
+#else
+            if (!skb)
+                break;
+#endif
+
+#ifdef CONFIG_SDIO_TX_ENH
+            if (aml_bus_type == SDIO_MODE)
+                aml_hw->txcfm_param.hostid_pushed--;
+#ifdef SDIO_TX_ENH_DBG
+            cfmlog.cfm_num++;
+            cfmlog.hostid_pushed = aml_hw->txcfm_param.hostid_pushed;
+#endif
+#endif
+
+            sw_txhdr = ((struct aml_txhdr *)skb->data)->sw_hdr;
+            txq = sw_txhdr->txq;
+            if (aml_bus_type == SDIO_MODE) {
+                frame_tot_len = 0;
+                txdesc_host = &sw_txhdr->desc;
+                for (i = 0; i < txdesc_host->api.host.packet_cnt; i++) {
+                    frame_tot_len += txdesc_host->api.host.packet_len[i];
+                }
+                page_num = howmanypage(frame_tot_len + SDIO_DATA_OFFSET + SDIO_FRAME_TAIL_LEN, SDIO_PAGE_LEN);
+            } else {
+                #ifdef CONFIG_AML_USB_LARGE_PAGE
+                page_num = 1;
+                #else
+                page_num = sw_txhdr->desc.api.host.packet_cnt ;
+                #endif
+            }
+            spin_lock_bh(&aml_hw->tx_buf_lock);
+            aml_hw->g_tx_param.tx_page_free_num += page_num;
+
+#ifdef CONFIG_SDIO_TX_ENH
+#ifdef SDIO_TX_ENH_DBG
+            cfmlog.cfm_page += page_num;
+#endif
+#endif
+            spin_unlock_bh(&aml_hw->tx_buf_lock);
+            AML_RLMT_DBG("tx_page_free_num=%d, credit=%d, pagenum=%d, skb=%p, cfm.credits=%d, drv_txcfm_idx=%d\n", aml_hw->g_tx_param.tx_page_free_num, txq->credits, page_num, skb, cfm.credits, drv_txcfm_idx);
+            if (aml_hw->g_tx_param.tx_page_free_num >= aml_hw->g_tx_param.txcfm_trigger_tx_thr) {
+                up(&aml_hw->aml_tx_sem);
+            }
+
+            /* don't use txq->hwq as it may have changed between push and confirm */
+            hwq = &aml_hw->hwq[sw_txhdr->hw_queue];
+
+            aml_txq_confirm_any(aml_hw, txq, hwq, sw_txhdr);
+
+            /* Update txq and HW queue credits */
+            if (sw_txhdr->desc.api.host.flags & TXU_CNTRL_MGMT) {
+                struct ieee80211_mgmt *mgmt = NULL;
+                bool cfm_tx_status = true;
+
+                trace_mgmt_cfm(sw_txhdr->aml_vif->vif_index,
+                    (sw_txhdr->aml_sta) ? sw_txhdr->aml_sta->sta_idx : 0xFF, cfm.status.acknowledged);
+                if (aml_bus_type == USB_MODE)
+                    mgmt = (struct ieee80211_mgmt *)(skb->data + AML_USB_TX_HEADROOM);
+                else if (aml_bus_type == SDIO_MODE)
+                    mgmt = (struct ieee80211_mgmt *)(skb->data + AML_SDIO_TX_HEADROOM);
+                if ((ieee80211_is_deauth(mgmt->frame_control)) && (sw_txhdr->aml_vif->is_disconnect == 1)) {
+                    sw_txhdr->aml_vif->is_disconnect = 0;
+                }
+
+                if (ieee80211_is_action(mgmt->frame_control)) {
+                    sp_ret = aml_filter_sp_mgmt_frame(sw_txhdr->aml_vif, (u8*)mgmt, cfm.status.acknowledged ? SP_STATUS_TX_SUC:SP_STATUS_TX_FAIL, 0, &(sw_txhdr->frame_len), (u64)skb);
+                    if (sp_ret & AML_CSA_ACTION_FRAME) {
+                        AML_INFO("csa action send cfm, status:%d", cfm.status.acknowledged);
+                    }
+                }
+
+                if (!cfm.status.acknowledged
+                    && ((sp_ret & AML_GAS_ACTION_FRAME) || (sp_ret & AML_MUST_TX_SUC))
+                    && (txq->idx != TXQ_INACTIVE)) {
+                    spin_lock_bh(&aml_hw->roc_lock);
+                    if (aml_hw->roc && (jiffies_to_msecs(jiffies - aml_hw->roc->start_time) <= aml_hw->roc->duration)) {
+                        spin_unlock_bh(&aml_hw->roc_lock);
+                        AML_INFO("retry frame during roc:0x%x", sp_ret);
+                        aml_tx_retry(aml_hw, skb, sw_txhdr, cfm.status);
+                        continue;
+                    }
+                    spin_unlock_bh(&aml_hw->roc_lock);
+                }
+
+                if (cfm.status.acknowledged && (sp_ret & AML_GAS_INIT_REQ_FRAME)) {
+                    sw_txhdr->aml_vif->tx_cfm_wait.skb = skb_copy(skb, GFP_ATOMIC);
+                    if (sw_txhdr->aml_vif->tx_cfm_wait.skb) {
+                        sw_txhdr->aml_vif->tx_cfm_wait.cookie = (unsigned long)skb;
+                        sw_txhdr->aml_vif->tx_cfm_wait.len = sw_txhdr->frame_len;
+                        sw_txhdr->aml_vif->tx_cfm_wait.wdev = &sw_txhdr->aml_vif->wdev;
+                        cfm_tx_status = false;
+                        AML_INFO("gas init frame tx cfm delay, wait for rsp");
+                    }
+                }
+
+                if (cfm_tx_status) {
+                    /* Confirm transmission to CFG80211 */
+                    cfg80211_mgmt_tx_status(&sw_txhdr->aml_vif->wdev,
+                                        (unsigned long)skb, skb_mac_header(skb),
+                                        sw_txhdr->frame_len,
+                                        (sp_ret & AML_REPORT_NO_ACKED) ? 0 : cfm.status.acknowledged,
+                                        GFP_ATOMIC);
+                }
+                sp_ret = 0;
+            } else if ((txq->idx != TXQ_INACTIVE) && cfm.status.sw_retry_required) {
+                sw_txhdr->desc.api.host.flags |= TXU_CNTRL_RETRY;
+                /* firmware postponed this buffer */
+                aml_tx_retry(aml_hw, skb, sw_txhdr, cfm.status);
+                continue;
+            }
+
+            trace_skb_confirm(skb, txq, hwq, &cfm);
+
+            /* STA may have disconnect (and txq stopped) when buffers were stored
+                        in fw. In this case do nothing when they're returned */
+            if (txq->idx != TXQ_INACTIVE) {
+                txq->credits++;
+                if (txq->credits <= 0) {
+                    aml_txq_stop(txq, AML_TXQ_STOP_FULL);
+                }
+                else if (txq->credits > 0)
+                    aml_txq_start(txq, AML_TXQ_STOP_FULL);
+
+                /* continue service period */
+                if (unlikely(txq->push_limit && !aml_txq_is_full(txq))) {
+                    aml_txq_start(txq, AML_TXQ_STOP_FULL);
+                }
+            }
+            /* coverity[result_independent_of_operands] - Enhance code robustness */
+            if (cfm.ampdu_size && (cfm.ampdu_size < IEEE80211_MAX_AMPDU_BUF))
+                aml_hw->stats->ampdus_tx[cfm.ampdu_size - 1]++;
+
+#ifdef CONFIG_AML_AMSDUS_TX
+            if (!cfm.status.acknowledged) {
+                if (sw_txhdr->desc.api.host.flags & TXU_CNTRL_AMSDU)
+                    aml_hw->stats->amsdus[sw_txhdr->amsdu.nb - 1].failed++;
+                else if (!sw_txhdr->aml_sta || !is_multicast_sta(sw_txhdr->aml_sta->sta_idx))
+                    aml_hw->stats->amsdus[0].failed++;
+            }
+            aml_amsdu_update_len(aml_hw, txq, cfm.amsdu_size);
+#endif
+
+  /* Release SKBs */
+#ifdef CONFIG_AML_AMSDUS_TX
+            if (sw_txhdr->desc.api.host.flags & TXU_CNTRL_AMSDU) {
+                struct aml_amsdu_txhdr *amsdu_txhdr, *tmp;
+                list_for_each_entry_safe(amsdu_txhdr, tmp, &sw_txhdr->amsdu.hdrs, list) {
+                    aml_amsdu_del_subframe_header(amsdu_txhdr);
+                    if (aml_bus_type == PCIE_MODE) {
+                        aml_ipc_buf_a2e_release(aml_hw, &amsdu_txhdr->ipc_data);
+                    }
+                    aml_tx_statistic(sw_txhdr->aml_vif, txq, cfm.status, amsdu_txhdr->msdu_len);
+                    consume_skb(amsdu_txhdr->skb);
+                }
+            }
+
+#endif /* CONFIG_AML_AMSDUS_TX */
+
+            if (aml_bus_type == PCIE_MODE) {
+                aml_ipc_buf_a2e_release(aml_hw, &sw_txhdr->ipc_data);
+            }
+            aml_tx_statistic(sw_txhdr->aml_vif, txq, cfm.status, sw_txhdr->frame_len);
+
+            kmem_cache_free(aml_hw->sw_txhdr_cache, sw_txhdr);
+            if (aml_bus_type == SDIO_MODE) {
+                skb_pull(skb, AML_SDIO_TX_HEADROOM);
+            } else {
+                skb_pull(skb, AML_USB_TX_HEADROOM);
+            }
+
+            if (timer_pending(&aml_hw->txq_cleanup))
+            {
+                mod_timer(&aml_hw->txq_cleanup, jiffies + AML_TXQ_CLEANUP_INTERVAL);
+            }
+
+            consume_skb(skb);
+        }
+
+#ifdef CONFIG_SDIO_TX_ENH
+#ifdef SDIO_TX_ENH_DBG
+        /* tx cfm statistic */
+        cfmlog.total_cfm += cfmlog.cfm_num;
+        cfmlog.avg_cfm = cfmlog.total_cfm/cfmlog.cfm_rx_cnt;
+        cfmlog.avg_cfm_page = cfmlog.cfm_page/cfmlog.cfm_rx_cnt;
+#endif
+#endif
+
+        spin_unlock_bh(&aml_hw->tx_lock);
+    }
+    if (aml_hw->aml_txcfm_completion_init) {
+        aml_hw->aml_txcfm_completion_init = 0;
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(5, 16, 20)
+        complete_and_exit(&aml_hw->aml_txcfm_completion, 0);
+#else
+        complete(&aml_hw->aml_txcfm_completion);
+#endif
     }
 
     spin_unlock_bh(&aml_hw->tx_lock);
@@ -2309,14 +2532,13 @@ int aml_tx_cfm(struct aml_hw *aml_hw, struct tx_cfm_tag *cfm, struct sk_buff *sk
         }
 
         if (!cfm->status.acknowledged
-            && ((sp_ret & AML_GAS_ACTION_FRAME) || (sp_ret & AML_MUST_TX_SUC)
-            || (sp_ret & AML_DPP_CONNECT_STATUS_RESULT_FRAME))
+            && ((sp_ret & AML_GAS_ACTION_FRAME) || (sp_ret & AML_MUST_TX_SUC))
             && (txq->idx != TXQ_INACTIVE)) {
             spin_lock_bh(&aml_hw->roc_lock);
             if (aml_hw->roc && (jiffies_to_msecs(jiffies - aml_hw->roc->start_time) <= aml_hw->roc->duration)) {
                 spin_unlock_bh(&aml_hw->roc_lock);
                 AML_INFO("retry frame during roc:0x%x", sp_ret);
-                aml_tx_retry(aml_hw, skb, sw_txhdr, cfm);
+                aml_tx_retry(aml_hw, skb, sw_txhdr, cfm->status);
                 return 0;
             }
             spin_unlock_bh(&aml_hw->roc_lock);

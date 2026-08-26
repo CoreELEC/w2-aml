@@ -45,6 +45,8 @@
 #include "aml_compat.h"
 #include "aml_task.h"
 #include "aml_tcp_ack.h"
+#include <linux/wireless.h>
+#include <linux/amlogic/pm.h>
 
 #define WPI_HDR_LEN    18
 #define WPI_PN_LEN     16
@@ -698,37 +700,18 @@ struct assoc_info {
 
 /**
  * struct apf_param - Structure for Android Packet Filter (APF) parameters
- *   @apf_set:      Indicates if an APF program has been set (true = active).
- *   @apf_info:     Current APF status info, such as enable flag and filter age.
- *   @apf_cap:      APF engine capabilities (e.g., supported version and features).
- *   @program_len:  Length in bytes of the loaded APF program.
+ * @apf_set: Flag indicating whether an APF filter is currently set
+ * @apf_program: Pointer to the APF filter program buffer
+ * @apf_cap: Structure containing APF capabilities
  */
 struct apf_param {
     bool apf_set;
     struct apf_get_status_req apf_info;
     struct apf_capabilities apf_cap;
     u32 program_len;
-    struct mutex apf_mutex;
 };
 
 #endif
-
-struct custom_conf_param {
-    u8 custom_version;
-};
-
-struct soft_version_info {
-    u32 commit_id;
-    u32 fw_info_len;
-    u8 *fw_info;
-};
-
-/**
- * @scan_result_cnt: the frame count of rx beacon and probe rsp in scanning
- */
-struct aml_hw_misc {
-    u16 scan_result_cnt;
-};
 
 /**
  * struct aml_hw - AML driver main data
@@ -1008,17 +991,10 @@ struct aml_hw {
     bool wfd_present;
     u8 trace_mode;
     uint64_t pno_scan_reqid;
-    /* prevent from suspend */
-    struct wakeup_source *wifi_wakeup_source;
-    struct timer_list wifi_wakeup_source_timer;
 #ifdef CONFIG_AML_APF
     struct early_suspend wifi_early_suspend;
     struct apf_param apf_params;
 #endif
-    bool roc_is_canceling;
-    struct custom_conf_param custom_conf;
-    struct aml_hw_misc misc;
-    struct device_link * pm_links[7];
 };
 
 #include "aml_hif.h"

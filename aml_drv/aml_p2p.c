@@ -455,11 +455,12 @@ void aml_rx_parse_p2p_chan_list(u8 *buf, u32 frame_len)
     }
 }
 
-bool aml_filter_rtsp_frame(struct aml_vif *vif, u32 len, const u8 *data, AML_SP_STATUS_E sp_status)
+bool aml_filter_rtsp_frame(struct aml_vif *vif, u32 len, u8 *data, AML_SP_STATUS_E sp_status)
 {
 #define MAX_RTSP_LEN 300
 #define CHECK_LEN 40 //first 40 bytes check rtsp string RTSP/1.0
 #define TRACE_INFO_LEN 30
+
     u32 i = 0;
     u32 ip_hdr_len;
     u32 tcp_hdr_len;
@@ -472,37 +473,34 @@ bool aml_filter_rtsp_frame(struct aml_vif *vif, u32 len, const u8 *data, AML_SP_
     const char *rtsp_str = "RTSP/1.0";
 
     if ((sp_status != SP_STATUS_TX_START)
-            || (vif->vif_index != AML_P2P_VIF_IDX)
-            || (len > MAX_RTSP_LEN)
-            || !aml_hw->wfd_present) {
+        || (vif->vif_index != AML_P2P_VIF_IDX)
+        || (len > MAX_RTSP_LEN)
+        || !aml_hw->wfd_present)
         return false;
-    }
 
     iphdr = (struct iphdr *)(ethhdr + 1);
 
-    if ((iphdr->version != 4) || (iphdr->protocol != IPPROTO_TCP)) {
+    if ((iphdr->version != 4) || (iphdr->protocol != IPPROTO_TCP))
         return 0;
-    }
 
     ip_hdr_len = iphdr->ihl * 4;
     tcphdr = (struct tcphdr *)((u8 *)(iphdr) + ip_hdr_len);
     tcp_hdr_len = tcphdr->doff * 4;
+    payload = (u8 *)(tcphdr) + tcp_hdr_len;
     payload_len = (s32)(ntohs(iphdr->tot_len) - ip_hdr_len - tcp_hdr_len);
 
-    if (payload_len < (s32)(strlen(rtsp_str))) {
+    if (payload_len < (s32)(strlen(rtsp_str)))
         return false;
-    }
-
-    payload = (u8 *)(tcphdr) + tcp_hdr_len;
 
     for (i = 0; i <= MIN(payload_len - strlen(rtsp_str), CHECK_LEN); i++) {
         if (strncmp(&payload[i], rtsp_str, strlen(rtsp_str)) == 0) {
             u8 str[TRACE_INFO_LEN];
-            u32 len = MIN(payload_len, TRACE_INFO_LEN);
+            u8 len = MIN(payload_len, TRACE_INFO_LEN);
+
             strncpy(str, payload, len - 1);
             str[len - 1] = '\0';
             AML_INFO("[SP FRAME RTSP], ip_id:%d, src_ip:%pI4, dst_ip:%pI4, info:%s",
-                     ntohs(iphdr->id), &iphdr->saddr, &iphdr->daddr, str);
+                ntohs(iphdr->id), &iphdr->saddr, &iphdr->daddr, str);
             return true;
         }
     }

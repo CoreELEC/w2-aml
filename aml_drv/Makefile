@@ -1,5 +1,5 @@
-AML_VERS_NUM=6.10.0.0
-# KERNELDIR ?= /usr/lib/modules/$(shell uname -r)/build
+AML_VERS_NUM=v2.0.2_2025-05.14-w2 driver:7015868c
+#KERNELDIR=/usr/lib/modules/5.8.0-63-generic/build
 PWD=$(shell pwd)
 ifeq ($(ARCH),)
 ARCH ?= arm64
@@ -182,6 +182,10 @@ subdir-ccflags-y += -DNX_CHAN_CTXT_CNT=3
 ifeq ($(CONFIG_AML_PLATFORM_ANDROID),y)
 subdir-ccflags-$(CONFIG_AML_SDIO_IRQ_VIA_GPIO) += -DCONFIG_AML_SDIO_IRQ_VIA_GPIO
 subdir-ccflags-$(CONFIG_ANDROID_GKI) += -DCONFIG_ANDROID_GKI
+
+ifeq ($(CONFIG_ANDROID_GKI),y)
+subdir-ccflags-y += -DCONFIG_ANDROID_GKI
+endif
 
 ifneq ($(CONFIG_AML_ANDROID),)
 subdir-ccflags-y += -DCONFIG_AML_ANDROID=$(CONFIG_AML_ANDROID)
