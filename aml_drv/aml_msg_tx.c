@@ -457,13 +457,8 @@ static int aml_send_msg(struct aml_hw *aml_hw, const void *msg_params,
 
     msg = container_of((void *)msg_params, struct lmac_msg, param);
 
-#ifdef CONFIG_AML_RECOVERY
-    if ((aml_bus_type == USB_MODE) && aml_recy_flags_chk(AML_RECY_USB_UNPLUG)) {
-        AML_INFO("usb_unplug, cmd not allow to send, "MSG2STR_FORMANT"\n", AML_MSG2STR(msg));
-        kfree(msg);
-        return -EBUSY;
-    }
-#endif
+    if (is_mdnsoffload_msg(id))
+        MDNS_OFFLOAD_DEBUG(AML_FN_ENTRY_STR);
 
 #ifdef CONFIG_AML_RECOVERY
     if ((aml_bus_type != PCIE_MODE) && (bus_state_detect.bus_err)) {

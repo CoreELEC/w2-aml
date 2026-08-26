@@ -1,4 +1,4 @@
-AML_VERS_NUM=v2.0.3_2025-06.04-w2 driver:f9ba2a6b
+AML_VERS_NUM=v2.0.4_2025-06.19-w2 driver:f9ba2a6b+550946
 #KERNELDIR=/usr/lib/modules/5.8.0-63-generic/build
 PWD=$(shell pwd)
 ifeq ($(ARCH),)

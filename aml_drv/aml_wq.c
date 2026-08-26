@@ -108,7 +108,6 @@ int aml_wq_do_data(int (*fn)(struct aml_hw *aml_hw, void *data, int len),
 
 int aml_wq_init(struct aml_hw *aml_hw)
 {
-    /* coverity[USELESS_CALL] - spinlock_check(_lock) */
     spin_lock_init(&aml_hw->wq_lock);
     /* coverity[missing_lock] - init */
     INIT_LIST_HEAD(&aml_hw->work_list);

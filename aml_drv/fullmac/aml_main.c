@@ -6289,8 +6289,8 @@ unsigned char aml_parse_cali_param(char *varbuf, int len, struct Cali_Param *cal
 
     AML_INFO("======>>>>>> version = %d\n", cali_param->version);
     AML_INFO("======>>>>>> rf_count = %d\n", cali_param->rf_num);
-    AML_INFO("======>>>>>> customer_efuse_en = 0x%x, FT_efuse_en  = 0x%x\n",
-        cali_param->w2_efuse_param.customer_efuse_en, cali_param->w2_efuse_param.FT_efuse_en);
+
+    AML_INFO("======>>>>>> cw2mod = %x\n", cali_param->cw2mod[0]);
 
     return 0;
 }
@@ -7829,7 +7829,7 @@ const char *aml_get_version(struct aml_hw *aml_hw)
 
 static int aml_mod_init(void)
 {
-    AML_INFO("%s", aml_get_version(NULL));
+    AML_NOTICE("%s", aml_get_version());
     AML_INFO("bus_type: %s \n",
         (aml_bus_type == 2) ? "PCIE" : ((aml_bus_type == 1) ? "USB" : "SDIO"));
 
