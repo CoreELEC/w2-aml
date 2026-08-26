@@ -1876,19 +1876,6 @@ static inline int aml_coex_get_status_ind(struct aml_hw *aml_hw,
         }
         AML_INFO("coex work on TDD, work mode: %x; \n", ind->work_mode);
         AML_INFO("In %dms; wifi_time: %dms; bt_time: %dms; wifi ratio: %d%%\n", time_sum, wifi_act_sum, wifi_inactive_sum, ratio);
-
-        if (ind->null_data_enable)
-        {
-            if (ind->null_data_send_cnt > 0)
-            {
-                ratio = (ind->null_data_send_succ_cnt_before_bt_s * 100) / ind->null_data_send_cnt;
-            }
-            AML_INFO("null data status: send cnt: %d, success cnt: %d, success ratio: %d%%\n", ind->null_data_send_cnt, ind->null_data_send_succ_cnt_before_bt_s, ratio);
-        }
-        else
-        {
-            AML_INFO("Do not need send null data now; \n");
-        }
     }
     else
     {

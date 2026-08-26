@@ -81,10 +81,6 @@ static void auc_disconnect(struct usb_interface *interface)
     atomic_set(&g_wifi_pm.bus_suspend_cnt, 0);
     atomic_set(&g_wifi_pm.drv_suspend_cnt, 0);
     AML_INFO("--------aml_usb:disconnect-------\n");
-#ifdef CONFIG_AML_USB_HOTPLUG
-    if (bus_state_detect.auc_wifi_disable_func)
-         bus_state_detect.auc_wifi_disable_func();
-#endif
 }
 
 #ifdef CONFIG_PM
@@ -161,8 +157,7 @@ static int auc_suspend(struct usb_interface *interface,pm_message_t state)
         // exit immediately to prevent blocking the kernel USB resume call.
         if (bus_state_detect.bus_err || bus_state_detect.is_recy_ongoing)
         {
-            AML_INFO("Detect a bus error or ongoing recovery, return 1, %d,  %d\n",
-                  bus_state_detect.bus_err, bus_state_detect.is_recy_ongoing);
+            AML_INFO("Detect a bus error or ongoing recovery, return\n");
             return 0;
         }
     }

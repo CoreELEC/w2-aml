@@ -1682,7 +1682,7 @@ static void aml_trigger_rst_rxd(struct aml_hw *aml_hw, uint32_t addr_rst, uint32
     if (aml_hw->rx_buf_state & BUFFER_REDUCE_FINISH) {
         /* Host rx reduce had finished, notify the firmware */
         addr_rst |= HOST_RXBUF_REDUCE_FINISH;
-        AML_INFO("reduce finsh last_addr = %x, addr_rst = %x", last_addr, addr_rst);
+        AML_INFO("reduce finish last_addr = %x, addr_rst = %x", last_addr, addr_rst);
         aml_hw->rx_buf_state &= ~BUFFER_REDUCE_FINISH;
     }
 
@@ -1696,7 +1696,7 @@ static void aml_trigger_rst_rxd(struct aml_hw *aml_hw, uint32_t addr_rst, uint32
     if (aml_hw->rx_buf_state & BUFFER_EXPEND_FINISH) {
         /* Host rx expend had finished, notify the firmware */
         addr_rst |= HOST_RXBUF_ENLARGE_FINISH;
-        AML_INFO("expend finsh last_addr = %x, addr_rst = %x", last_addr, addr_rst);
+        AML_INFO("expend finish last_addr = %x, addr_rst = %x", last_addr, addr_rst);
         aml_hw->rx_buf_state &= ~BUFFER_EXPEND_FINISH;
     }
 

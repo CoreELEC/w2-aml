@@ -5591,6 +5591,12 @@ static int aml_ps_wow_suspend_check(struct aml_hw *aml_hw)
          return -EBUSY;
     }
 
+    if (elapsed_time_ns >= wait_none_time_ns)
+    {
+         AML_INFO("wifi driver suspend state is WOW\n");
+         return -EBUSY;
+    }
+
     list_for_each_entry(aml_vif, &aml_hw->vifs, list) {
         if (!aml_vif->up || aml_vif->ndev == NULL) {
             continue;
@@ -6441,7 +6447,6 @@ static int aml_get_cali_param(struct aml_hw *aml_hw, struct Cali_Param *cali_par
     int ret = 0, len = 0;
     unsigned int product_id = 0, vendor_sn = 0;
     unsigned char vendor_rf[128];
-    unsigned int vendor_sn_l = 0, vendor_sn_m = 0;
 
     product_id = aml_efuse_read(aml_hw, 0x0);
     product_id = (product_id & 0xffff0000) >> 16;

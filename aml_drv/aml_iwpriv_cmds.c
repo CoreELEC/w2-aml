@@ -772,6 +772,49 @@ static int aml_set_rf_reg_legacy(struct net_device *dev, char *str_param,
     return 0;
 }
 
+void aml_print_buf(char *buf, int len)
+{
+    int set0 = 0;
+    int set1 = 0;
+    int set2 = 0;
+    int set3 = 0;
+    int legacy_set1 = 0;
+    int legacy_set2 = 0;
+
+    if (sscanf(str_param, "%08x %08x %08x %08x", &set0, &set1, &set2, &set3) != 4) {
+        AML_ERR("param error \n");
+    }
+
+    legacy_set1 = set1 | set0 << 16;
+    legacy_set2 = set3 | set2 << 16;
+    AML_INFO("%08x %08x %08x %08x, legacy_set1 %08x, legacy_set2 %08x", set0, set1, set2, set3, legacy_set1, legacy_set2);
+    aml_set_reg(dev, legacy_set1, legacy_set2);
+
+    return 0;
+}
+
+static int aml_set_rf_reg_legacy(struct net_device *dev, char *str_param,
+    union iwreq_data *wrqu, char *extra)
+{
+    int set0 = 0;
+    int set1 = 0;
+    int set2 = 0;
+    int set3 = 0;
+    int legacy_set1 = 0;
+    int legacy_set2 = 0;
+
+    if (sscanf(str_param, "%08x %08x %08x %08x", &set0, &set1, &set2, &set3) != 4) {
+        AML_ERR("param error \n");
+    }
+
+    legacy_set1 = set1 | set0 << 16;
+    legacy_set2 = set3 | set2 << 16;
+    AML_INFO("%08x %08x %08x %08x, legacy_set1 %08x, legacy_set2 %08x", set0, set1, set2, set3, legacy_set1, legacy_set2);
+    aml_rf_reg_write(dev, legacy_set1, legacy_set2);
+
+    return 0;
+}
+
 static int aml_trig_sec_test(struct net_device *dev)
 {
     struct aml_vif *aml_vif = netdev_priv(dev);
@@ -5716,12 +5759,6 @@ static int aml_iwpriv_get_char(struct net_device *dev,
             break;
         case AML_IWP_LEGACY_SET_RF_REG:
             aml_set_rf_reg_legacy(dev, set, wrqu, extra);
-            break;
-        case AML_IWP_GET_TEMP:
-            wrqu->data.length = aml_print_temperature(wrqu, extra);
-            break;
-        case AML_IWP_SET_PROT_TYPE:
-            aml_set_prot_type(wrqu, extra, dev, set);
             break;
         default:
             break;
