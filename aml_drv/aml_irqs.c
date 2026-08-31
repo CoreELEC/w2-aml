@@ -19,8 +19,6 @@
 #include "wifi_top_addr.h"
 #include "aml_recy.h"
 
-extern unsigned char g_usb_after_probe;
-
 static int aml_sdio_usb_irq_task(struct aml_hw *aml_hw)
 {
     u32 status;
@@ -28,12 +26,6 @@ static int aml_sdio_usb_irq_task(struct aml_hw *aml_hw)
     while ((status = aml_hw->plat->ack_irq(aml_hw))) {
         if (aml_hw->aml_irq_task_quit)
             return -1;
-
-        if ((status & SDIO_IRQ_E2A_MSG) &&
-            (aml_hw->tx_stop & ~SDIO_USB_IPC_EXT_HOST_ONLY) == SDIO_USB_IPC_EXT_NOTIFY_FW_MAC_RST) {
-            //aml_hw->tx_stop |= SDIO_USB_IPC_EXT_E2A_DEFER;
-            //status &= ~SDIO_IRQ_E2A_MSG;
-        }
 
         /* process high priority interrupts */
         ipc_host_irq(aml_hw->ipc_env, status & ~(IPC_IRQ_E2A_RXDESC | IPC_IRQ_E2A_TXCFM));
@@ -44,8 +36,8 @@ static int aml_sdio_usb_irq_task(struct aml_hw *aml_hw)
 
         /* process TX confirmation */
         if (status & IPC_IRQ_E2A_TXCFM) {
-            hi_sram_read(aml_hw, aml_hw->tx_cfm_buf, SRAM_TXCFM_START_ADDR, sizeof(struct compact_tx_cfm_tag) * COMPACT_TXCFM_CNT);
-            aml_task_schedule(&aml_hw->cfm_task);
+            hi_sram_read(aml_hw, aml_hw->read_cfm, SRAM_TXCFM_START_ADDR, sizeof(aml_hw->read_cfm));
+            up(&aml_hw->aml_txcfm_sem);
         }
     }
 
@@ -53,20 +45,6 @@ static int aml_sdio_usb_irq_task(struct aml_hw *aml_hw)
 }
 
 #ifdef CONFIG_AML_SDIO_IRQ_VIA_GPIO
-
-void aml_suspend_sdio_irq_enable(struct aml_hw *aml_hw)
-{
-    enable_irq(aml_hw->irq);
-    AML_INFO("enable_irq: %d\n", aml_hw->irq);
-}
-
-void aml_suspend_sdio_irq_disable(struct aml_hw *aml_hw)
-{
-    if (aml_hw->irq) {
-        disable_irq(aml_hw->irq);
-        AML_INFO("disable_irq: %d\n", aml_hw->irq);
-    }
-}
 
 static irqreturn_t aml_irq_sdio_thread(int irq, void *dev_id)
 {
@@ -230,8 +208,8 @@ int aml_usb_irq_urb_submit(struct aml_hw *aml_hw)
     struct urb *urb;
     int ret = 0;
 
-    if (!aml_hw->usb || !g_usb_after_probe) {
-        AML_ERR("aml_hw->usb is NULL or g_usb_after_probe:%d\n", g_usb_after_probe);
+    if (!aml_hw->usb) {
+        AML_ERR("aml_hw->usb is NULL\n");
         return -1;
     }
 

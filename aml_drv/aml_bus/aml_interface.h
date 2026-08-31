@@ -19,38 +19,6 @@
 #include <linux/sched/clock.h>
 #endif
 
-// SDIO PID/VID
-#define W2s_PRODUCT_AMLOGIC  0x8888
-#define W2s_VENDOR_AMLOGIC  0x8888
-#define W2s_C_PRODUCT_AMLOGIC  0x8881
-#define W2s_C_VENDOR_AMLOGIC  0x8881
-
-//sdio manufacturer code, usually vendor ID, 'a'=0x61, 'm'=0x6d
-#define W2_VENDOR_AMLOGIC_EFUSE ('a'|('m'<<8))
-//sdio manufacturer info, usually product ID
-#define W2_PRODUCT_AMLOGIC_EFUSE (0x9007)
-
-#define W2s_VENDOR_AMLOGIC_EFUSE 0x1B8E
-#define W2s_A_PRODUCT_AMLOGIC_EFUSE 0x0600
-#define W2s_B_PRODUCT_AMLOGIC_EFUSE 0x0640
-#define W2s_C_PRODUCT_AMLOGIC_EFUSE 0x0680
-
-// USB PID/VID
-#define W2u_VENDOR_AMLOGIC  0x414D
-#define W2u_PRODUCT_AMLOGIC  0x4c55
-
-#define W2u_VENDOR_AMLOGIC_EFUSE 0x1B8E
-#define W2u_A_PRODUCT_AMLOGIC_EFUSE 0x0601
-#define W2u_B_PRODUCT_AMLOGIC_EFUSE 0x0641
-#define W2u_C_PRODUCT_AMLOGIC_EFUSE 0x0681
-
-// PCIE PID/VID
-#define W2p_VENDOR_AMLOGIC_EFUSE 0x1F35
-#define W2p_A_PRODUCT_AMLOGIC_EFUSE 0x0602
-#define W2p_B_PRODUCT_AMLOGIC_EFUSE 0x0642
-#define W2p_C_PRODUCT_AMLOGIC_EFUSE 0x0682
-
-
 #define AML_SDIO_STATE_MON_INTERVAL   (5 *HZ)
 enum interface_type {
     SDIO_MODE,
@@ -86,7 +54,6 @@ struct aml_pm_type {
 };
 
 extern struct aml_pm_type g_wifi_pm;
-extern struct wakeup_source *aml_wifi_wakeup_source;
 
 extern unsigned int g_aml_device_id;
 typedef void (*bt_shutdown_func)(void);

@@ -25,7 +25,6 @@
 #include "aml_tx.h"
 #include "aml_rate.h"
 #include "aml_iwpriv_cmds.h"
-#include "reg_access.h"
 
 #ifdef CONFIG_AML_SOFTMAC
 static ssize_t aml_dbgfs_stats_read(struct file *file,

@@ -35,7 +35,6 @@ extern struct log_file_info trace_log_file_info;
 extern struct aml_pm_type g_wifi_pm;
 extern struct aml_bus_state_detect bus_state_detect;
 extern struct aml_trace_nl_info g_trace_nl_info;
-extern struct pci_dev *g_pci_dev;
 
 /**
  * aml_ipc_buf_pool_alloc() - Allocate and push to fw a pool of IPC buffer.
@@ -799,7 +798,7 @@ err_alloc:
     return -ENOMEM;
 }
 
-void aml_sdio_usb_txbuf_init(struct aml_hw *aml_hw)
+void aml_amsdu_buf_list_init(struct aml_hw *aml_hw)
 {
     int i = 0;
     struct tx_amsdu_param *txamsdu;
@@ -888,6 +887,43 @@ static void aml_set_free_tx_amsdu_buf(struct aml_hw *aml_hw)
     spin_unlock_bh(&aml_hw->tx_buf_lock);
 }
 
+
+unsigned int tx_desc_index;
+
+void aml_txbuf_list_init(struct aml_hw *aml_hw)
+{
+    struct aml_txbuf *txbuf = NULL;
+    int i = 0;
+
+    /* coverity[side_effect_free] - standard kernel interface */
+    spin_lock_init(&aml_hw->tx_buf_lock);
+    /* coverity[side_effect_free] - standard kernel interface */
+    spin_lock_init(&aml_hw->tx_desc_lock);
+
+    INIT_LIST_HEAD(&aml_hw->tx_buf_free_list);
+    INIT_LIST_HEAD(&aml_hw->tx_buf_used_list);
+    INIT_LIST_HEAD(&aml_hw->tx_desc_save);
+
+    for (i = 1; i < TX_BUF_CNT + 1; i++) {
+        /* coverity[overwrite_var] */
+        txbuf = kmalloc(sizeof(struct aml_txbuf), GFP_ATOMIC);
+        if (!txbuf) {
+            ASSERT_ERR(0);
+            return;
+        }
+        txbuf->index = i;
+        txbuf->skb = NULL;
+        list_add_tail(&txbuf->list, &aml_hw->tx_buf_free_list);
+    }
+    /* coverity[leaked_storage] */
+}
+
+void aml_tx_cfmed_list_init(struct aml_hw *aml_hw)
+{
+    memset(aml_hw->read_cfm, 0, sizeof(aml_hw->read_cfm));
+    INIT_LIST_HEAD(&aml_hw->tx_cfmed_list);
+}
+
 void aml_scan_results_list_init(struct aml_hw *aml_hw)
 {
     int i =0;
@@ -962,6 +998,39 @@ static int aml_tx_should_stop(struct aml_hw *aml_hw)
 #define TXDESC_OFFSET           (4)
 #define SDIO_TXHEADER_LEN       (4 + 72)
 
+void aml_txbuf_list_deinit(struct aml_hw *aml_hw)
+{
+    struct aml_txbuf *txbuf = NULL;
+    struct aml_txbuf *txbuf_tmp = NULL;
+
+    spin_lock_bh(&aml_hw->tx_buf_lock);
+    list_for_each_entry_safe(txbuf, txbuf_tmp, &aml_hw->tx_buf_free_list, list) {
+        kfree(txbuf);
+    }
+    list_for_each_entry_safe(txbuf, txbuf_tmp, &aml_hw->tx_buf_used_list, list) {
+        kfree(txbuf);
+    }
+    spin_unlock_bh(&aml_hw->tx_buf_lock);
+}
+
+void aml_scatter_req_init(struct aml_hw *aml_hw)
+{
+    aml_hw->g_tx_param.scat_req = kzalloc(sizeof(struct amlw_hif_scatter_req), GFP_KERNEL);
+
+    if (!aml_hw->g_tx_param.scat_req)
+        AML_ERR("****************no free scatreq**************\n");
+}
+
+static void aml_host_send_stop_tx_to_fw(struct aml_hw *aml_hw)
+{
+    uint32_t cmd[2] = { DYNAMIC_BUF_NOTIFY_FW_TX_STOP, 1 };
+
+    hi_sram_write(aml_hw, SDIO_USB_EXTEND_E2A_IRQ_STATUS, cmd, sizeof(cmd));
+}
+
+#define TXDESC_OFFSET           (4)
+#define SDIO_TXHEADER_LEN       (4 + 72)
+
 int aml_tx_task(void *data)
 {
     struct aml_hw *aml_hw = (struct aml_hw *)data;
@@ -982,11 +1051,23 @@ int aml_tx_task(void *data)
             break;
         }
 
-        if (aml_hw->aml_tx_task_quit)
-            break;
-
-        if (aml_tx_should_stop(aml_hw))
+        if (aml_hw->dynabuf_stop_tx == DYNAMIC_BUF_HOST_TX_STOP) {
+            if (aml_hw->send_tx_stop_to_fw) {
+                /* coverity[MISSING_LOCK] --miss aml_hw->tx_buf_lock*/
+                if (aml_hw->g_tx_param.tx_page_free_num == aml_hw->g_tx_param.tx_page_tot_num) {
+                    aml_hw->send_tx_stop_to_fw = 0;
+                    aml_host_send_stop_tx_to_fw(aml_hw);
+                } else {
+                    up(&aml_hw->aml_tx_sem);
+                }
+            }
             continue;
+
+        AML_PROF_HI(tx);
+        spin_lock_bh(&aml_hw->tx_lock);
+        aml_hwq_process_all(aml_hw);
+        spin_unlock_bh(&aml_hw->tx_lock);
+        AML_PROF_LO(tx);
 
         AML_PROF_HI(tx);
         spin_lock_bh(&aml_hw->tx_lock);
@@ -997,9 +1078,6 @@ int aml_tx_task(void *data)
         if (list_empty(&aml_hw->tx_desc_save)) {
             continue;
         }
-
-        bitmap_zero(dyn, SCAT_ITEM_MAX);
-        sg_init_table(scat_list, SCAT_ITEM_MAX);
 
         AML_PROF_HI(tx_task);
         spin_lock_bh(&aml_hw->tx_desc_lock);
@@ -1029,19 +1107,18 @@ int aml_tx_task(void *data)
                 page_num = howmanypage(frame_tot_len + SDIO_DATA_OFFSET, SDIO_PAGE_LEN);
             }
 
-            if ((page_num + 1) <= aml_hw->g_tx_param.tx_page_free_num &&
-                (aml_hw->g_tx_param.tot_page_num + page_num <= aml_hw->g_tx_param.tx_page_once ||
-                        aml_hw->g_tx_param.tot_page_num == 0)) {
+            if (((page_num + 1)  <= aml_hw->g_tx_param.tx_page_free_num)
+                && ((aml_hw->g_tx_param.tot_page_num + page_num <= aml_hw->g_tx_param.tx_page_once) || (aml_hw->g_tx_param.tot_page_num == 0))) {
+                BUG_ON(!aml_hw->g_tx_param.scat_req);
+
+                aml_hw->g_tx_param.tot_page_num += page_num;
+
                 spin_lock_bh(&aml_hw->tx_buf_lock);
                 aml_hw->g_tx_param.tot_page_num += page_num;
                 aml_hw->g_tx_param.tx_page_free_num -= page_num;
                 spin_unlock_bh(&aml_hw->tx_buf_lock);
 
                 if (aml_bus_type == SDIO_MODE) {
-                    const int blk_size = 512;
-                    void *frm = (unsigned char *)sw_txhdr->skb->data + sizeof(struct aml_txhdr);
-                    unsigned int amsdu_len = sw_txhdr->frame_len + SDIO_TXHEADER_LEN;
-
                     if (sw_txhdr->desc.api.host.flags & TXU_CNTRL_AMSDU) {
                         struct aml_amsdu_txhdr *amsdu_txhdr, *tmp;
                         struct aml_sdio_txhdr *sdio_txhdr = (void *)sw_txhdr->skb->data;
@@ -1049,21 +1126,29 @@ int aml_tx_task(void *data)
                         sdio_txhdr->mpdu_buf_flag = 0;
                         sdio_txhdr->mpdu_buf_flag = HW_FIRST_MPDUBUF_FLAG|HW_LAST_MPDUBUF_FLAG|HW_LAST_AGG_FLAG;
                         sdio_txhdr->mpdu_buf_flag |= HW_MPDU_LEN_SET(frame_tot_len);
+                        frm = (unsigned char *)sw_txhdr->skb->data + sizeof(struct aml_txhdr);
 
                         memcpy(frm + TXDESC_OFFSET, txdesc_host, sizeof(*txdesc_host));
+                        amsdu_len = sw_txhdr->frame_len + SDIO_TXHEADER_LEN;
 
-                        packet_len = frame_tot_len + SDIO_TXHEADER_LEN;
-                        if (packet_len >= 4096) {
-                            struct tx_amsdu_param *txamsdu = aml_get_free_tx_amsdu_buf(aml_hw);
-
+                        if (frame_tot_len + SDIO_TXHEADER_LEN >= 4096) {
+                            txamsdu = aml_get_free_tx_amsdu_buf(aml_hw);
                             if (!txamsdu) {
                                 AML_ERR("*************aml_get_free_tx_amsdu_buf failed****************\n");
                                 break;
                             }
+                            memset(txamsdu->amsdu_buf, 0, AMSDU_BUF_MAX);
+                            memcpy(txamsdu->amsdu_buf, frm, amsdu_len);
+                            list_for_each_entry_safe(amsdu_txhdr, tmp, &sw_txhdr->amsdu.hdrs, list) {
+                                frm = amsdu_txhdr->skb->data + sizeof(*amsdu_txhdr) + sizeof(struct ethhdr);
+                                memcpy(txamsdu->amsdu_buf + amsdu_len, frm, (amsdu_txhdr->msdu_len + sizeof(struct ethhdr) + amsdu_txhdr->pad));
+                                amsdu_len += (amsdu_txhdr->msdu_len + sizeof(struct ethhdr) + amsdu_txhdr->pad);
+                            }
                             packet = txamsdu->amsdu_buf;
                         } else {
-                            packet = kmalloc(ALIGN(packet_len, blk_size), GFP_ATOMIC);
-                            if (!packet) {
+                            dynabuf_size = ALIGN(frame_tot_len + SDIO_TXHEADER_LEN + 1, blk_size);
+                            amsdu_dynabuf[dynabuf_id] = kzalloc(dynabuf_size, GFP_ATOMIC);
+                            if (!amsdu_dynabuf[dynabuf_id]) {
                                 AML_ERR("*************malloc amsdu dynabuf failed****************\n");
                                 break;
                             }
@@ -1075,17 +1160,32 @@ int aml_tx_task(void *data)
                             memcpy(packet + amsdu_len, frm, (amsdu_txhdr->msdu_len + sizeof(struct ethhdr) + amsdu_txhdr->pad));
                             amsdu_len += (amsdu_txhdr->msdu_len + sizeof(struct ethhdr) + amsdu_txhdr->pad);
                         }
+                        aml_hw->g_tx_param.scat_req->scat_list[aml_hw->g_tx_param.mpdu_num].len = frame_tot_len + SDIO_TXHEADER_LEN;
+                        aml_hw->g_tx_param.scat_req->scat_list[aml_hw->g_tx_param.mpdu_num].page_num = page_num;
+                        aml_hw->g_tx_param.scat_req->scat_count++;
+                        aml_hw->g_tx_param.scat_req->len += aml_hw->g_tx_param.scat_req->scat_list[aml_hw->g_tx_param.mpdu_num].len;
+                        aml_hw->g_tx_param.mpdu_num++;
+                        AML_RLMT_DBG("amsdu tx_page_free_num=%d, credit=%d, pagenum=%d, skb=%p\n", aml_hw->g_tx_param.tx_page_free_num, sw_txhdr->txq->credits, page_num, sw_txhdr->skb);
+
                     } else {
-                        packet_len = sw_txhdr->frame_len + SDIO_TXHEADER_LEN;
-                        packet = kmalloc(ALIGN(packet_len, blk_size), GFP_ATOMIC);
-                        if (!packet) {
-                            AML_ERR("*************malloc msdu dynabuf failed****************\n");
+                        dynabuf_size = ALIGN(sw_txhdr->frame_len + SDIO_TXHEADER_LEN + 1, blk_size);
+                        amsdu_dynabuf[dynabuf_id] = kzalloc(dynabuf_size, GFP_ATOMIC);
+                        if (!amsdu_dynabuf[dynabuf_id]) {
+                            AML_ERR("*************malloc amsdu dynabuf failed****************\n");
                             break;
                         }
                         __set_bit(scat_count, dyn);
 
                         memcpy(frm + TXDESC_OFFSET, txdesc_host, sizeof(*txdesc_host));
-                        memcpy(packet, frm, packet_len);
+                        memcpy(amsdu_dynabuf[dynabuf_id], frm, sw_txhdr->frame_len + SDIO_TXHEADER_LEN);
+                        aml_hw->g_tx_param.scat_req->scat_list[aml_hw->g_tx_param.mpdu_num].len = sw_txhdr->frame_len + SDIO_TXHEADER_LEN;
+                        aml_hw->g_tx_param.scat_req->scat_list[aml_hw->g_tx_param.mpdu_num].packet = amsdu_dynabuf[dynabuf_id];
+                        aml_hw->g_tx_param.scat_req->scat_list[aml_hw->g_tx_param.mpdu_num].page_num = page_num;
+                        aml_hw->g_tx_param.scat_req->scat_count++;
+                        aml_hw->g_tx_param.scat_req->len += aml_hw->g_tx_param.scat_req->scat_list[aml_hw->g_tx_param.mpdu_num].len;
+                        AML_RLMT_DBG("tx_page_free_num=%d, credit=%d, pagenum=%d, skb=%p\n", aml_hw->g_tx_param.tx_page_free_num, sw_txhdr->txq->credits, page_num, sw_txhdr->skb);
+                        aml_hw->g_tx_param.mpdu_num++;
+                        dynabuf_id = (dynabuf_id + 1) % 256;
                     }
                     AML_DBG("scat_list[%d] %px + %d\n", scat_count, packet, packet_len);
                     sg_set_buf(&scat_list[scat_count++], packet, ALIGN(packet_len, SDIO_BLKSIZE));
@@ -1146,17 +1246,29 @@ int aml_tx_task(void *data)
         spin_unlock_bh(&aml_hw->tx_desc_lock);
         AML_PROF_LO(tx_task);
 
-        if (scat_count) {
-            if (aml_bus_type == SDIO_MODE)
-                aml_hw->plat->hif_sdio_ops->hi_send_frame(scat_list, scat_count);
-            else
-                aml_hw->plat->hif_ops->hi_send_frame(scat_list, scat_count);
-            for (i = 0; i < SCAT_ITEM_MAX; i++) {
-                if (test_bit(i, dyn))
-                    kfree(sg_virt(&scat_list[i]));
+        if (aml_hw->g_tx_param.tot_page_num) {
+            if (aml_bus_type == SDIO_MODE) {
+                aml_hw->plat->hif_sdio_ops->hi_send_frame(aml_hw->g_tx_param.scat_req);
+                for (i = 0; i < dynabuf_id; i++) {
+                    if (amsdu_dynabuf[i]) {
+                        kfree(amsdu_dynabuf[i]);
+                    }
+                }
+                dynabuf_id = 0;
+            } else {
+                aml_hw->plat->hif_ops->hi_send_frame(aml_hw->g_tx_param.scat_req);
+                #ifdef CONFIG_AML_USB_LARGE_PAGE
+                for (i = 0; i < dynabuf_id; i++) {
+                    if (amsdu_dynabuf[i]) {
+                        kfree(amsdu_dynabuf[i]);
+                    }
+                }
+                dynabuf_id = 0;
+                #endif
             }
             aml_set_free_tx_amsdu_buf(aml_hw);
             /* coverity[MISSING_LOCK] --miss aml_hw.tx_desc_lock*/
+            aml_hw->g_tx_param.mpdu_num = 0;
             aml_hw->g_tx_param.tot_page_num = 0;
         }
     }
@@ -1371,7 +1483,6 @@ void aml_ipc_sta_buffer(struct aml_hw *aml_hw, struct aml_sta *sta, int tid, int
 }
 #endif
 
-#ifndef CONFIG_PT_MODE
 static void aml_get_noparammsg_info(struct aml_hw *aml_hw, struct ipc_e2a_msg *msg)
 {
     if (msg->id == DBG_ERROR_IND) {
@@ -1833,26 +1944,16 @@ int aml_traceind(struct aml_hw *aml_hw)
     } else if (aml_bus_type == SDIO_MODE) {
         aml_hw->plat->hif_sdio_ops->hi_random_ram_read((unsigned char *)ptr_flag,
             (unsigned char *)(SYS_TYPE)(trace_log_file_info.end), TRACE_TOTAL_SIZE + 4);
-    } else if (aml_bus_type == PCIE_MODE) {
-        struct aml_plat *aml_plat = aml_hw->plat;
-        map_address = (u8 *)AML_ADDR(aml_plat, AML_ADDR_CPU, trace_log_file_info.end);
-
-        for (i = 0; i < size / 4; i++) {
-            val = aml_pci_readl(map_address + i * 4);
-
-            ptr_flag[i * 2]     = (uint16_t)(val & 0xFFFF);
-            ptr_flag[i * 2 + 1] = (uint16_t)((val >> 16) & 0xFFFF);
-        }
     }
 
     memcpy(&end, ptr_flag, sizeof(end));
     ptr_flag += 2;
 
-    while (end != trace_log_file_info.flag_end) {
-       if (end < trace_log_file_info.flag_end) {
+    while (end != flag_end) {
+       if (end < flag_end) {
            ptr_limit = ptr_flag + (TRACE_TOTAL_SIZE / 2);
-           ptr_flag += trace_log_file_info.flag_end;
-           trace_log_file_info.flag_end = 0;
+           ptr_flag += flag_end;
+           flag_end = 0;
            loop_flag = 1;
        } else {
            ptr_limit = ptr_flag + end;
@@ -2013,8 +2114,8 @@ void aml_ipc_tx_drain(struct aml_hw *aml_hw)
         struct aml_txq *txq = sw_txhdr->txq;
 
         /* coverity[MISSING_LOCK] */
-        AML_INFO("tx_free_page_num:%d, hostid:%x, vif_idx:%d, staid:%d, host_cfm_idx:%d\n",
-            aml_hw->g_tx_param.tx_page_free_num, sw_txhdr->desc.api.host.hostid, sw_txhdr->desc.api.host.vif_idx, sw_txhdr->desc.api.host.staid, aml_hw->ipc_env->txcfm_idx);
+        AML_INFO("tx_free_page_num:%d, hostid:%x, vif_idx:%d, staid:%d\n",
+            aml_hw->g_tx_param.tx_page_free_num, sw_txhdr->desc.api.host.hostid, sw_txhdr->desc.api.host.vif_idx, sw_txhdr->desc.api.host.staid);
 
         aml_txq_confirm_any(aml_hw, txq, hwq, sw_txhdr);
 
@@ -2079,8 +2180,7 @@ void aml_error_ind(struct aml_hw *aml_hw)
     } else {
         dump = (struct dbg_debug_dump_tag *)buf->addr;
     }
-    dev_err(aml_hw->dev, "(type %d): dump received, %s\n",
-        dump->dbg_info.error_type, (char *)dump->dbg_info.error);
+    dev_err(aml_hw->dev, "(type %d): dump received\n", dump->dbg_info.error_type);
 #ifdef LIGHT_WEIGHT_MEM
     aml_umh_done(aml_hw);
 #else
@@ -2116,7 +2216,6 @@ const char *ssid_sprintf(const unsigned char *ssid, unsigned char ssid_len)
 {
     static unsigned char slssid[MAC_SSID_LEN + 1] = {0};
 
-    memset(slssid, 0, sizeof(slssid));
     if (ssid && ssid_len > 0 && ssid_len <= MAC_SSID_LEN)
         memcpy(slssid, ssid, ssid_len);
     return slssid;

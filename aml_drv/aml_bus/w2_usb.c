@@ -1,10 +1,3 @@
-/* SPDX-License-Identifier: GPL-2.0 */
-/*
-* Copyright (C) 202X Original Author (retain original author information)
-* Copyright (C) 202X Amlogic, Inc. All rights reserved.
-*
-* Description:
-*/
 #define AML_MODULE          USB
 #define AML_FMT             AML_FMT_M
 
@@ -60,15 +53,15 @@ static inline void __auc_cmd_rxrd_set(u32 flag, u32 rxrd)
 {
     unsigned char *p = &g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX];
 
-    *p++ = rxrd & 0xff;
-    *p++ = (rxrd >> 8) & 0xff;
-    *p++ = (rxrd >> 16) & 0xff;
-    *p++ = (rxrd >> 24) & 0xff;
-
     *p++ = flag & 0xff;
     *p++ = (flag >> 8) & 0xff;
     *p++ = (flag >> 16) & 0xff;
     *p++ = (flag >> 24) & 0xff;
+
+    *p++ = rxrd & 0xff;
+    *p++ = (rxrd >> 8) & 0xff;
+    *p++ = (rxrd >> 16) & 0xff;
+    *p++ = (rxrd >> 24) & 0xff;
 }
 
 static inline void auc_cmd_rxrd_clear(void)
@@ -78,16 +71,12 @@ static inline void auc_cmd_rxrd_clear(void)
 
 int auc_cmd_rxrd_set(u32 rxrd)
 {
-    USB_BEGIN_LOCK();
     /* RX read pointer (confirm) is already embedded in command? */
-    if (*(u32 *)&g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX + 4]) {
-        USB_END_LOCK();
+    if (*(u32 *)&g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX])
         return -1;
-    }
 
     /* later send it to firmware with the next command */
     __auc_cmd_rxrd_set(UPDATE_FLAG, rxrd);
-    USB_END_LOCK();
     return 0;
 }
 EXPORT_SYMBOL(auc_cmd_rxrd_set);
@@ -759,10 +748,7 @@ void auc_read_sram_by_ep(unsigned char *pdata, unsigned int addr, unsigned int l
 
     if (mode == WIFI_READ_CMD && addr == SRAM_TXCFM_START_ADDR && len == SRAM_TXCFM_SIZE) {
         /* EP5 is designed to directly read TX confirmation w/o a pre-command, no lock is required. */
-        ret = auc_bulk_msg(udev, usb_rcvbulkpipe(udev, USB_EP5), pdata, len, &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
-        if (ret) {
-            ERROR_DEBUG_OUT("Failed to usb_bulk_msg, ret %d, ep: %d, addr: 0x%x, len: %d, mode: %d\n", ret, ep, addr, len, mode);
-        }
+        auc_bulk_msg(udev, usb_rcvbulkpipe(udev, USB_EP5),pdata, len, &actual_length, 100);
         return;
     }
 
@@ -1045,11 +1031,58 @@ void auc_read_sram_by_ep_for_bt(unsigned char *buf,unsigned char *sram_addr, uns
     }
 }
 
-struct usb_sg_request_ex {
-    struct usb_sg_request sgr;
-    struct timer_list timer;
-    int timed_out;
+static void w2_usb_scat_complete(struct amlw_hif_scatter_req * scat_req)
+{
+    scat_req->free = true;
+    scat_req->scat_count = 0;
+    scat_req->len = 0;
+    scat_req->addr = 0;
+    memset(scat_req->sgentries, 0, MAX_SG_ENTRIES * sizeof(struct scatterlist));
+}
+
+struct tx_trb_info_ex
+{
+    /* The number of pages needed for a single transfer */
+    unsigned int packet_num;
+    /* Actual size used for each page */
+    unsigned short buffer_size[128];
 };
+
+void aml_usb_build_tx_packet_info(struct crg_msc_cbw *cbw_buf, unsigned char cdb1,
+    struct tx_trb_info_ex * trb_info)
+{
+    cbw_buf->sig = trb_info->buffer_size[0] | trb_info->buffer_size[1] << 16;
+    cbw_buf->tag = trb_info->buffer_size[2] | trb_info->buffer_size[3] << 16;
+    cbw_buf->data_len = trb_info->buffer_size[4] | trb_info->buffer_size[5] << 16;
+    cbw_buf->flag = trb_info->packet_num; //packet nums 1byte
+    cbw_buf->len = trb_info->buffer_size[13] & 0xff;
+    cbw_buf->lun = (trb_info->buffer_size[13] >> 8) & 0xff;
+    cbw_buf->cdb[0] = cdb1 | trb_info->buffer_size[12] << 16;
+    cbw_buf->cdb[1] = trb_info->buffer_size[6] | trb_info->buffer_size[7] << 16;
+    cbw_buf->cdb[2] = trb_info->buffer_size[8] | trb_info->buffer_size[9] << 16;
+    cbw_buf->cdb[3] = trb_info->buffer_size[10] | trb_info->buffer_size[11] << 16;
+
+    {
+        int i=0,j;
+        if (trb_info->packet_num >= 15) {
+            for (j=14;j<trb_info->packet_num;j++) {
+                cbw_buf->resv[i] = trb_info->buffer_size[j] & 0xff;
+                cbw_buf->resv[i+1] = (trb_info->buffer_size[j]>> 8) & 0xff;
+                i=i+2;
+            }
+        }
+    }
+}
+
+int w2_usb_send_packet(struct amlw_hif_scatter_req * scat_req)
+{
+    struct usb_device *udev = g_udev;
+    struct scatterlist *sg;
+    struct usb_sg_request sgr = {0};
+    int sg_count, sgitem_count;
+    unsigned int max_req_size;
+    int ttl_len, pkt_offset, page_num;
+    //struct txdesc_host *txdesc_host;
 
 static void aml_usb_sg_cancel(struct usb_sg_request *io)
 {
@@ -1111,12 +1144,57 @@ static int w2_usb_send_packet(struct usb_device *udev, unsigned int pipe,
 
     BUG_ON(!udev->bus->sg_tablesize);
 
-    AML_PROF_CNT(SG, -n_sg);
-    ret = usb_sg_init(&ctx.sgr, udev, pipe, 0, sg_list, n_sg, 0, GFP_NOIO);
-    if (ret) {
-        AML_RLMT_ERR("usb_sg_init fail ret = %d\n", ret);
-        return ret;
-    }
+    while (sgitem_count < scat_req->scat_count)
+    {
+        ttl_len = 0;
+        sg_count = 0;
+        sg_init_table(sg, MAXSG_SIZE);
+        /* assemble SG list */
+        while (sgitem_count < scat_req->scat_count)
+        {
+            int packet_len = 0;
+            unsigned char *pdata = NULL;
+
+            /* coverity[MISSING_LOCK] --miss aml_hw.tx_desc_lock*/
+            packet_len = scat_req->scat_list[sgitem_count].len;
+            /* coverity[MISSING_LOCK] --miss aml_hw.tx_desc_lock*/
+            pdata = scat_req->scat_list[sgitem_count].packet;
+            /* coverity[MISSING_LOCK] --miss aml_hw.tx_desc_lock*/
+            page_num = scat_req->scat_list[sgitem_count].page_num;
+
+            if (sg_count > (MAXSG_SIZE - page_num))
+            {
+                AML_ERR("sg_count > MAXSG_SIZE, sg_count:%d, page_num:%d, scat_count:%d\n", sg_count, page_num, scat_req->scat_count);
+                break;
+            }
+            ttl_page_num += page_num;
+            last_page_size = packet_len - (page_num - 1) * USB_PAGE_LEN;
+
+            if (page_num == 1)
+            {
+                //AML_DBG("sg_count:%d, page_num:%d, scat_count:%d\n", sg_count, page_num, scat_req->scat_count);
+                sg_set_buf(&scat_req->sgentries[sg_count], pdata, packet_len);
+                sg_count++;
+                ttl_len += packet_len;
+            }
+            sgitem_count++;
+        }
+
+        ret = usb_sg_init(&sgr, udev, usb_sndbulkpipe(udev, USB_EP1), 0, scat_req->sgentries,
+            sg_count, 0, GFP_NOIO);
+
+        if (ret)
+        {
+            AML_ERR("usb_sg_init fail ret = %d\n", ret);
+            return ret;
+        }
+
+        usb_sg_wait(&sgr);
+        if (sgr.status != 0)
+        {
+            AML_ERR("usb_sg_wait fail  %d\n", sgr.status);
+            return -1;
+        }
 
     timer_setup(&ctx.timer, w2_usb_sg_timed_out, 0);
     ctx.timer.expires = jiffies + msecs_to_jiffies(AML_USB_CONTROL_MSG_TIMEOUT);
@@ -1138,8 +1216,7 @@ int w2_usb_send_frame(struct scatterlist *scat_list, int n_sg)
     int i;
     int actual_length = 0;
     struct usb_device *udev = g_udev;
-    uint16_t buffer_size[128];
-    int len = sizeof(*buffer_size) * n_sg;
+    struct tx_trb_info_ex trb_info = {};
 
 #ifdef CONFIG_AML_RECOVERY
     if (bus_state_detect.bus_err || bus_state_detect.bus_reset_ongoing) {
@@ -1148,19 +1225,18 @@ int w2_usb_send_frame(struct scatterlist *scat_list, int n_sg)
         return 0;
     }
 #endif
-
-    BUG_ON(n_sg >= ARRAY_SIZE(buffer_size));
-    for_each_sg(scat_list, sg, n_sg, i) {
-        buffer_size[i] = sg->length;
-        actual_length += sg->length;
-    }
-
     USB_BEGIN_LOCK();
+    /* build page_info array */
+    trb_info.packet_num = pframe->scat_count;
 
+    for (i = 0; i < pframe->scat_count; i++)
+    {
+        /* coverity[MISSING_LOCK] --miss aml_hw.tx_desc_lock*/
+        trb_info.buffer_size[i] = pframe->scat_list[i].len;
+        actual_length += trb_info.buffer_size[i];
+    }
     AML_PROF_CNT(SG, - actual_length);
-
-    auc_build_cbw_add_data(g_cmd_buf, AML_XFER_TO_DEVICE, len,
-                           CMD_WRITE_PACKET, 0, 0, len, (unsigned char *)buffer_size);
+    aml_usb_build_tx_packet_info(g_cmd_buf, CMD_WRITE_PACKET, &trb_info);
     /* cmd stage */
     ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, USB_EP1),
                        g_cmd_buf, sizeof(*g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
@@ -1171,7 +1247,9 @@ int w2_usb_send_frame(struct scatterlist *scat_list, int n_sg)
     }
 
     auc_cmd_rxrd_clear();
-    w2_usb_send_packet(udev, usb_sndbulkpipe(udev, USB_EP1), scat_list, n_sg);
+    w2_usb_send_packet(pframe);
+
+    w2_usb_scat_complete(pframe);
 
     AML_PROF_CNT(SG, 0);
     USB_END_LOCK();

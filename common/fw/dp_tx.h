@@ -13,15 +13,28 @@
 #ifndef _COMMON_FW_DP_TX_H_
 #define _COMMON_FW_DP_TX_H_
 
-#include "aml_types.h"
+#ifdef __linux__
+#include <linux/types.h>
+#else
+#include <stdint.h>
+#endif
 
-#define W2_TX_DESC_MAGIC        0x5458504b          /* "TXPK" */
+#ifndef NX_TX_PAYLOAD_MAX
+#define NX_TX_PAYLOAD_MAX   6
+#endif
 
-#define W2_TXHW_HDR_LEN_USB     0
-#define W2_TXHW_HDR_LEN_SDIO    12                  /* sizeof(struct HW_TxBufferInfo) */
+struct txpage_info {
+    uint16_t total_len;
+    uint16_t first_msdu_len;    /* for patch_txu_cntrl_amsdu_hdr_append() */
 
-#define SDIO_PAGE_MAX           65
-#define USB_PAGE_MAX            25
+    uint8_t msdu_num;           /* for patch_txl_buffer_is_amsdu_multi_buf() */
+    uint8_t page_num;
+
+#define TXPAGE_INFO_PAGE_NUM_MAX    (NX_TX_PAYLOAD_MAX * 2) /* up to 2 pages per msdu */
+    uint8_t pages[TXPAGE_INFO_PAGE_NUM_MAX];                /* firmware only */
+};
+
+#define HOSTDESC_TXPAGE_INFO(host)      ((struct txpage_info *)&(host)->packet_addr[0])
 
 /*
  * compact TX confirmation tag for SDIO/USB

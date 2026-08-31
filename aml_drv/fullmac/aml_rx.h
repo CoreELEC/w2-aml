@@ -19,15 +19,6 @@
 #include "aml_static_buf.h"
 #include "aml_reorder.h"
 
-#define BUFFER_STATUS           (BIT(0) | BIT(1))
-#define BUFFER_NARROW           BIT(0)
-#define BUFFER_EXPAND           BIT(1)
-#define BUFFER_UPDATE_FLAG      BIT(2)
-#define BUFFER_REDUCE_FINISH     BIT(3)
-#define BUFFER_WRAP             BIT(4)
-#define BUFFER_EXPEND_FINISH     BIT(5)
-#define BUFFER_TX_USED_FLAG     BIT(6)
-
 #define RXDESC_CNT_READ_ONCE 32
 
 enum rx_status_bits
@@ -114,8 +105,6 @@ struct hw_rxhdr {
     u32 flags_sta_idx      : 8;    // 0xFF if invalid STA index
     u32 flags_dst_idx      : 8;    // 0xFF if unknown destination STA
 
-    /* the following members are only for PCIE */
-#ifndef AML_SDIO_USB_FW_PATCHED
 #ifdef CONFIG_AML_MON_DATA
     /// MAC header backup descriptor (used only for MSDU when there is a monitor and a data interface)
     struct mon_machdrdesc mac_hdr_backup;

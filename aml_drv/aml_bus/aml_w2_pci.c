@@ -20,7 +20,12 @@
 #include "chip_intf_reg.h"
 #include "aml_log.h"
 #include "chip_bt_pmu_reg.h"
-#include <linux/pm.h>
+
+#define W2p_VENDOR_AMLOGIC_EFUSE 0x1F35
+#define W2p_PRODUCT_AMLOGIC_EFUSE 0x0602
+
+#define W2pRevB_PRODUCT_AMLOGIC_EFUSE 0x0642
+#define W2pRevC_PRODUCT_AMLOGIC_EFUSE 0x0682
 
 struct aml_plat_pci *g_aml_plat_pci;
 unsigned char g_pci_driver_insmoded;
@@ -38,9 +43,9 @@ static u8* aml_pci_get_address_from_domain(struct aml_plat_pci *aml_plat, int ad
 static const struct pci_device_id aml_pci_ids[] =
 {
     {PCI_DEVICE(0x0, 0x0)},
-    {PCI_DEVICE(W2p_VENDOR_AMLOGIC_EFUSE, W2p_A_PRODUCT_AMLOGIC_EFUSE)},
-    {PCI_DEVICE(W2p_VENDOR_AMLOGIC_EFUSE, W2p_B_PRODUCT_AMLOGIC_EFUSE)},
-    {PCI_DEVICE(W2p_VENDOR_AMLOGIC_EFUSE, W2p_C_PRODUCT_AMLOGIC_EFUSE)},
+    {PCI_DEVICE(W2p_VENDOR_AMLOGIC_EFUSE, W2p_PRODUCT_AMLOGIC_EFUSE)},
+    {PCI_DEVICE(W2p_VENDOR_AMLOGIC_EFUSE, W2pRevB_PRODUCT_AMLOGIC_EFUSE)},
+    {PCI_DEVICE(W2p_VENDOR_AMLOGIC_EFUSE, W2pRevC_PRODUCT_AMLOGIC_EFUSE)},
     {0,}
 };
 
@@ -97,7 +102,6 @@ bool aml_pci_resume_complete(struct pci_dev *pdev)
             return true;
         }
     } while ((!((wake_flag != 0xffffffff) && (wake_flag & BIT(0)))) && (loop-- > 0));
-    AML_INFO("wake_flag = 0x%x\n", wake_flag);
 
     return true;
 }
@@ -137,9 +141,10 @@ static void aml_pci_remove(struct pci_dev *pci_dev)
     g_aml_plat_pci->deinit(g_aml_plat_pci);
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 150)
-static int aml_pci_suspend(struct device *dev)
-#else
+bool g_pcie_suspend = 0;
+extern uint32_t aml_pci_read_for_bt(int base, u32 offset);
+extern void aml_pci_write_for_bt(u32 val, int base, u32 offset);
+
 static int aml_pci_suspend(struct pci_dev *pdev, pm_message_t state)
 #endif
 
@@ -149,9 +154,7 @@ static int aml_pci_suspend(struct pci_dev *pdev, pm_message_t state)
     u64 elapsed_time_ns = 0;
     u64 wait_bt_time_ns = 8000000000; //wait bt 8s
     u64 wait_wifi_time_ns = 12000000000; //wait wifi 12s
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 150)
-    struct pci_dev *pdev = to_pci_dev(dev);
-#endif
+    unsigned int reg_value;
 
     //bt open
     if (aml_pci_read_for_bt(AML_ADDR_AON, RG_BT_PMU_A16) & BIT(31))
@@ -216,7 +219,7 @@ static int aml_pci_suspend(struct pci_dev *pdev, pm_message_t state)
         }
     }
 
-    atomic_set(&g_wifi_pm.bus_suspend_cnt, 1);
+
     AML_INFO("%s\n", __func__);
     //aml_suspend_dump_cfgregs(bus, "BEFORE_EP_SUSPEND");
     pci_save_state(pdev);
@@ -226,6 +229,12 @@ static int aml_pci_suspend(struct pci_dev *pdev, pm_message_t state)
     if (ret) {
         ERROR_DEBUG_OUT("pci_set_power_state error %d\n", ret);
     }
+
+    reg_value = aml_pci_read_for_bt(AML_ADDR_AON, RG_AON_A25);
+    reg_value |= BIT(1);
+    aml_pci_write_for_bt(reg_value, AML_ADDR_AON, RG_AON_A25);
+    g_pcie_suspend = 1;
+    atomic_set(&g_wifi_pm.bus_suspend_cnt, 1);
     //Delay 100ms to ensure ltssm enters L1 completion, delaying PCIe PHY power-off.
     usleep_range(100000, 120000);
     AML_FN_EXIT();
@@ -240,11 +249,8 @@ static int aml_pci_resume(struct pci_dev *pdev)
 #endif
 {
     int err;
+    unsigned int reg_value;
     bool pci_resume_ok = false;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 150)
-    struct pci_dev *pdev = to_pci_dev(dev);
-#endif
-
     AML_FN_ENTRY();
     pci_restore_state(pdev);
 
@@ -256,18 +262,27 @@ static int aml_pci_resume(struct pci_dev *pdev)
     }
 
     pci_resume_ok = aml_pci_resume_complete(pdev);
-    if (!pci_resume_ok) {
+    if (!pci_resume_ok)
+    {
         AML_INFO("pci_resume_ok = 0x%x\n", pci_resume_ok);
         goto out;
     }
+    g_pcie_suspend = 0;
+
     AML_INFO(" ok exit\n");
 out:
     atomic_set(&g_wifi_pm.bus_suspend_cnt, 0);
+
+    // clear pci suspend flag
+    reg_value = aml_pci_read_for_bt(AML_ADDR_AON, RG_AON_A25);
+    reg_value &= ~ BIT(1);
+    aml_pci_write_for_bt(reg_value, AML_ADDR_AON, RG_AON_A25);
+
+    AML_INFO(" clear pci suspend flag 0x%x\n", aml_pci_read_for_bt(AML_ADDR_AON, RG_AON_A25));
     return err;
 }
 
-extern uint32_t aml_pci_read_for_bt(int base, u32 offset);
-extern void aml_pci_write_for_bt(u32 val, int base, u32 offset);
+
 extern lp_shutdown_func g_lp_shutdown_func;
 extern bt_shutdown_func g_bt_shutdown_func;
 
@@ -456,10 +471,6 @@ void aml_pci_writel(u32 data, u8* addr)
 uint32_t aml_pci_read_for_bt(int base, u32 offset)
 {
     u8 *addr;
-
-    if (!g_aml_plat_pci)
-        return 0xdead;
-
     addr = aml_pci_get_address_from_domain(g_aml_plat_pci, base, offset);
 
     if (addr == NULL)
@@ -474,10 +485,6 @@ uint32_t aml_pci_read_for_bt(int base, u32 offset)
 void aml_pci_write_for_bt(u32 val, int base, u32 offset)
 {
     u8 *addr;
-
-    if (!g_aml_plat_pci)
-        return;
-
     addr = aml_pci_get_address_from_domain(g_aml_plat_pci, base, offset);
 
     if (addr == NULL)

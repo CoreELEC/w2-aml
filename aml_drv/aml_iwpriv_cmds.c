@@ -772,57 +772,6 @@ static int aml_set_rf_reg_legacy(struct net_device *dev, char *str_param,
     return 0;
 }
 
-void aml_print_buf(char *buf, int len)
-{
-    int set0 = 0;
-    int set1 = 0;
-    int set2 = 0;
-    int set3 = 0;
-    int legacy_set1 = 0;
-    int legacy_set2 = 0;
-
-    if (sscanf(str_param, "%08x %08x %08x %08x", &set0, &set1, &set2, &set3) != 4) {
-        AML_ERR("param error \n");
-    }
-
-    legacy_set1 = set1 | set0 << 16;
-    legacy_set2 = set3 | set2 << 16;
-    AML_INFO("%08x %08x %08x %08x, legacy_set1 %08x, legacy_set2 %08x", set0, set1, set2, set3, legacy_set1, legacy_set2);
-    aml_set_reg(dev, legacy_set1, legacy_set2);
-
-    return 0;
-}
-
-static int aml_set_rf_reg_legacy(struct net_device *dev, char *str_param,
-    union iwreq_data *wrqu, char *extra)
-{
-    int set0 = 0;
-    int set1 = 0;
-    int set2 = 0;
-    int set3 = 0;
-    int legacy_set1 = 0;
-    int legacy_set2 = 0;
-
-    if (sscanf(str_param, "%08x %08x %08x %08x", &set0, &set1, &set2, &set3) != 4) {
-        AML_ERR("param error \n");
-    }
-
-    legacy_set1 = set1 | set0 << 16;
-    legacy_set2 = set3 | set2 << 16;
-    AML_INFO("%08x %08x %08x %08x, legacy_set1 %08x, legacy_set2 %08x", set0, set1, set2, set3, legacy_set1, legacy_set2);
-    aml_rf_reg_write(dev, legacy_set1, legacy_set2);
-
-    return 0;
-}
-
-static int aml_trig_sec_test(struct net_device *dev)
-{
-    struct aml_vif *aml_vif = netdev_priv(dev);
-    struct aml_hw * aml_hw = aml_vif->aml_hw;
-
-    return _aml_trig_sec_test(aml_hw);
-}
-
 static void aml_print_buf(char *buf, int len)
 {
     char *lf;
@@ -1210,7 +1159,7 @@ static int aml_get_last_rx(struct net_device *dev, union iwreq_data *wrqu, char 
     return 0;
 }
 
-int aml_clear_last_rx(struct net_device *dev)
+static int aml_clear_last_rx(struct net_device *dev)
 {
 #ifdef CONFIG_AML_DEBUGFS
     struct aml_vif *aml_vif = netdev_priv(dev);
@@ -1330,6 +1279,14 @@ static int aml_get_buf_state(struct net_device *dev)
         AML_INFO("la status:       ON\n");
     } else {
         AML_INFO("la status:       OFF\n");
+    }
+
+    if (aml_bus_type == USB_MODE) {
+        if (aml_hw->trace_enable) {
+            AML_INFO("trace status:    ON\n");
+        } else {
+            AML_INFO("trace status:    OFF\n");
+        }
     }
 
     fw_state = aml_shared_mem_layout_get(&aml_hw->rx);
@@ -1814,7 +1771,7 @@ static int aml_dump_reg(struct net_device *dev, int addr, int size)
     } else {
         for (i = 0; i < size / 4; i++) {
             len += scnprintf(&la_buf[len], (REG_DUMP_SIZE - len), "addr 0x%x ----- value 0x%x\n",
-                (unsigned int)(unsigned long)(address + i * 4), AML_REG_READ(aml_plat, 0, (unsigned int)(unsigned long)(address + i*4)));
+                (unsigned int)(unsigned long)(address + i * 4), AML_REG_READ(aml_plat, 0, (u64)(address + i*4)));
 
             if ((REG_DUMP_SIZE - len) < 38) {
                 aml_send_log_to_user(la_buf, len, AML_MEM_DUMP_UPLOAD);
@@ -3533,15 +3490,8 @@ static int aml_set_for_tx_160M_spur(struct net_device *dev, union iwreq_data *wr
     unsigned char end = 0;
     unsigned char slice = 0;
     unsigned int tx_ex_gain[6] = {0x3, 0x121, 0x49, 0x91, 0xd9, 0xd9};
-    TS_STAT0_FIELD_T ts_stat0;
 
     if ((channel <= 14) || (bw != 2)) {
-        return 0;
-    }
-
-    ts_stat0.data = aml_get_reg_2(dev, TS_STAT0, wrqu, extra);
-    if (ts_stat0.b.yout_d2 >= TS_70_DEGREES_CELSIUS) //temperature  70
-    {
         return 0;
     }
 
@@ -3600,11 +3550,10 @@ static int aml_set_for_tx_160M_spur(struct net_device *dev, union iwreq_data *wr
         reg_val = (reg_val & 0xf0ffffff) | (tmp << 24);
         AML_INFO("reg84c 0x%x", reg_val);
         aml_rf_reg_write(dev, 0x8000084c + (0x1000 * i), reg_val);
+
+        /* step6: wifi clk gating on */
+        aml_set_reg(dev, 0x00f00078, 0x7800c1e0);
     }
-
-    /* step6: wifi clk gating on */
-    aml_set_reg(dev, 0x00f00078, 0x7800c1e0);
-
     return 0;
 }
 
@@ -3660,12 +3609,6 @@ static int aml_set_offset_power_vld(struct net_device *dev)
     return 0;
 }
 
-static int aml_recovery_iwpriv_process(struct aml_hw *aml_hw)
-{
-    aml_recy_doit(aml_hw, NULL, 0);
-    return 0;
-}
-
 static int aml_recy_ctrl(struct net_device *dev, int recy_id)
 {
     struct aml_vif *aml_vif = netdev_priv(dev);
@@ -3692,7 +3635,7 @@ static int aml_recy_ctrl(struct net_device *dev, int recy_id)
             break;
         case 3:
             AML_INFO("do recovery straightforward");
-            aml_wq_do(aml_recovery_iwpriv_process, aml_hw);
+            aml_recy_doit(aml_hw, NULL, 0);
             break;
         case 5:
             AML_INFO("do simulate link loss recovery");
@@ -3706,6 +3649,15 @@ static int aml_recy_ctrl(struct net_device *dev, int recy_id)
             } else {
                 AML_NOTICE("skip MAC/PHY hard reset (%x)\n", aml_hw->tx_stop);
             }
+            break;
+        case 6:
+            AML_INFO("Get Wi-Fi Recovery Info");
+            AML_INFO("\n Total Recovery count:%d\n Recy_reason_cmd_crash_count:%d\n Recy_reason_fw_linkloss_count:%d\n Recy_reason_bus_error_count:%d\n Recy_reason_tx_timeout_count:%d\n",
+            aml_recy->recy_counter.total_recy_cnt,
+            aml_recy->recy_counter.recy_reason_cmd_crash_cnt,
+            aml_recy->recy_counter.recy_reason_cmd_fw_linkloss_cnt,
+            aml_recy->recy_counter.recy_reason_cmd_bus_error_cnt,
+            aml_recy->recy_counter.recy_reason_cmd_tx_timeout_cnt);
             break;
         case 6:
             AML_INFO("Get Wi-Fi Recovery Info");
@@ -4273,6 +4225,48 @@ static int aml_pcie_lp_switch(struct net_device *dev, int status)
     return ret;
 }
 
+static int aml_set_usb_trace_enable(struct net_device *dev, int enable)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    struct aml_hw *aml_hw = aml_vif->aml_hw;
+
+    if (aml_bus_type != USB_MODE) {
+        AML_ERR("invalid cmd\n");
+        return -1;
+    }
+
+    if (enable != 0 && enable != 1) {
+        AML_INFO("param error:%d\n",  enable);
+        return -1;
+    }
+
+    if (aml_hw->la_enable) {
+        AML_INFO("usb la is enable, usb trace is forbidden!");
+        return -1;
+    }
+
+    if (enable == aml_hw->trace_enable) {
+        AML_INFO("The set trace status is consistent with the current trace status, do nothing!");
+        return -1;
+    }
+
+    if (aml_hw->rx.fw.state & FW_BUFFER_STATUS) {
+        AML_INFO("During dynamic buf switch, please try again later");
+        return -1;
+    }
+
+    if (aml_hw->trace_malloc_success && enable) {
+        AML_INFO("malloc trace buf has not release, not malloc again!");
+        return -1;
+    }
+
+    _aml_set_usb_trace_enable(aml_hw, enable);
+    aml_hw->trace_enable = enable;
+    aml_shared_mem_layout_update(&aml_hw->rx);
+
+    return 0;
+}
+
 extern struct log_file_info trace_log_file_info;
 int aml_set_fwlog_cmd(struct net_device *dev, int mode)
 {
@@ -4281,14 +4275,15 @@ int aml_set_fwlog_cmd(struct net_device *dev, int mode)
     struct fwlog_mode_cfm cfm;
     int ret = 0;
 
-    if (mode == LOG_TO_HOST || mode == LOG_TO_UART) {
+    if ((mode == LOG_TO_HOST || mode == LOG_TO_UART)
+        || ((aml_bus_type == PCIE_MODE) && (mode == TRACE_TO_HOST))) {
         ret =  aml_send_fwlog_cmd(aml_hw, mode, &cfm);
         if (ret == 0)
             trace_log_file_info.trace_type = mode;
         else
             AML_INFO("send cmd fail, ret:%d\n", ret);
-    } else if (mode == TRACE_TO_HOST) {
-        if (g_trace_nl_info.enable) {
+    } else if ((aml_bus_type != PCIE_MODE) && (mode == TRACE_TO_HOST)) {
+        if (trace_log_file_info.log_buf && trace_log_file_info.ptr && g_trace_nl_info.enable) {
             ret =  aml_send_fwlog_cmd(aml_hw, mode, &cfm);
             if (ret == 0) {
                 /* 0x500000:convert dccm addr from fw to host */
@@ -4300,29 +4295,9 @@ int aml_set_fwlog_cmd(struct net_device *dev, int mode)
             } else
                 AML_INFO("send cmd fail, ret:%d\n", ret);
         }
-        aml_send_fwlog_cmd(aml_hw, mode);
     } else {
-        AML_INFO("trace log init failed, type %x, mode %x", aml_bus_type, mode);
+        AML_INFO("bus_type err or trace log init failed, type %x, mode %x", aml_bus_type, mode);
     }
-
-    return 0;
-}
-
-int aml_get_str_log_cmd(struct net_device *dev, int mode)
-{
-    struct aml_vif *aml_vif = netdev_priv(dev);
-    struct aml_hw *aml_hw = aml_vif->aml_hw;
-
-    if (trace_log_file_info.trace_type != TRACE_TO_HOST) {
-        AML_INFO("just supportting get_str_log when enable getting trace log");
-        return 0;
-    }
-    if (mode > 1) {
-        AML_INFO("mode err");
-        return 0;
-    }
-
-    aml_send_strlog_cmd(aml_hw, mode);
 
     return 0;
 }
@@ -4357,7 +4332,7 @@ static void aml_set_wifi_mac_addr(struct net_device *dev, char* arg_iw)
     unsigned int mac_val_second = 0;
     unsigned int efuse_data_l = 0;
     unsigned int efuse_data_h = 0;
-    unsigned char mac_addr[ETH_ALEN] = {0};
+    char mac_addr[ETH_ALEN] = {0};
     bool succ;
     struct aml_vif *aml_vif = netdev_priv(dev);
 
@@ -4458,13 +4433,11 @@ static int aml_get_mac_addr(struct net_device *dev,union iwreq_data *wrqu, char 
     return 0;
 }
 
-static int aml_set_efuse_vendor_sn(struct net_device *dev, char *arg)
+static void aml_set_efuse_vendor_sn(struct net_device *dev, char *arg)
 {
     struct aml_vif *aml_vif = netdev_priv(dev);
-    unsigned char argv[2];
+    char argv[2];
     unsigned int efuse_data = 0;
-    unsigned int efuse_data_l = 0;
-    unsigned int efuse_data_m = 0;
 
     efuse_data = _aml_get_efuse(aml_vif, EFUSE_BASE_0F);
     if ((efuse_data & 0xffff) != 0) {
@@ -4510,7 +4483,6 @@ static int aml_set_efuse_vendor_sn(struct net_device *dev, char *arg)
                 efuse_data & 0x00ff);
         _aml_set_efuse(aml_vif, EFUSE_BASE_0F, efuse_data);
     }
-    return 0;
 }
 
 static int aml_get_efuse_vendor_sn(struct net_device *dev, union iwreq_data *wrqu, char *extra)
@@ -4540,46 +4512,13 @@ static int aml_get_efuse_vendor_sn(struct net_device *dev, union iwreq_data *wrq
     return 0;
 }
 
-static int aml_get_efuse_vendor_sn_times(struct net_device *dev,
-                                               union iwreq_data *wrqu, char *extra)
-{
-    struct aml_vif *aml_vif = netdev_priv(dev);
-    unsigned int reg_val = 0;
-    unsigned int times = 0;
-    unsigned int efuse_data = 0;
-    unsigned int efuse_data_l = 0;
-    unsigned int efuse_data_m = 0;
-
-    efuse_data = _aml_get_efuse(aml_vif, EFUSE_BASE_0F);
-    efuse_data_l = _aml_get_efuse(aml_vif, EFUSE_BASE_15);
-    efuse_data_m = _aml_get_efuse(aml_vif, EFUSE_BASE_16);
-    reg_val = (((efuse_data_m >> 8) & 0x20) << 15) | (((efuse_data_m & 0xE0) >> 5) << 12) |
-                (((efuse_data_l & 0xE0000000) >> 29) << 9) | (((efuse_data_l & 0x00E00000) >> 21) << 6) |
-                (((efuse_data_l & 0x0000E000) >> 13) << 3) | ((efuse_data_l & 0xE0) >> 5);
-
-    if ((efuse_data & 0xffff) == 0) {
-        times = 2;
-    } else if ((efuse_data & 0xffff) != 0 && reg_val == 0) {
-        times = 1;
-    } else {
-        times = 0;
-    }
-
-    AML_INFO("vendor_sn efuse times: 0x%08x\n", times);
-    wrqu->data.length = scnprintf(extra, IW_PRIV_SIZE_MASK, "times:0x%02x", times);
-    wrqu->data.length++;
-
-    return times;
-}
-
-
 static void aml_set_bt_mac_addr(struct net_device *dev, char* arg_iw)
 {
     unsigned int mac_val = 0;
     unsigned int mac_val_second = 0;
     unsigned int efuse_data_l = 0;
     unsigned int efuse_data_h = 0;
-    unsigned char mac_addr[ETH_ALEN] = {0};
+    char mac_addr[ETH_ALEN] = {0};
     bool succ;
     struct aml_vif *aml_vif = netdev_priv(dev);
 
@@ -4719,15 +4658,11 @@ static int aml_get_bt_digital_gain_efuse_times(struct net_device *dev,
     unsigned int reg_val = 0;
     unsigned int times = 0;
     struct aml_vif *aml_vif = netdev_priv(dev);
-    unsigned int efuse_data = 0;
 
     reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_0D);
-    efuse_data = _aml_get_efuse(aml_vif, EFUSE_BASE_0F);
 
     //bt_digital_gain first times
-    if (((reg_val & BIT(31)) == 0) && ((efuse_data & 0xffff0000) == 0)) {
-        times = 2;
-    } else if ((reg_val & BIT(30)) == 0) {
+    if ((reg_val & BIT(31)) == 0) {
         times = 1;
     } else {
         times = 0;
@@ -4740,66 +4675,22 @@ static int aml_get_bt_digital_gain_efuse_times(struct net_device *dev,
     return times;
 }
 
-static int aml_set_bt_gain_efuse(struct net_device *dev, unsigned int bt_gain)
+static int aml_set_bt_digital_gain_efuse(struct net_device *dev,
+                                         unsigned char bdr_gain, unsigned char edr_gain)
 {
     unsigned int efuse_data = 0;
     struct aml_vif *aml_vif = netdev_priv(dev);
-    unsigned int efuse_data_l = 0, efuse_data_m = 0;
-    unsigned char bdr_gain = 0, edr_gain = 0;
-    unsigned char bdr_rf_gain = 0, edr_rf_gain = 0;
-    unsigned int rf_gain_efuse_data = 0;
-
-    bdr_rf_gain = (bt_gain & 0xff000000) >> 24;
-    edr_rf_gain = (bt_gain & 0x00ff0000) >> 16;
-    bdr_gain = (bt_gain & 0x0000ff00) >> 8;
-    edr_gain = (bt_gain & 0x000000ff);
-
-    if (bdr_rf_gain > 3 || edr_rf_gain > 3) {
-        AML_INFO("aml_set_bt_gain_efuse  exit bdr_rf_gain:%d, edr_rf_gain:%d\n", bdr_rf_gain, edr_rf_gain);
-        return -1;
-    }
 
     efuse_data = _aml_get_efuse(aml_vif, EFUSE_BASE_0F);
     if ((efuse_data & 0xffff0000) != 0) {
-        efuse_data_l = _aml_get_efuse(aml_vif, EFUSE_BASE_14);
-        efuse_data_m = _aml_get_efuse(aml_vif, EFUSE_BASE_18);
-
-        efuse_data = (efuse_data_m  & 0xff00) | ((efuse_data_l & 0x00600000) >> 15) |
-                     ((efuse_data_l & 0x0000E000) >> 10) | ((efuse_data_l & 0x000000E0) >> 5);
-        if (efuse_data != 0) {
-            AML_INFO("aml_set_bt_gain_efuse exist digital_gain:%04x\n", efuse_data);
-            return -1;
-
-        } else {
-            efuse_data_m = efuse_data_m | (edr_gain << 8);
-            efuse_data_l = efuse_data_l | ((bdr_gain & 0xc0) << 15) |
-                            ((bdr_gain & 0x38) << 10) | ((bdr_gain & 0x7) << 5);
-            _aml_set_efuse(aml_vif, EFUSE_BASE_0D, BIT(30));
-            _aml_set_efuse(aml_vif, EFUSE_BASE_14, efuse_data_l);
-            _aml_set_efuse(aml_vif, EFUSE_BASE_18, efuse_data_m);
-
-            efuse_data = (((edr_gain << 8) | bdr_gain) << 16);
-            AML_INFO("aml_set_bt_gain_efuse digital_gain:0x%8x\n", efuse_data);
-
-            rf_gain_efuse_data = _aml_get_efuse(aml_vif, EFUSE_BASE_14);
-            rf_gain_efuse_data |= ((bdr_rf_gain & 0x2) << 28) | ((bdr_rf_gain & 0x1) << 23);
-            rf_gain_efuse_data |= (edr_rf_gain << 30);
-            _aml_set_efuse(aml_vif, EFUSE_BASE_14, rf_gain_efuse_data);
-            AML_INFO("aml_set_bt_gain_efuse rf_gain:0x%8x\n", rf_gain_efuse_data);
-            return 0;
-        }
+        AML_INFO("aml_set_bt_digital_gain_efuse exist:%04x\n", (efuse_data & 0xffff0000));
+        return -1;
     }
 
     _aml_set_efuse(aml_vif, EFUSE_BASE_0D, BIT(31));
-    efuse_data |= (((edr_gain << 8) | bdr_gain) << 16);
+    efuse_data = (((edr_gain << 8) | bdr_gain) << 16);
     _aml_set_efuse(aml_vif, EFUSE_BASE_0F, efuse_data);
-    AML_INFO("aml_set_bt_gain_efuse digital_gain:0x%8x\n", efuse_data);
-
-    rf_gain_efuse_data = _aml_get_efuse(aml_vif, EFUSE_BASE_0B);
-    rf_gain_efuse_data |= (bdr_rf_gain << 6);
-    rf_gain_efuse_data |= (edr_rf_gain << 22);
-    _aml_set_efuse(aml_vif, EFUSE_BASE_0B, rf_gain_efuse_data);
-    AML_INFO("aml_set_bt_gain_efuse rf_gain:0x%8x\n", rf_gain_efuse_data);
+    AML_INFO("aml_set_bt_digital_gain_efuse:0x%8x\n", efuse_data);
 
     return 0;
 }
@@ -4809,49 +4700,14 @@ static int aml_get_bt_digital_gain_efuse(struct net_device *dev,
 {
     unsigned int efuse_data = 0;
     struct aml_vif *aml_vif = netdev_priv(dev);
-    unsigned int efuse_data_l = 0, efuse_data_m = 0;
 
-    efuse_data_l = _aml_get_efuse(aml_vif, EFUSE_BASE_14);
-    efuse_data_m = _aml_get_efuse(aml_vif, EFUSE_BASE_18);
+    efuse_data = _aml_get_efuse(aml_vif, EFUSE_BASE_0F);
 
-    extra[1] = (efuse_data_m  & 0xff00) >> 8;
-    extra[0] = ((efuse_data_l & 0x00600000) >> 15) | ((efuse_data_l & 0x0000E000) >> 10) |
-               ((efuse_data_l & 0x000000E0) >> 5);
-
-    if (extra[0] == 0 && extra[1] == 0) {
-        efuse_data = _aml_get_efuse(aml_vif, EFUSE_BASE_0F);
-          extra[0] = (efuse_data & 0x00ff0000) >> 16;
-          extra[1] = (efuse_data & 0xff000000) >> 24;
-    }
+    extra[0] = (efuse_data & 0x00ff0000) >> 16;
+    extra[1] = (efuse_data & 0xff000000) >> 24;
 
     AML_INFO("aml_get_bt_pwr_vid efuse_data:%08x, return result: %02x:%02x\n", efuse_data, extra[0], extra[1]);
     wrqu->data.length = scnprintf(extra, IW_PRIV_SIZE_MASK, "bdr:0x%02x, edr:0x%02x", extra[0], extra[1]);
-    wrqu->data.length++;
-
-    return 0;
-}
-
-static int aml_get_bt_rf_gain_idx_req(struct net_device *dev , union iwreq_data *wrqu, char *extra)
-{
-    unsigned int efuse_data = 0;
-    struct aml_vif *aml_vif = netdev_priv(dev);
-
-    efuse_data = _aml_get_efuse(aml_vif, EFUSE_BASE_14);
-
-    extra[0] = ((efuse_data >> 28) & 0x2) | ((efuse_data >> 23) & 0x1);
-    extra[1] = (efuse_data >> 30) & 0x3;
-
-    if (extra[0] == 0 && extra[1] == 0) {
-        efuse_data = _aml_get_efuse(aml_vif, EFUSE_BASE_0B);
-
-        extra[0] = (efuse_data >> 6) & 0x3;
-        extra[1] = (efuse_data >> 22) & 0x3;
-
-    }
-
-    AML_INFO("aml_get_bt_rf_gain_idx_req efuse_data:%08x, return result: br_gain_idx %02x, edr_gain_idx %02x\n", efuse_data, extra[0], extra[1]);
-
-    wrqu->data.length = scnprintf(extra, IW_PRIV_SIZE_MASK, "br_gain_idx:%02x, edr_gain_idx:%02x", extra[0], extra[1]);
     wrqu->data.length++;
 
     return 0;
@@ -4916,7 +4772,8 @@ static int aml_get_aggregation(struct net_device *dev)
     return 0;
 }
 
-static int aml_set_chan_bindwith(struct aml_hw *aml_hw, int enable_2g4_20m)
+
+static int aml_set_chan_bindwith(struct aml_hw *aml_hw, int bandwidth)
 {
     int ret;
 
@@ -5237,6 +5094,20 @@ int aml_del_apf_filter_program(struct net_device *dev)
 }
 #endif //end CONFIG_AML_APF
 
+int aml_set_regdom_en(struct net_device *dev, int reg_en)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    struct aml_hw * aml_hw = aml_vif->aml_hw;
+
+    AML_INFO("reg_en: 0x%08x\n", reg_en);
+
+    regdom_en = reg_en;
+    aml_regdom_en(aml_hw, reg_en);
+    aml_send_me_chan_config_req(aml_hw);
+
+    return 0;
+}
+
 #if defined(CONFIG_WEXT_PRIV)
 static int aml_iwpriv_send_para1(struct net_device *dev,
     struct iw_request_info *info, union iwreq_data *wrqu, char *extra)
@@ -5394,6 +5265,15 @@ static int aml_iwpriv_send_para1(struct net_device *dev,
             aml_add_apf_filter_program(dev, set1);
             break;
 #endif
+        case AML_IWP_GET_PS_INFO:
+            aml_get_ps_info(dev, set1);
+            break;
+        case AML_IWP_SET_REGDOM_EN:
+            aml_set_regdom_en(dev, set1);
+            break;
+        case AML_IWP_SET_COEX_MODE:
+            aml_set_coex_mode_cmd(dev, set1);
+            break;
         default:
             AML_ERR("param err\n");
             break;
@@ -5474,6 +5354,9 @@ static int aml_iwpriv_send_para2(struct net_device *dev,
             break;
         case AML_IWP_SET_DEAYL_ACK_RSSI_THR:
             aml_set_tcp_delay_ack_rssi_thr(dev, set1,set2);
+            break;
+        case AML_IWP_SET_BT_DIGITAL_GAIN:
+            aml_set_bt_digital_gain_efuse(dev, set1, set2);
             break;
         case AML_IWP_SET_AGG_TX:
             aml_set_agg_tx(dev, set1,set2);
@@ -5649,6 +5532,9 @@ static int aml_iwpriv_get(struct net_device *dev,
             aml_del_apf_filter_program(dev);
             break;
 #endif
+        case AML_IWP_CLOSE_SOCKET:
+            aml_close_netlink_socket(dev);
+            break;
         default:
             AML_ERR("param err\n");
             break;
@@ -5736,17 +5622,11 @@ static int aml_iwpriv_get_char(struct net_device *dev,
         case AML_IWP_GET_EFUSE_VENDOR_SN:
             aml_get_efuse_vendor_sn(dev, wrqu, extra);
             break;
-        case AML_IWP_GET_EFUSE_VENDOR_SN_TIMES:
-            aml_get_efuse_vendor_sn_times(dev, wrqu, extra);
-            break;
         case AML_IWP_GET_BT_DIGITAL_GAIN_EFUSE_TIMES:
             aml_get_bt_digital_gain_efuse_times(dev, wrqu, extra);
             break;
         case AML_IWP_GET_BT_DIGITAL_GAIN:
             aml_get_bt_digital_gain_efuse(dev, wrqu, extra);
-            break;
-        case AML_IWP_GET_RF_GAIN_IDX:
-            aml_get_bt_rf_gain_idx_req(dev, wrqu, extra);
             break;
         case AML_IWP_GET_LAST_RX:
             aml_get_last_rx(dev, wrqu, extra);
@@ -5759,6 +5639,12 @@ static int aml_iwpriv_get_char(struct net_device *dev,
             break;
         case AML_IWP_LEGACY_SET_RF_REG:
             aml_set_rf_reg_legacy(dev, set, wrqu, extra);
+            break;
+        case AML_IWP_GET_TEMP:
+            wrqu->data.length = aml_print_temperature(wrqu, extra);
+            break;
+        case AML_IWP_SET_PROT_TYPE:
+            aml_set_prot_type(wrqu, extra, dev, set);
             break;
         default:
             break;
@@ -6106,6 +5992,9 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
     {
         AML_IWP_GET_AGG,
         0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "get_agg"},
+    {
+        AML_IWP_CLOSE_SOCKET,
+        0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "close_socket"},
 #ifdef CONFIG_AML_APF
     {
         AML_IWP_DEL_APF_PROGRAM,
@@ -6250,6 +6139,15 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
     {
         AML_IWP_LA_ENABLE,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "la_enable"},
+    {
+        AML_IWP_USB_TRACE_ENABLE,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "usb_trace_en"},
+    {
+        AML_IWP_USB_TRACE_ENABLE,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "usb_trace_en"},
+    {
+        AML_IWP_USB_TRACE_ENABLE,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "usb_trace_en"},
 #ifdef CONFIG_TCP_WIN_SCALE
     {
         AML_IWP_SET_TCP_ACK_WINDOW_SCALE,
@@ -6266,6 +6164,15 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
         AML_IWP_ADD_APF_PROGRAM,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "add_apf"},
 #endif
+    {
+        AML_IWP_GET_PS_INFO,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "get_ps_info"},
+    {
+        AML_IWP_SET_REGDOM_EN,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "regdom_en"},
+    {
+        AML_IWP_SET_COEX_MODE,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "coex_mode"},
     {
         SIOCIWFIRSTPRIV + 2,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 2, 0, ""},
@@ -6308,6 +6215,9 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
     {
         AML_IWP_SET_DEAYL_ACK_RSSI_THR,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 2, 0, "set_rssi_thr"},
+    {
+        AML_IWP_SET_BT_DIGITAL_GAIN,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 2, 0, "set_bt_dg"},
     {
         AML_IWP_SET_AGG_TX,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 2, 0, "set_agg_tx"},
@@ -6397,14 +6307,8 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
         AML_IWP_GET_BT_DIGITAL_GAIN_EFUSE_TIMES,
         IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "get_bt_dg_times"},
     {
-        AML_IWP_GET_EFUSE_VENDOR_SN_TIMES,
-        IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "get_sn_times"},
-    {
         AML_IWP_GET_BT_DIGITAL_GAIN,
         IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "get_bt_dg"},
-    {
-        AML_IWP_GET_RF_GAIN_IDX,
-        IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "get_rf_gain_idx"},
     {
         AML_IWP_SET_TX_START,
         IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "pt_tx_start"},

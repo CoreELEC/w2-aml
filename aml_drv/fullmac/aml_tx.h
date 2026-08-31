@@ -281,6 +281,7 @@ enum {
     AML_GAS_INIT_RSP_FRAME = BIT(6),
     AML_REPORT_NO_ACKED = BIT(7),
     AML_MUST_TX_SUC = BIT(8),
+    AML_DPP_CONNECT_STATUS_RESULT_FRAME = BIT(9),
 };
 
 /**
@@ -402,8 +403,6 @@ enum aml_pkt_type {
     AML_PKT_UDP,
     AML_PKT_DHCP,
     AML_PKT_DHCP_V6,
-    AML_PKT_DNS,
-    AML_PKT_MDNS,
 
     AML_PKT_LAST,
 };

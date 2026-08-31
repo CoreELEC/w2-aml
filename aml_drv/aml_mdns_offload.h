@@ -14,6 +14,7 @@
 #include <net/cfg80211.h>
 #include <net/netlink.h>
 #include "aml_defs.h"
+#include "aml_log.h"
 #include "aml_cfgvendor.h"
 
 typedef uint32_t u32_boolean;
@@ -123,7 +124,13 @@ extern const struct nla_policy mdns_offload_attr_policy[];
     MDNS_OFFLOAD_ATTR_POLICY\
 }
 
-static inline char *__mdnsOffload_decode_qname(const uint8_t *buf,
+#define VENDOR_CMD_FUNC(func) __mdnsOffload_##func
+
+#define ANDROID_MDNS_OFFLOAD_VENDOR_IMPL \
+    DEFINE_MDNS_OFFLOAD_ATTR_POLICY;\
+    const struct MDNS_OFFLOAD_OPS mdns_offload_ops
+
+static inline char *__mdnsOffload_decode_qname(unsigned char *buf,
     uint32_t buf_len, int offset)
 {
     char *qname = NULL;
@@ -397,11 +404,13 @@ static inline int __mdnsOffload_addProtocolResponses(struct wiphy *wiphy,
         MDNS_OFFLOAD_DEBUG("criteria list:\n");
         for (i = 0; i < criteriaListNum; i++) {
             qname = __mdnsOffload_decode_qname(pkt_data, pkt_len, criteriaList[i].nameOffset);
-            MDNS_OFFLOAD_DEBUG("%d. type:%d\tnameOffset:%d\tname:%s\n", i + 1,
-                criteriaList[i].type,
-                criteriaList[i].nameOffset,
-                (qname && strlen(qname) > 0) ? qname : "none");
-            kfree(qname);
+            if (qname) {
+                MDNS_OFFLOAD_DEBUG("%d. type:%d\tnameOffset:%d\tname:%s\n", i + 1,
+                    criteriaList[i].type,
+                    criteriaList[i].nameOffset,
+                    (qname && strlen(qname) > 0) ? qname : "none");
+                kfree(qname);
+            }
         }
         MDNS_OFFLOAD_DEBUG("rawOffloadPacket:\n");
         __mdnsOffload_dump_msg(pkt_data, pkt_len);
@@ -683,8 +692,8 @@ static inline int __mdnsOffload_addToPassthroughList(struct wiphy *wiphy,
         err = -EINVAL;
         goto exit;
     }
-    MDNS_OFFLOAD_DEBUG("mdnsOffload: addToPassthroughList: ifname:%s, length:%d qname:%s\n",
-        ifname, (int)strlen(qname), qname);
+    MDNS_OFFLOAD_DEBUG("mdnsOffload: addToPassthroughList: ifname:%s\n", ifname);
+    MDNS_OFFLOAD_DEBUG("mdnsOffload: addToPassthroughList: length:%d qname:%s\n", (int)strlen(qname), qname);
     if (mdns_offload_ops.addToPassthroughList) {
         reply = mdns_offload_ops.addToPassthroughList(aml_hw, ifname, qname);
         MDNS_OFFLOAD_DEBUG("mdnsOffload: addToPassthroughList: reply:%u\n", reply);

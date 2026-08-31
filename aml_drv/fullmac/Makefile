@@ -96,7 +96,8 @@ w2-y := ../aml_msg_tx.o        \
         ../aml_rps.o           \
         ../aml_sap.o           \
         ../aml_mdns_offload.o  \
-        ../aml_cfgvendor.o
+        ../aml_cfgvendor.o     \
+        ../aml_fw_trace.o
 
 obj-m += w2_comm.o
 w2_comm-objs := \

@@ -311,7 +311,7 @@ static void aml_txq_flush(struct aml_hw *aml_hw, struct aml_txq *txq)
     int pushed;
     int nb = 0;
 
-    while (!skb_queue_empty(&txq->sk_list)) {
+    while(!skb_queue_empty(&txq->sk_list)) {
         struct sk_buff *txq_skb = skb_peek(&txq->sk_list);
 
         if (txq_skb != NULL) {
@@ -677,8 +677,8 @@ static void aml_txq_drop_dump(struct aml_vif *vif, const char *txq_name)
     AML_ERR("VIF%d/%s: Dropped packet(s) in %s TXQ(s)\n",
             vif->vif_index, vif->ndev->name, txq_name);
     spin_lock_bh(&vif->aml_hw->tx_buf_lock);
-    AML_ERR("tot_page_num=%d, free_page_num=%d, host_cfm_idx:%d\n",
-            vif->aml_hw->g_tx_param.tot_page_num, vif->aml_hw->g_tx_param.tx_page_free_num, vif->aml_hw->ipc_env->txcfm_idx);
+    AML_ERR("tot_page_num=%d, free_page_num=%d\n",
+            vif->aml_hw->g_tx_param.tot_page_num, vif->aml_hw->g_tx_param.tx_page_free_num);
     spin_unlock_bh(&vif->aml_hw->tx_buf_lock);
 
     aml_wq_do_ptr(aml_vif_txqs_dump, vif->aml_hw, vif);

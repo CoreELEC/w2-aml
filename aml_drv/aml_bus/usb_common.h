@@ -100,6 +100,6 @@ void aml_usb_set_bus_err(unsigned char bus_err);
 
 int aml_usb_insmod(void);
 void aml_usb_rmmod(void);
-int aml_usb_reset(void);
+void aml_usb_reset(void);
 
 #endif

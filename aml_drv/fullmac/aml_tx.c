@@ -756,14 +756,12 @@ static void aml_tx_retry(struct aml_hw *aml_hw, struct sk_buff *skb,
             AML_INFO("reuse sn = %d\n", cfm->status.sn);
     }
 
-    // Add it to the linked list first, and then start sending the package
-    // The credit of the retry package will not be used by the new skb
-    aml_txq_queue_skb(aml_hw, txq, skb, true, NULL);
-
     txq->credits += cfm->credits;
     if (txq->credits > 0)
         aml_txq_start(txq, AML_TXQ_STOP_FULL);
     trace_skb_retry(skb, txq, retry ? cfm->status.sn : IEEE80211_SN_MODULO);
+
+    aml_txq_queue_skb(aml_hw, txq, skb, true, NULL);
 }
 
 
@@ -1251,160 +1249,6 @@ static void aml_amsdu_update_len(struct aml_hw *aml_hw, struct aml_txq *txq,
 }
 #endif /* CONFIG_AML_AMSDUS_TX */
 
-/*
- * aml_filter_sp_dns - get the dns name from skb
- * in:
- * @buf: the skb buf
- * @buf_len: the skb length
- * @offset: the offset of the start queries
- * out:
- * @qname: the decompress name
- *
- * return: 0 indicates success, while others indicate failure
- *
- * notes: qname: pre-allocated 256-byte buffer
- */
-int aml_filter_sp_dns(const uint8_t *buf, uint32_t buf_len, int offset, char *qname)
-{
-    const uint8_t *p = NULL;
-    uint16_t location = 0;
-    uint32_t ptr_count = 0;
-    uint32_t label_len = 0;
-    uint32_t total_len = 0;
-
-    if (!buf || !qname || buf_len < 1 || offset < 0 || offset > buf_len - 1)
-        return -1;
-
-    p = buf + offset;
-    if (*p == 0)
-        return -1;
-
-    memset(qname, 0, MDNS_QNAME_LENGTH_MAX);
-    while (*p) {
-        if ((*p & 0xC0) == 0xC0) {
-            if (ptr_count++ > 10)
-                return -1;
-            location = ((*p << 8) | *(p + 1)) & 0x3fff;
-            if (location > (buf_len - 1))
-                return -1;
-            p = buf + location;
-            continue;
-        }
-
-        label_len = *p++;
-        if (label_len > MDNS_NAME_LABEL_LEN_MAX
-          || total_len + label_len + 1 > MDNS_QNAME_LENGTH_MAX
-          || p + label_len > buf + buf_len)
-            return -1;
-
-        memcpy(qname + total_len, p, label_len);
-        p += label_len;
-        total_len += label_len;
-        qname[total_len++] = '.';
-    }
-
-    if (total_len > 0)
-        qname[total_len-1] = '\0';
-    else
-        qname[0] = '\0';
-
-    return 0;
-}
-
-uint8_t *get_dhcp_option(struct dhcp_packet *packet, int len, uint8_t option_code, uint8_t *length)
-{
-    uint8_t *options = packet->options;
-    uint8_t *end = options + (len - sizeof(packet->options));
-    uint8_t opt_len;
-
-    while (options < end) {
-        uint8_t code = *options++;
-        if (code == DHCP_OPTION_END)
-            break;
-        if (code == DHCP_OPTION_PAD)
-            continue;
-
-        opt_len = *options++;
-        if (code == option_code) {
-            if (length)
-                *length = opt_len;
-            return options;
-        }
-        options += opt_len;
-    }
-
-    return NULL;
-}
-
-//
-const char *get_dhcp_message_type_name(int message_type)
-{
-    switch (message_type) {
-        case DHCP_DISCOVER:
-            return "DISCOVER";
-        case DHCP_OFFER:
-            return "OFFER";
-        case DHCP_REQUEST:
-            return "REQUEST";
-        case DHCP_DECLINE:
-            return "DECLINE";
-        case DHCP_ACK:
-            return "ACK";
-        case DHCP_NAK:
-            return "NAK";
-        case DHCP_RELEASE:
-            return "RELEASE";
-        case DHCP_INFORM:
-            return "INFORM";
-        default:
-            return "UNKNOWN";
-    }
-}
-
-void aml_filter_sp_data_dhcp_frame(const u8 *frame, int len, u32 pkt_types,
-    struct aml_vif *vif, AML_SP_STATUS_E sp_status)
-{
-    char dhcp_print[200] = {0};
-    int offset = 0;
-    uint8_t length = 0;
-
-    if (len < sizeof(struct dhcp_packet)) {
-        AML_M_ERR(TX, "dhcp length error len:%d", len);
-        return;
-    }
-
-    offset += snprintf(dhcp_print + offset, sizeof(dhcp_print) - offset, "%s[%d] DHCP ",
-                       sp_frame_status_trace[sp_status], vif->vif_index);
-
-    if (pkt_types & BIT(AML_PKT_IP)) {
-        struct dhcp_packet *dhcp = (struct dhcp_packet *)frame;
-        uint8_t *option_pos;
-        uint8_t option_type;
-
-        offset += snprintf(dhcp_print + offset, sizeof(dhcp_print) - offset, "id:%x %s ",
-            dhcp->xid, (dhcp->op == 1) ? "req" : (dhcp->op == 2) ? "rsp" : "nul");
-
-        option_pos = get_dhcp_option(dhcp, len, DHCP_OPTION_MESSAGE_TYPE, &length);
-        if (option_pos && length == 1) {
-            option_type = *option_pos;
-            offset += snprintf(dhcp_print + offset, sizeof(dhcp_print) - offset, "message type:%s, ip:%pI4",
-                               get_dhcp_message_type_name(option_type), &dhcp->yiaddr);
-
-        } else {
-            AML_M_INFO(TX, "%p, %d\n", option_pos, length);
-            offset += snprintf(dhcp_print + offset, sizeof(dhcp_print) - offset, "message type err");
-        }
-    } else {
-        offset += snprintf(dhcp_print + offset, sizeof(dhcp_print) - offset, "v6");
-    }
-
-    if (offset >= sizeof(dhcp_print)) {
-        AML_M_ERR(TX, "length is not enough for snprintf\n");
-    }
-
-    AML_M_NOTICE(TX, "%s\n", dhcp_print);
-}
-
 u32 aml_filter_sp_data_frame(const u8 *frame, int len, struct aml_vif *aml_vif,
                              AML_SP_STATUS_E sp_status)
 {
@@ -1413,9 +1257,6 @@ u32 aml_filter_sp_data_frame(const u8 *frame, int len, struct aml_vif *aml_vif,
     const void *nethdr;
     u8 net_prot = 0;
     u32 pkt_types = 0;
-    int offset = 0;
-    const struct iphdr *iphdr = NULL;
-    const struct ipv6hdr *ipv6hdr = NULL;
 
     if (!aml_vif) {
         aml_vif = &vif_dummy;
@@ -1464,7 +1305,7 @@ u32 aml_filter_sp_data_frame(const u8 *frame, int len, struct aml_vif *aml_vif,
 
         if (aml_vif == &vif_dummy || sp_status != SP_STATUS_RX ||
                 memcmp(ar->tip, &aml_vif->ipv4_addr, IPV4_ADDR_LEN) == 0) {
-            AML_M_NOTICE(TX, "%s[%d] ARP %s(0x%x) sender:[%pM %pI4] receiver:[%pM %pI4]\n",
+            AML_WARN("%s[%d] ARP %s(0x%x) sender:[%pM %pI4] receiver:[%pM %pI4]\n",
                      sp_frame_status_trace[sp_status], aml_vif->vif_index, op_name, op,
                      ar->sha, ar->sip, ar->tha, ar->tip);
         }
@@ -1477,24 +1318,18 @@ u32 aml_filter_sp_data_frame(const u8 *frame, int len, struct aml_vif *aml_vif,
         return true;
     }
 
-    //wfd rtsp frame
-    if (aml_filter_rtsp_frame(aml_vif, skb->len, skb->data, sp_status))
-        return true;
-
     //filter dhcp
     if (ethhdr->h_proto == htons(ETH_P_IPV6)) {
-        ipv6hdr = (const struct ipv6hdr *)(ethhdr + 1);
+        const struct ipv6hdr *ipv6hdr = (const struct ipv6hdr *)(ethhdr + 1);
         pkt_types |= BIT(AML_PKT_IPV6);
         net_prot = ipv6hdr->nexthdr;
         nethdr = (const void *)(ipv6hdr + 1);
-        offset += sizeof(struct ipv6hdr);
     }
     else if (ethhdr->h_proto == htons(ETH_P_IP)) {
-        iphdr = (const struct iphdr *)(ethhdr + 1);
+        const struct iphdr *iphdr = (const struct iphdr *)(ethhdr + 1);
         pkt_types |= BIT(AML_PKT_IP);
         net_prot = iphdr->protocol;
         nethdr = (const void *)iphdr + (iphdr->ihl << 2);
-        offset += sizeof(struct iphdr);
     }
     else {
         return pkt_types;
@@ -1510,12 +1345,8 @@ u32 aml_filter_sp_data_frame(const u8 *frame, int len, struct aml_vif *aml_vif,
             break;
 
         case IPPROTO_UDP: {
-            const struct udphdr *udp = (const struct udphdr *)nethdr;
-            u16 sport = ntohs(udp->source);
-            u16 dport = ntohs(udp->dest);
-
+            u16 sport = ntohs(((const struct udphdr *)nethdr)->source);
             pkt_types |= BIT(AML_PKT_UDP);
-            offset += sizeof(struct udphdr);
 
             if ((pkt_types & BIT(AML_PKT_IP)) && (sport == DHCP_SP_V4 || sport == DHCP_CP_V4)) {
                 pkt_types |= BIT(AML_PKT_DHCP);
@@ -1525,35 +1356,15 @@ u32 aml_filter_sp_data_frame(const u8 *frame, int len, struct aml_vif *aml_vif,
                 pkt_types |= BIT(AML_PKT_DHCP_V6);
             }
 
-            if ((sport == DNS_PORT) || (dport == DNS_PORT)) {
-                int ret;
-                struct mdns_pattern *dns = (struct mdns_pattern *)(udp + 1);
-                char qname[MDNS_QNAME_LENGTH_MAX] = {0};
-
-                ret = aml_filter_sp_dns((uint8_t *) dns, len - offset, sizeof(struct mdns_pattern), qname);
-                if (ret == 0) {
-                    AML_M_INFO(TX, "%s[%d] DNS:%s\n", sp_frame_status_trace[sp_status], aml_vif->vif_index, qname);
-                }
-            }
-
-            if (pkt_types & (BIT(AML_PKT_DHCP) | BIT(AML_PKT_DHCP_V6))) {
-                aml_filter_sp_data_dhcp_frame((u8 *)(udp + 1), len - offset, pkt_types, aml_vif, sp_status);
-            }
+            if (pkt_types & (BIT(AML_PKT_DHCP) | BIT(AML_PKT_DHCP_V6)))
+                AML_WARN("%s[%d] DHCP%s\n", sp_frame_status_trace[sp_status], aml_vif->vif_index,
+                         (pkt_types & BIT(AML_PKT_DHCP_V6)) ? "v6" : "");
 
             break;
         }
 
         default:
             break;
-    }
-
-    if (pkt_types & BIT(AML_PKT_ICMP)) {
-        if (pkt_types & BIT(AML_PKT_IPV6))
-            AML_M_INFO(TX, "%s[%d] IPV6 ICMP from:%pI6c to %pI6c\n", sp_frame_status_trace[sp_status],
-                aml_vif->vif_index, &ipv6hdr->saddr, &ipv6hdr->daddr);
-        else
-            AML_M_INFO(TX, "%s[%d] IPV4 id:%d ICMP from:%pI4 to %pI4\n", sp_frame_status_trace[sp_status],
-                aml_vif->vif_index, iphdr->id, &iphdr->saddr, &iphdr->daddr);
     }
 
     return pkt_types;
@@ -1600,10 +1411,10 @@ uint32_t aml_filter_sp_mgmt_frame(struct aml_vif *vif, u8 *buf, AML_SP_STATUS_E 
 
                         //P2P_ACTION_GO_NEG_RSP & P2P_ACTION_GO_NEG_CFM & P2P_ACTION_INVIT_RSP:need sw retry
                         if ((oui_subtype == P2P_ACTION_GO_NEG_RSP)
-                            || (oui_subtype == P2P_ACTION_GO_NEG_CFM)
-                            || (oui_subtype == P2P_ACTION_INVIT_RSP)
-                            || (oui_subtype == P2P_ACTION_INVIT_REQ)
-                            || (oui_subtype == P2P_ACTION_GO_NEG_REQ)) {
+                                || (oui_subtype == P2P_ACTION_GO_NEG_CFM)
+                                || (oui_subtype == P2P_ACTION_INVIT_RSP)
+                                || (oui_subtype == P2P_ACTION_INVIT_REQ)
+                                || (oui_subtype == P2P_ACTION_GO_NEG_REQ)) {
                             ret |= AML_SP_FRAME;
 
                             if ((oui_subtype == P2P_ACTION_GO_NEG_CFM) || (oui_subtype == P2P_ACTION_INVIT_RSP)) {
@@ -1759,6 +1570,7 @@ uint32_t aml_filter_sp_mgmt_frame(struct aml_vif *vif, u8 *buf, AML_SP_STATUS_E 
                     vif->aml_hw->wfd_present = true;
                 }
             }
+
             return ret;
         }
 
@@ -2175,128 +1987,50 @@ int aml_start_mgmt_xmit(struct aml_vif *vif, struct aml_sta *sta,
     return 0;
 }
 
-int aml_mpdu_page_num(struct txdesc_host *txdesc_host, int *len)
+int aml_tx_cfm_task(void *data)
 {
-    int i;
-    int frame_len = 0;
-
-    for (i = 0; i < txdesc_host->api.host.packet_cnt; i++)
-        frame_len += txdesc_host->api.host.packet_len[i];
-
-    if (len)
-        *len = frame_len;
-
-    if (aml_bus_type == USB_MODE)
-#ifdef CONFIG_AML_USB_LARGE_PAGE
-        return 1;
-#else
-        return txdesc_host->api.host.packet_cnt;
-#endif
-    return howmanypage(frame_len + SDIO_DATA_OFFSET, SDIO_PAGE_LEN);;
-}
-
-static inline void aml_sdio_usb_tx_cfm(struct aml_hw *aml_hw,
-                                       struct compact_tx_cfm_tag *compact,
-                                       struct sk_buff *skb,
-                                       int headroom)
-{
-    struct aml_sw_txhdr *sw_txhdr = ((struct aml_txhdr *)skb->data)->sw_hdr;
-    int page_num = aml_mpdu_page_num(&sw_txhdr->desc, NULL);
-    struct tx_cfm_tag cfm = {};
-
-    /*
-     * txu_cntrl_cfm() sets cfm.credits to 1 by default.
-     * or patch_bam_check_tx_baw() sets it to 0 if TX failed,
-     * or bam_move_baw() sets it to to packet number that's confirmed.
-     *
-     * for SDIO/USB, since each TX confirmation is linked to a skb (mpdu), that's 1 credit.
-     */
-    cfm.credits      = 1;
-    cfm.ampdu_size   = compact->ampdu_size;
-    cfm.amsdu_size   = compact->amsdu_size;
-    cfm.status.value = compact->status;
-    cfm.hostid       = compact->hostid;
-
-    spin_lock_bh(&aml_hw->tx_buf_lock);
-    aml_hw->g_tx_param.tx_page_free_num += page_num;
-    AML_RLMT_DBG("tx_page_free_num=%d, credit=%d, page num=%d, skb=%p, idx=%d\n",
-                 aml_hw->g_tx_param.tx_page_free_num, sw_txhdr->txq->credits,
-                 page_num, skb, aml_hw->ipc_env->txcfm_idx);
-    if (aml_hw->g_tx_param.tx_page_free_num >= aml_hw->g_tx_param.txcfm_trigger_tx_thr)
-        up(&aml_hw->aml_tx_sem);
-    spin_unlock_bh(&aml_hw->tx_buf_lock);
-
-    aml_tx_cfm(aml_hw, &cfm, skb, headroom);
-}
-
-int aml_task_fn_tx_cfm(struct aml_task *t)
-{
-    struct aml_hw *aml_hw = container_of(t, struct aml_hw, cfm_task);
-    struct ipc_host_env_tag *ipc_env = aml_hw->ipc_env;
-    unsigned cur = ipc_env->txcfm_idx;
-    int headroom = (aml_bus_type == SDIO_MODE) ? AML_SDIO_TX_HEADROOM : AML_USB_TX_HEADROOM;
-    unsigned i = 0;
+    struct aml_hw *aml_hw = (struct aml_hw *)data;
+    struct sk_buff *skb = NULL;
+    struct aml_sw_txhdr *sw_txhdr;
+    struct aml_hwq *hwq;
+    struct aml_txq *txq;
+    unsigned int cur = aml_hw->ipc_env->txcfm_idx;
+    int i = 0;
+    unsigned int frame_tot_len = 0;
+    struct txdesc_host *txdesc_host = NULL;
+    unsigned char  page_num = 0;
+    uint32_t sp_ret = 0;
 
     AML_PROF_HI(tx_cfm_task);
     spin_lock_bh(&aml_hw->tx_lock);
 
-    for (i = 0; i < COMPACT_TXCFM_CNT; i++, cur = (cur + 1) % COMPACT_TXCFM_CNT) {
-        struct compact_tx_cfm_tag *compact = &aml_hw->tx_cfm_buf[cur];
-        struct sk_buff *skb;
+        AML_PROF_HI(tx_cfm_task);
+        spin_lock_bh(&aml_hw->tx_lock);
 
-        ipc_env->txcfm_idx = cur;
-        skb = ipc_host_tx_host_id_to_ptr_for_sdio_usb(ipc_env, compact->hostid);
-        if (!skb)
-            break;
+        for (i = 0; i < COMPACT_TXCFM_CNT; i++, cur = (cur + 1) % COMPACT_TXCFM_CNT) {
+            struct compact_tx_cfm_tag *compact = &aml_hw->read_cfm[cur];
+            struct tx_cfm_tag cfm = {};
 
-        aml_sdio_usb_tx_cfm(aml_hw, compact, skb, headroom);
-
-#ifdef CONFIG_SDIO_TX_ENH
-#ifdef SDIO_TX_ENH_DBG
-        cfmlog.cfm_rx_cnt++;
-        cfmlog.cfm_num = 0;
-#endif
-#endif
-
-        for (i = 0; i < SRAM_TXCFM_CNT; i++, drv_txcfm_idx = (drv_txcfm_idx + 1) % SRAM_TXCFM_CNT) {
             if (aml_hw->aml_txcfm_task_quit) {
                 break;
             }
-            aml_hw->ipc_env->txcfm_idx = drv_txcfm_idx;
-            cfm_data = read_cfm[drv_txcfm_idx];
-            cfm.credits = cfm_data.credits;
-            cfm.ampdu_size = cfm_data.ampdu_size;
-#ifdef CONFIG_AML_SPLIT_TX_BUF
-            cfm.amsdu_size = cfm_data.amsdu_size;
-#endif
-            cfm.status.value = (u32)cfm_data.status.value;
-            cfm.hostid = (u32_l)cfm_data.hostid;
-            skb = ipc_host_tx_host_id_to_ptr_for_sdio_usb(aml_hw->ipc_env, cfm.hostid);
-
-#ifdef CONFIG_SDIO_TX_ENH
-            if (!skb) {
-                if (aml_hw->txcfm_param.dyn_en)
-                    txcfm_analyze_handler(aml_hw, i, aml_hw->txcfm_param.pre_tag, drv_txcfm_idx);
-
-                #ifdef SDIO_TX_ENH_DBG
-                cfmlog.drv_txcfm_idx = drv_txcfm_idx;
-                #endif
-
-                break;
-            }
-#else
+            aml_hw->ipc_env->txcfm_idx = cur;
+            skb = ipc_host_tx_host_id_to_ptr_for_sdio_usb(aml_hw->ipc_env, compact->hostid);
             if (!skb)
                 break;
-#endif
 
-#ifdef CONFIG_SDIO_TX_ENH
-            if (aml_bus_type == SDIO_MODE)
-                aml_hw->txcfm_param.hostid_pushed--;
-#ifdef SDIO_TX_ENH_DBG
-            cfmlog.cfm_num++;
-            cfmlog.hostid_pushed = aml_hw->txcfm_param.hostid_pushed;
-#endif
-#endif
+            /*
+             * txu_cntrl_cfm() sets cfm.credits to 1 by default.
+             * or patch_bam_check_tx_baw() sets it to 0 if TX failed,
+             * or bam_move_baw() sets it to to packet number that's confirmed.
+             *
+             * for SDIO/USB, since each TX confirmation is linked to a skb (msdu), that's 1 credit.
+             */
+            cfm.credits      = 1;
+            cfm.ampdu_size   = compact->ampdu_size;
+            cfm.amsdu_size   = compact->amsdu_size;
+            cfm.status.value = compact->status;
+            cfm.hostid       = compact->hostid;
 
             sw_txhdr = ((struct aml_txhdr *)skb->data)->sw_hdr;
             txq = sw_txhdr->txq;
@@ -2306,7 +2040,7 @@ int aml_task_fn_tx_cfm(struct aml_task *t)
                 for (i = 0; i < txdesc_host->api.host.packet_cnt; i++) {
                     frame_tot_len += txdesc_host->api.host.packet_len[i];
                 }
-                page_num = howmanypage(frame_tot_len + SDIO_DATA_OFFSET + SDIO_FRAME_TAIL_LEN, SDIO_PAGE_LEN);
+                page_num = howmanypage(frame_tot_len + SDIO_DATA_OFFSET, SDIO_PAGE_LEN);
             } else {
                 #ifdef CONFIG_AML_USB_LARGE_PAGE
                 page_num = 1;
@@ -2316,17 +2050,12 @@ int aml_task_fn_tx_cfm(struct aml_task *t)
             }
             spin_lock_bh(&aml_hw->tx_buf_lock);
             aml_hw->g_tx_param.tx_page_free_num += page_num;
-
-#ifdef CONFIG_SDIO_TX_ENH
-#ifdef SDIO_TX_ENH_DBG
-            cfmlog.cfm_page += page_num;
-#endif
-#endif
-            spin_unlock_bh(&aml_hw->tx_buf_lock);
-            AML_RLMT_DBG("tx_page_free_num=%d, credit=%d, pagenum=%d, skb=%p, cfm.credits=%d, drv_txcfm_idx=%d\n", aml_hw->g_tx_param.tx_page_free_num, txq->credits, page_num, skb, cfm.credits, drv_txcfm_idx);
+            AML_RLMT_DBG("tx_page_free_num=%d, credit=%d, page num=%d, skb=%p, drv_txcfm_idx=%d\n",
+                         aml_hw->g_tx_param.tx_page_free_num, txq->credits, page_num, skb, cur);
             if (aml_hw->g_tx_param.tx_page_free_num >= aml_hw->g_tx_param.txcfm_trigger_tx_thr) {
                 up(&aml_hw->aml_tx_sem);
             }
+            spin_unlock_bh(&aml_hw->tx_buf_lock);
 
             /* don't use txq->hwq as it may have changed between push and confirm */
             hwq = &aml_hw->hwq[sw_txhdr->hw_queue];
@@ -2342,40 +2071,45 @@ int aml_task_fn_tx_cfm(struct aml_task *t)
                     (sw_txhdr->aml_sta) ? sw_txhdr->aml_sta->sta_idx : 0xFF, cfm.status.acknowledged);
                 if (aml_bus_type == USB_MODE)
                     mgmt = (struct ieee80211_mgmt *)(skb->data + AML_USB_TX_HEADROOM);
-                else if (aml_bus_type == SDIO_MODE)
+                else //if (aml_bus_type == SDIO_MODE)
                     mgmt = (struct ieee80211_mgmt *)(skb->data + AML_SDIO_TX_HEADROOM);
                 if ((ieee80211_is_deauth(mgmt->frame_control)) && (sw_txhdr->aml_vif->is_disconnect == 1)) {
                     sw_txhdr->aml_vif->is_disconnect = 0;
                 }
 
                 if (ieee80211_is_action(mgmt->frame_control)) {
-                    sp_ret = aml_filter_sp_mgmt_frame(sw_txhdr->aml_vif, (u8*)mgmt, cfm.status.acknowledged ? SP_STATUS_TX_SUC:SP_STATUS_TX_FAIL, 0, &(sw_txhdr->frame_len), (u64)skb);
+                    u32 len_diff = sw_txhdr->frame_len;
+
+                    sp_ret = aml_filter_sp_mgmt_frame(sw_txhdr->aml_vif, (u8*)mgmt,
+                        cfm.status.acknowledged ? SP_STATUS_TX_SUC:SP_STATUS_TX_FAIL, 0, &len_diff, (u64)(unsigned long)skb);
+                    sw_txhdr->frame_len = len_diff;
                     if (sp_ret & AML_CSA_ACTION_FRAME) {
                         AML_INFO("csa action send cfm, status:%d", cfm.status.acknowledged);
                     }
                 }
 
                 if (!cfm.status.acknowledged
-                    && ((sp_ret & AML_GAS_ACTION_FRAME) || (sp_ret & AML_MUST_TX_SUC))
+                    && ((sp_ret & AML_GAS_ACTION_FRAME) || (sp_ret & AML_MUST_TX_SUC)
+                    || (sp_ret & AML_DPP_CONNECT_STATUS_RESULT_FRAME))
                     && (txq->idx != TXQ_INACTIVE)) {
                     spin_lock_bh(&aml_hw->roc_lock);
                     if (aml_hw->roc && (jiffies_to_msecs(jiffies - aml_hw->roc->start_time) <= aml_hw->roc->duration)) {
                         spin_unlock_bh(&aml_hw->roc_lock);
                         AML_INFO("retry frame during roc:0x%x", sp_ret);
-                        aml_tx_retry(aml_hw, skb, sw_txhdr, cfm.status);
+                        aml_tx_retry(aml_hw, skb, sw_txhdr, &cfm);
                         continue;
                     }
                     spin_unlock_bh(&aml_hw->roc_lock);
                 }
 
-                if (cfm.status.acknowledged && (sp_ret & AML_GAS_INIT_REQ_FRAME)) {
+                if (cfm.status.acknowledged && (sp_ret & AML_GAS_INIT_REQ_FRAME) && (sw_txhdr->aml_vif->vif_index != AML_STA_VIF_IDX)) {
                     sw_txhdr->aml_vif->tx_cfm_wait.skb = skb_copy(skb, GFP_ATOMIC);
                     if (sw_txhdr->aml_vif->tx_cfm_wait.skb) {
-                        sw_txhdr->aml_vif->tx_cfm_wait.cookie = (unsigned long)skb;
+                        sw_txhdr->aml_vif->tx_cfm_wait.cookie = (u64)(unsigned long)skb;
                         sw_txhdr->aml_vif->tx_cfm_wait.len = sw_txhdr->frame_len;
                         sw_txhdr->aml_vif->tx_cfm_wait.wdev = &sw_txhdr->aml_vif->wdev;
                         cfm_tx_status = false;
-                        AML_INFO("gas init frame tx cfm delay, wait for rsp");
+                        AML_INFO("gas init frame tx cfm delay, wait for rsp:%llx", sw_txhdr->aml_vif->tx_cfm_wait.cookie);
                     }
                 }
 
@@ -2391,7 +2125,7 @@ int aml_task_fn_tx_cfm(struct aml_task *t)
             } else if ((txq->idx != TXQ_INACTIVE) && cfm.status.sw_retry_required) {
                 sw_txhdr->desc.api.host.flags |= TXU_CNTRL_RETRY;
                 /* firmware postponed this buffer */
-                aml_tx_retry(aml_hw, skb, sw_txhdr, cfm.status);
+                aml_tx_retry(aml_hw, skb, sw_txhdr, &cfm);
                 continue;
             }
 
@@ -2462,16 +2196,8 @@ int aml_task_fn_tx_cfm(struct aml_task *t)
             consume_skb(skb);
         }
 
-#ifdef CONFIG_SDIO_TX_ENH
-#ifdef SDIO_TX_ENH_DBG
-        /* tx cfm statistic */
-        cfmlog.total_cfm += cfmlog.cfm_num;
-        cfmlog.avg_cfm = cfmlog.total_cfm/cfmlog.cfm_rx_cnt;
-        cfmlog.avg_cfm_page = cfmlog.cfm_page/cfmlog.cfm_rx_cnt;
-#endif
-#endif
-
         spin_unlock_bh(&aml_hw->tx_lock);
+        AML_PROF_LO(tx_cfm_task);
     }
     if (aml_hw->aml_txcfm_completion_init) {
         aml_hw->aml_txcfm_completion_init = 0;
@@ -2500,8 +2226,22 @@ int aml_task_fn_tx_cfm(struct aml_task *t)
  */
 int aml_tx_cfm(struct aml_hw *aml_hw, struct tx_cfm_tag *cfm, struct sk_buff *skb, int headroom)
 {
-    struct aml_sw_txhdr *sw_txhdr = ((struct aml_txhdr *)skb->data)->sw_hdr;
-    struct aml_txq *txq = sw_txhdr->txq;
+    struct aml_hw *aml_hw = pthis;
+    struct aml_ipc_buf *ipc_cfm = arg;
+    struct tx_cfm_tag *cfm = ipc_cfm->addr;
+    struct sk_buff *skb;
+    struct aml_sw_txhdr *sw_txhdr;
+    struct aml_hwq *hwq;
+    struct aml_txq *txq;
+    uint32_t sp_ret = 0;
+    skb = aml_ipc_get_skb_from_cfm(aml_hw, ipc_cfm);
+    if (!skb)
+        return -1;
+
+    BUG_ON(aml_bus_type != PCIE_MODE);
+
+    sw_txhdr = ((struct aml_txhdr *)skb->data)->sw_hdr;
+    txq = sw_txhdr->txq;
     /* don't use txq->hwq as it may have changed between push and confirm */
     struct aml_hwq *hwq = &aml_hw->hwq[sw_txhdr->hw_queue];
     uint32_t sp_ret = 0;
@@ -2532,13 +2272,14 @@ int aml_tx_cfm(struct aml_hw *aml_hw, struct tx_cfm_tag *cfm, struct sk_buff *sk
         }
 
         if (!cfm->status.acknowledged
-            && ((sp_ret & AML_GAS_ACTION_FRAME) || (sp_ret & AML_MUST_TX_SUC))
+            && ((sp_ret & AML_GAS_ACTION_FRAME) || (sp_ret & AML_MUST_TX_SUC)
+            || (sp_ret & AML_DPP_CONNECT_STATUS_RESULT_FRAME))
             && (txq->idx != TXQ_INACTIVE)) {
             spin_lock_bh(&aml_hw->roc_lock);
             if (aml_hw->roc && (jiffies_to_msecs(jiffies - aml_hw->roc->start_time) <= aml_hw->roc->duration)) {
                 spin_unlock_bh(&aml_hw->roc_lock);
                 AML_INFO("retry frame during roc:0x%x", sp_ret);
-                aml_tx_retry(aml_hw, skb, sw_txhdr, cfm->status);
+                aml_tx_retry(aml_hw, skb, sw_txhdr, cfm);
                 return 0;
             }
             spin_unlock_bh(&aml_hw->roc_lock);

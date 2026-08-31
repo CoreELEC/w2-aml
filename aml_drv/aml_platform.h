@@ -33,6 +33,9 @@
 #define AML_MAC_REVC_FW_USB "wifi_w2_revC_fw_usb.bin"
 #define AML_MAC_REVC_FW_PCIE "wifi_w2_revC_fw_pcie.bin"
 
+#define W2s_C_PRODUCT_AMLOGIC_EFUSE 0x0680
+#define W2u_PRODUCT_C_AMLOGIC_EFUSE 0x0681
+#define W2pRevC_PRODUCT_AMLOGIC_EFUSE 0x0682
 
 #define MAC_SRAM_BASE 0x00a10000
 #define UBUNTU_PC_VERSION   0xA1B2C3D4  // indicate ubuntu pc + w2

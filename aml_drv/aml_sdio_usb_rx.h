@@ -18,6 +18,10 @@
  *  logic analyzer buffer: (by default, la_enable = 0)
  *      for PCIe, this feature is not available.
  *      for SDIO/USB, CONFIG_AML_LA/LA=n
+ *  trace buffer: (by default, trace_enable/usb_trace_enable = 0)
+ *      for PCIe, host memory is used.
+ *      for SDIO, 32K device SRAM is used (SDIO_TRACE_START_ADDR ~ SDIO_TRACE_END_ADDR)
+ *      for USB, 27K shared memory is used (USB_TRACE_START_ADDR ~ USB_TRACE_END_ADDR)
  *  for USB, its TX buffer is also controlled by
  *      CONFIG_AML_USB_LARGE_PAGE/USB_TX_USE_LARGE_PAGE=y
  *
@@ -39,7 +43,7 @@
  *  - f/w: call rxbuf_reduce_process() to reduce RX buffer,
  *         clear internal flags: BUFFER_RX_WAIT_READ_DATA,
  *         clear FW_BUFFER_NARROW,
- *         set SDIO_USB_IPC_EXT_TX_START to SDIO_USB_EXTEND_E2A_IRQ_STATUS.
+ *         set DYNAMIC_BUF_HOST_TX_START to SDIO_USB_EXTEND_E2A_IRQ_STATUS.
  *  - host: allow TX,
  *          set HOST_RXBUF_REDUCE_FINISH by aml_sdio_usb_rx_confirm()
  *          if FW_BUFFER_NARROW is cleared.
@@ -61,7 +65,7 @@
  *  - f/w: call rxbuf_enlarge_process() to enlarge RX buffer,
  *         clear internal flags: BUFFER_RX_WAIT_READ_DATA,
  *         clear FW_BUFFER_EXPAND,
- *         set SDIO_USB_IPC_EXT_TX_START to SDIO_USB_EXTEND_E2A_IRQ_STATUS.
+ *         set DYNAMIC_BUF_HOST_TX_START to SDIO_USB_EXTEND_E2A_IRQ_STATUS.
  *  - host: allow TX,
  *          set HOST_RXBUF_ENLARGE_FINISH by aml_sdio_usb_rx_confirm()
  *          if FW_BUFFER_EXPAND is cleared.
@@ -74,7 +78,7 @@
 #include "wifi_w2_shared_mem_cfg.h"
 #include "fw/dp_rx.h"
 
-#define AML_RX_DEBUG
+typedef u32 addr32_t;
 
 enum aml_rx_buf_layout {
     AML_RX_BUF_NARROW = 0,  /* TX page is bigger */
@@ -88,6 +92,16 @@ struct aml_sharedmem_layout {
     addr32_t rx_end;
 };
 
+#ifdef CONFIG_AML_SDIO_USB_FW_REORDER
+struct fw_reo_inst {    /* reorder instruction from f/w */
+    u16 hostid;         /* hostid = sn + 1 */
+    u16 pad;
+    u8 len;
+    u8 tid;
+    u16 flag;
+};
+#endif
+
 enum {
     AML_RX_STATE_START,     /* fetch new RX data from firmware? */
     AML_RX_STATE_RESET,     /* firmware is reset or just resumed */
@@ -95,30 +109,7 @@ enum {
     AML_RX_STATE_NAPI_EN,   /* NAPI is enabled */
     AML_RX_STATE_NO_BUF,
     AML_RX_STATE_DEFERRED,
-    AML_RX_STATE_IDLE,
-    AML_RX_STATE_DEINIT,
 };
-
-#ifdef AML_RX_DEBUG
-enum aml_rx_dur_id {
-    AML_RX_DUR_FORM = 0,
-    AML_RX_DUR_REO,
-    AML_RX_DUR_FWD,
-    AML_RX_DUR_NAPI,
-
-    AML_RX_DUR_LAST,
-};
-
-struct aml_rx_dur {
-    ktime_t show;
-    ktime_t last;
-
-    uint64_t sum;
-    uint32_t cnt;
-    uint32_t min;
-    uint32_t max;
-};
-#endif
 
 struct aml_rx {
     struct aml_sharedmem_layout layouts[AML_RX_BUF_LAYOUT_LAST];
@@ -158,29 +149,19 @@ struct aml_rx {
 
     /* reorder */
     struct aml_reo_aging reo_aging;
+#ifdef CONFIG_AML_SDIO_USB_FW_REORDER
+    bool host_reorder;
+    struct {
+        struct sk_buff_head list;   /* all peer/tid mixed in one queue */
+        struct fw_reo_inst instructions[IEEE80211_NUM_UPS];
+    } fw_reo;
+#endif
 
     /* NAPI */
     struct net_device napi_dev;
     struct napi_struct napi;
     struct sk_buff_head napi_preq;
     struct sk_buff_head napi_pending;
-
-    /* status monitor */
-    struct {
-        struct work_struct work;
-        struct workqueue_struct *workqueue;
-    } status_mon;
-
-#ifdef AML_RX_DEBUG
-    struct {
-        ktime_t show;
-
-        ktime_t indicate;
-        ktime_t fetch;
-        ktime_t confirm;
-    } ts;
-    struct aml_rx_dur durs[AML_RX_DUR_LAST];
-#endif
 };
 
 /* use the head room of the last skb */
@@ -223,6 +204,26 @@ static inline void aml_mpdu_free(struct sk_buff *skb)
     dev_kfree_skb(skb);
 }
 
+#ifdef CONFIG_AML_SDIO_USB_FW_REORDER
+int aml_sdio_usb_fw_reo_inst_save(struct aml_rx *rx, struct fw_reo_inst *reo_inst);
+
+static inline bool aml_sdio_usb_host_reo_enabled(struct aml_rx *rx)
+{
+    return rx->host_reorder;
+}
+
+static inline void aml_sdio_usb_host_reo_detected(struct aml_rx *rx)
+{
+    if (!rx->host_reorder) {
+        rx->host_reorder = true;
+        AML_M_NOTICE(MSG_RX, "=== enable host reorder ===\n");
+    }
+}
+#else
+static inline bool aml_sdio_usb_host_reo_enabled(struct aml_rx *rx) { return true; }
+static inline void aml_sdio_usb_host_reo_detected(struct aml_rx *rx) { }
+#endif
+
 int aml_rx_task(void *data);
 
 int aml_sdio_usb_fw_rx_head_ind(struct aml_rx *rx, addr32_t fw_rx_head);
@@ -235,12 +236,6 @@ static inline enum aml_rx_buf_layout aml_shared_mem_layout_get(struct aml_rx *rx
                 ? AML_RX_BUF_EXPAND : AML_RX_BUF_NARROW;
 }
 
-static inline int aml_sdio_usb_rx_start(struct aml_rx *rx)
-{
-    return test_and_set_bit(AML_RX_STATE_START, &rx->state) ? -1 /* already started */ : 0;
-}
-
-int aml_sdio_usb_rx_reset(struct aml_rx *rx);
 int aml_sdio_usb_rx_stop(struct aml_rx *rx);
 void aml_sdio_usb_rx_restart(struct aml_rx *rx);
 

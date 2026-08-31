@@ -142,8 +142,13 @@ int aml_msg_task(void *data)
         }
     }
 
-    while (!kthread_should_stop()) {
-        msleep(10);
+    if (aml_hw->aml_msg_completion_init) {
+        aml_hw->aml_msg_completion_init = 0;
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(5, 16, 20)
+    complete_and_exit(&aml_hw->aml_msg_completion, 0);
+#else
+    complete(&aml_hw->aml_msg_completion);
+#endif
     }
 
     return 0;
@@ -169,17 +174,6 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
 
     if (cmd_mgr->queue_sz + 1 > 2)
         tout = msecs_to_jiffies(AML_80211_CMD_TIMEOUT_MS * 2);
-
-    while (aml_hw->mac_reset) {
-        msleep(10);
-        wait_reset_time--;
-        if (wait_reset_time < 0)
-            break;
-    }
-    if (wait_reset_time < 0) {
-        AML_INFO("send msg during mac reset");
-        aml_hw->mac_reset = false;
-    }
 
     spin_lock_bh(&cmd_mgr->lock);
 
@@ -213,6 +207,12 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
         if (cmd_mgr->queue_sz == cmd_mgr->max_queue_sz) {
             AML_ERR("Too many cmds (%d) already queued\n",
                    cmd_mgr->max_queue_sz);
+            cmd->result = -ENOMEM;
+            kfree(cmd->a2e_msg);
+            if (cmd->flags & AML_CMD_FLAG_NONBLOCK)
+                kfree(cmd);
+            spin_unlock_bh(&cmd_mgr->lock);
+            return -ENOMEM;
         }
         last = list_entry(cmd_mgr->cmds.prev, struct aml_cmd, list);
         if (last->flags & (AML_CMD_FLAG_WAIT_ACK | AML_CMD_FLAG_WAIT_PUSH | AML_CMD_FLAG_WAIT_CFM)) {
@@ -264,6 +264,7 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
         }
         spin_unlock_bh(&cmd_mgr->lock);
     }
+
 
     if (!(cmd_flags & AML_CMD_FLAG_NONBLOCK)) {
         #ifdef CONFIG_AML_FHOST
@@ -352,7 +353,7 @@ static void cmd_mgr_next_cmd(struct aml_hw *aml_hw, struct aml_cmd_mgr *cmd_mgr,
 {
     struct aml_cmd *cur;
     int ret;
-    bool found;
+    bool found = false;
 
     do {
         cmd->flags &= ~AML_CMD_FLAG_WAIT_PUSH;
@@ -370,6 +371,7 @@ static void cmd_mgr_next_cmd(struct aml_hw *aml_hw, struct aml_cmd_mgr *cmd_mgr,
             cmd->flags &= ~(AML_CMD_FLAG_WAIT_ACK | AML_CMD_FLAG_WAIT_CFM);
             cmd_complete(cmd_mgr, cmd);
             found = false;
+            /* coverity[UNREACHABLE], just loop one time for find next cmd */
             list_for_each_entry(cur, &cmd_mgr->cmds, list) {
                 if ((cur->list.next != &cmd_mgr->cmds) && (cur->flags & AML_CMD_FLAG_WAIT_PUSH)) {
                     cmd = cur;

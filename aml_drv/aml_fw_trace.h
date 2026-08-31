@@ -130,14 +130,13 @@ struct log_file_info {
     uint32_t end;
     /*control aml_comm_diag order, start first then stop*/
     uint32_t net_switch;
-    unsigned int flag_end;
 };
 
 enum trace_type
 {
     LOG_TO_UART = 0,
-    TRACE_TO_HOST,
     LOG_TO_HOST,
+    TRACE_TO_HOST,
     TRACE_TO_MAX,
 };
 
@@ -158,6 +157,7 @@ enum {
     AML_TRACE_FW_LOG_UPLOAD,
     AML_LA_MACTRACE_UPLOAD,
     AML_MEM_DUMP_UPLOAD,
+    AML_CLOSE_NETLINK_SOCKET,
 };
 
 int aml_fw_trace_init(struct aml_fw_trace *trace,

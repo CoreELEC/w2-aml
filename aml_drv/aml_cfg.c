@@ -109,6 +109,23 @@ static int aml_cfg_retrieve(const char *path, u8 **pbuf, u32 len)
     return ret;
 }
 
+static int aml_cfg_create(const char *path, struct file **fpp)
+{
+    struct file *fp;
+
+    fp = aml_cfg_open(path, O_RDONLY, 0);
+    if (!fp) {
+        fp = aml_cfg_open(path, O_CREAT | O_RDWR, 0666);
+        if (!fp) {
+            return AML_CFG_ERROR;
+        }
+        *fpp = fp;
+        return AML_CFG_CREATE;
+    }
+    *fpp = fp;
+    return AML_CFG_EXIST;
+}
+
 static const u8 *aml_cfg_find_tag(const u8 *file_data, unsigned int file_size,
         const char *tag_name, unsigned int tag_len)
 {
@@ -516,9 +533,7 @@ int aml_get_mac_addr_from_conftxt(unsigned int *efuse_data_l, unsigned int *efus
     ret = aml_cfg_retrieve(path, &fbuf, AML_CFG_FBUF_MAXLEN);
     if (ret < 0 || ret >= AML_CFG_FBUF_MAXLEN) {
         AML_ERR("retrieve file data error\n");
-        if (!fbuf)
-            kfree(fbuf);
-        /* coverity[leaked_storage] - fbuf may be empty */
+        kfree(fbuf);
         return -1;
     }
 
@@ -686,3 +701,53 @@ int aml_cfg_parse_phy(struct aml_hw *aml_hw, const char *filename,
     return 0;
 }
 
+#define AML_CFG_RPS_CPUS(is_sta)  do { \
+    char path[128]; \
+    struct file *fp; \
+    int i;\
+    for (i = 0; i < 4; i++) { \
+        snprintf(path, sizeof(path), "/sys/class/net/%s/queues/rx-%d/rps_cpus", \
+                (is_sta == 1) ? "wlan0": "ap0", i); \
+        fp = aml_cfg_open(path, O_RDWR, 0666); \
+        if (!fp) return; \
+        aml_cfg_write(fp, "f", 1); \
+        aml_cfg_close(fp); \
+    } \
+} while (0);
+
+#define AML_CFG_RPS_FLOW(is_sta)  do { \
+    char path[128]; \
+    struct file *fp; \
+    int i;\
+    for (i = 0; i < 4; i++) { \
+        snprintf(path, sizeof(path), "/sys/class/net/%s/queues/rx-%d/rps_flow_cnt", \
+                (is_sta == 1) ? "wlan0": "ap0", i); \
+        fp = aml_cfg_open(path, O_RDWR, 0666); \
+        if (!fp) return; \
+        aml_cfg_write(fp, "4096", strlen("4096")); \
+        aml_cfg_close(fp); \
+    } \
+} while (0);
+
+#define AML_CFG_RPS_SOCK()  do { \
+    char path[128]; \
+    struct file *fp; \
+    snprintf(path, sizeof(path), "/proc/sys/net/core/rps_sock_flow_entries"); \
+    fp = aml_cfg_open(path, O_RDWR, 0666); \
+    if (!fp) return; \
+    aml_cfg_write(fp, "16384", strlen("16384")); \
+    aml_cfg_close(fp); \
+} while (0);
+
+void aml_cfg_update_rps(void)
+{
+    /* wlan0 interface */
+    AML_CFG_RPS_CPUS(1);
+    AML_CFG_RPS_FLOW(1);
+
+    /* ap0 interface */
+    AML_CFG_RPS_CPUS(0);
+    AML_CFG_RPS_FLOW(0);
+
+    AML_CFG_RPS_SOCK();
+}

@@ -45,8 +45,6 @@
 #include "aml_compat.h"
 #include "aml_task.h"
 #include "aml_tcp_ack.h"
-#include <linux/wireless.h>
-#include <linux/amlogic/pm.h>
 
 #define WPI_HDR_LEN    18
 #define WPI_PN_LEN     16
@@ -80,11 +78,17 @@
 
 // WIFI_CALI_VERSION must be consistent with the version field in "/vendor/firmware/"
 // After updating the parameters, it must be modified at the same time.
-#define WIFI_CALI_VERSION   (20)
+#define WIFI_CALI_VERSION   (19)
 #define WIFI_CALI_FILENAME  "aml_wifi_rf.txt"
 
 #define WIFI_COUNTRY_PWR_LIMIT_VERSION  (1)
 #define WIFI_COUNTRY_PWR_LIMIT  "aml_country_pwr_limit.txt"
+
+#define STRUCT_BUFF_LEN   252
+#define MAX_HEAD_LEN      92
+#define MAX_TAIL_LEN      20
+#define CO_ALIGN4_HI(val) (((val)+3)&~3)
+#define TX_BUFFER_POOL_SIZE  0x4dc8
 
 #define AMSDU_PADDING(x) ((4 - ((x) & 0x3)) & 0x3)
 #define NORMAL_AMSDU_MAX_LEN    2304
@@ -112,7 +116,6 @@ enum wifi_module_sn {
 };
 
 #define TS_STAT0 0x00a04940
-#define TS_70_DEGREES_CELSIUS 0x26b7
 typedef union TS_STAT0_FIELD
 {
     unsigned int data;
@@ -700,9 +703,10 @@ struct assoc_info {
 
 /**
  * struct apf_param - Structure for Android Packet Filter (APF) parameters
- * @apf_set: Flag indicating whether an APF filter is currently set
- * @apf_program: Pointer to the APF filter program buffer
- * @apf_cap: Structure containing APF capabilities
+ *   @apf_set:      Indicates if an APF program has been set (true = active).
+ *   @apf_info:     Current APF status info, such as enable flag and filter age.
+ *   @apf_cap:      APF engine capabilities (e.g., supported version and features).
+ *   @program_len:  Length in bytes of the loaded APF program.
  */
 struct apf_param {
     bool apf_set;
@@ -841,8 +845,11 @@ struct aml_hw {
 
     // RX path
     struct aml_rx rx;               /* SDIO/USB only */
-    struct aml_defer_rx defer_rx;
 
+    struct aml_defer_rx defer_rx;
+    uint32_t dynabuf_stop_tx;     /* dynamic buf switch, tx stop flag */
+    uint32_t send_tx_stop_to_fw;  /* dynamic buf switch, send tx stop to fw flag */
+    uint8_t *host_buf;            /* host buf for test */
     struct assoc_info rx_assoc_info;
 
 #ifdef CONFIG_AML_PREALLOC_BUF_SKB
@@ -900,7 +907,7 @@ struct aml_hw {
     struct aml_ipc_buf unsuprxvecs[IPC_UNSUPRXVECBUF_CNT];
     struct aml_ipc_buf scan_ie;
     struct aml_ipc_buf_pool txcfm_pool;
-    struct compact_tx_cfm_tag *tx_cfm_buf;
+    struct compact_tx_cfm_tag read_cfm[COMPACT_TXCFM_CNT];
 
     // miscellaneous
     struct scan_results *scan_results;
@@ -964,6 +971,7 @@ struct aml_hw {
     struct aml_ipc_buf pcie_prssr_test;
     void * pcie_prssr_ul_addr;
 #endif
+    int tsq;
     u8 repush_rxdesc;
     u8 repush_rxbuff_cnt;
     u8 traffic_busy;
@@ -991,6 +999,9 @@ struct aml_hw {
     bool wfd_present;
     u8 trace_mode;
     uint64_t pno_scan_reqid;
+    /* prevent from suspend */
+    struct wakeup_source *wifi_wakeup_source;
+    struct timer_list wifi_wakeup_source_timer;
 #ifdef CONFIG_AML_APF
     struct early_suspend wifi_early_suspend;
     struct apf_param apf_params;

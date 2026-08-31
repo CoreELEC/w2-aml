@@ -960,43 +960,38 @@ static void aml_store_excep_info(struct aml_hw *aml_hw)
 void aml_sdio_usb_extend_irq_handle(struct aml_hw *aml_hw)
 {
     uint32_t status = AML_REG_READ(aml_hw->plat, 0, SDIO_USB_EXTEND_E2A_IRQ_STATUS);
-
-    switch (status & ~(SDIO_USB_IPC_EXT_MAC_RST_FLAG)) {
-    case SDIO_USB_IPC_EXT_TX_START: {
-        int deferred = aml_hw->tx_stop & SDIO_USB_IPC_EXT_E2A_DEFER;
-
-        aml_hw->mac_reset = false;
-        AML_INFO("SDIO_USB_IPC_EXT_TX_START!, reset %d\n", aml_hw->mac_reset);
-        aml_sdio_usb_rx_start(&aml_hw->rx);
-        aml_hw->tx_stop = SDIO_USB_IPC_EXT_NONE;
-        up(&aml_hw->aml_tx_sem);
-
-        if (deferred)
-            ipc_host_msg_handler(aml_hw->ipc_env);
-        break;
-    }
-    case SDIO_USB_IPC_EXT_MAC_RST:
-        AML_INFO("SDIO_USB_IPC_EXT_MAC_RST!\n");
-        aml_hw->tx_stop = SDIO_USB_IPC_EXT_NOTIFY_FW_MAC_RST;
-        up(&aml_hw->aml_tx_sem);
-        break;
-    case DYNAMIC_BUF_HOST_TX_STOP:
-        aml_hw->mac_reset = !!(status & SDIO_USB_IPC_EXT_MAC_RST_FLAG);
-        AML_INFO("DYNAMIC_BUF_HOST_TX_STOP, reset %d\n", aml_hw->mac_reset);
-        aml_hw->tx_stop = DYNAMIC_BUF_NOTIFY_FW_TX_STOP;
-        up(&aml_hw->aml_tx_sem);
-        break;
-    case DYNAMIC_BUF_LA_SWITCH_FINISH:
-        AML_INFO("DYNAMIC_BUF_LA_SWITCH_FINISH!\n");
-        break;
-    case EXCEPTION_IRQ:
-        if (aml_bus_type == SDIO_MODE) {
-            AML_ERR("firmware exception!\n");
-            aml_store_excep_info(aml_hw);
-        }
-        break;
-    default:
-        break;
+    switch (status)
+    {
+        case DYNAMIC_BUF_HOST_TX_STOP:
+            aml_hw->dynabuf_stop_tx = DYNAMIC_BUF_HOST_TX_STOP;
+            aml_hw->send_tx_stop_to_fw = 1;
+            AML_INFO("FW->host tx stop, aml_hw->dynabuf_stop_tx:%d\n", aml_hw->dynabuf_stop_tx);
+            up(&aml_hw->aml_tx_sem);
+            break;
+        case DYNAMIC_BUF_HOST_TX_START:
+            aml_hw->dynabuf_stop_tx = 0;
+            AML_INFO("FW->host tx start, aml_hw->dynabuf_stop_tx:%d\n", aml_hw->dynabuf_stop_tx);
+            up(&aml_hw->aml_tx_sem);
+            break;
+        case DYNAMIC_BUF_LA_SWITCH_FINISH:
+            AML_INFO("la page had been released completely!\n");
+            break;
+        case DYNAMIC_BUF_TRACE_EXPEND_FINISH:
+            AML_INFO("USB TRACE READY!\n");
+            aml_hw->trace_malloc_success = 1;
+            break;
+        case DYNAMIC_BUF_TRACE_REDUCE_FINISH:
+            AML_INFO("USB TRACE REDUCE!\n");
+            aml_hw->trace_malloc_success = 0;
+            break;
+        case EXCEPTION_IRQ:
+            if (aml_bus_type == SDIO_MODE) {
+                AML_ERR("firmware exception!\n");
+                aml_store_excep_info(aml_hw);
+            }
+            break;
+        default:
+            break;
     }
 }
 
@@ -1008,11 +1003,19 @@ void ipc_host_irq(struct ipc_host_env_tag *env, uint32_t status)
     struct aml_hw *aml_hw = (struct aml_hw *)env->pthis;
 
     // Acknowledge the pending interrupts
-    if (aml_bus_type == PCIE_MODE) {
+    if (aml_bus_type == PCIE_MODE)
         ipc_emb2app_ack_clear(env->pthis, status);
-        // And re-read the status, just to sure that the acknowledgment is
-        // effective when we start the interrupt handling
-        ipc_host_get_status(aml_hw->ipc_env);
+
+    AML_PROF_HI(ipc);
+    // Optimized for only one IRQ at a time
+    if (status & IPC_IRQ_E2A_RXDESC) {
+        BUG_ON(aml_bus_type != PCIE_MODE);
+        // handle the RX descriptor reception
+#ifdef CONFIG_AML_USE_TASK
+        aml_task_schedule(&aml_hw->pcie.task_rxdesc);
+#else
+        ipc_host_rxdesc_handler(env);
+#endif
     }
 
     AML_PROF_HI(ipc);
@@ -1025,16 +1028,6 @@ void ipc_host_irq(struct ipc_host_env_tag *env, uint32_t status)
         || ((status & SDIO_IRQ_E2A_MSG) && (aml_bus_type != PCIE_MODE)))
     {
         ipc_host_msg_handler(env);
-    }
-    // Optimized for only one IRQ at a time
-    if (status & IPC_IRQ_E2A_RXDESC) {
-        BUG_ON(aml_bus_type != PCIE_MODE);
-        // handle the RX descriptor reception
-#ifdef CONFIG_AML_USE_TASK
-        aml_task_schedule(&aml_hw->pcie.task_rxdesc);
-#else
-        ipc_host_rxdesc_handler(env);
-#endif
     }
     if (status & IPC_IRQ_E2A_TXCFM) {
         BUG_ON(aml_bus_type != PCIE_MODE);

@@ -13,7 +13,11 @@
 #include <linux/firmware.h>
 
 #ifdef CONFIG_AML_PLATFORM_ANDROID
-void sdio_reinit(void);             /* exported by meson-gx-mmx.c */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 10, 0)
+#include <linux/amlogic/aml_sd.h>   /* for sdio_reinit() */
+#else
+void sdio_reinit(void);
+#endif
 #endif
 
 #include "chip_ana_reg.h"
@@ -60,7 +64,10 @@ extern void aml_sdio_random_word_write(unsigned int addr, unsigned int data);
 extern unsigned int aml_sdio_random_word_read(unsigned int addr);
 extern unsigned char aml_sdio_self_define_domain_read8(int addr);
 extern unsigned char aml_sdio_self_define_domain_write8(int addr, unsigned char data);
-#if defined(CONFIG_AML_PLATFORM_ANDROID) || defined(CONFIG_AML_SDIO_IRQ_VIA_GPIO)
+
+#if defined(CONFIG_AML_PLATFORM_ANDROID) && \
+    !defined(CONFIG_AML_SDIO_IRQ_VIA_GPIO) && \
+    LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0)
 extern void sdio_clk_always_on(int on);
 #endif
 
@@ -70,15 +77,12 @@ struct sdio_func *aml_priv_to_func(int func_n)
     return g_hwif_sdio.sdio_func_if[func_n];
 }
 
-bool aml_sdio_block_bus_opt(unsigned char func_num, int addr)
+bool aml_sdio_block_bus_opt(void)
 {
-    if ((atomic_read(&g_wifi_pm.is_shut_down) == 1) || ((((atomic_read(&g_wifi_pm.bus_suspend_cnt)) > 0)) && (func_num != SDIO_FUNC1))) {
-        AML_ERR("fw shutdown(%d),bus suspend(%d) , do not read/write now!\n",
-            atomic_read(&g_wifi_pm.is_shut_down),atomic_read(&g_wifi_pm.bus_suspend_cnt));
-        AML_ERR("func_num(%d),addr(%d) \n",func_num, addr);
-        return true;
-    } else if (bus_state_detect.bus_err == 1) {
-        AML_ERR("sdio bus error, wait to recovery\n");
+    if (atomic_read(&g_wifi_pm.is_shut_down) == 1)
+    {
+        ERROR_DEBUG_OUT("fw shut down(%d) , do not read/write now!\n",
+        atomic_read(&g_wifi_pm.is_shut_down));
         return true;
     }
     else
@@ -201,8 +205,7 @@ int aml_sdio_probe(struct sdio_func *func, const struct sdio_device_id *id)
 
     sdio_set_block_size(func, 512);
 
-    AML_DBG("func->num %d sdio block size=%d, \n",
-        func->num,  func->cur_blksize);
+    AML_DBG("func->num %d sdio block size=%d, \n", func->num,  func->cur_blksize);
 
     if (func->num == 1)
     {
@@ -211,26 +214,20 @@ int aml_sdio_probe(struct sdio_func *func, const struct sdio_device_id *id)
         g_hwif_sdio.sdio_func_if[0] = &sdio_func_0;
     }
     g_hwif_sdio.sdio_func_if[func->num] = func;
-    AML_DBG(" func->num %d sdio_func=%p, \n", func->num,  func);
+    AML_DBG("func->num %d sdio_func=%p, \n", func->num,  func);
 
     sdio_release_host(func);
     sdio_set_drvdata(func, (void *)(&g_hwif_sdio));
     if (func->num != FUNCNUM_SDIO_LAST)
     {
-        AML_DBG("func_num=%d, last func num=%d\n",
-            func->num, FUNCNUM_SDIO_LAST);
+        AML_DBG("func_num=%d, last func num=%d\n", func->num, FUNCNUM_SDIO_LAST);
         return 0;
     }
     g_aml_device_id = id->device;
     AML_INFO("device id 0x%x\n", g_aml_device_id);
     AML_INFO("sdio probe success\n");
-    bus_state_detect.bus_err = 0;
     aml_sdio_init_base_addr();
     aml_sdio_init_ops();
-
-    if (atomic_read(&g_wifi_pm.bus_suspend_cnt)) {
-        atomic_set(&g_wifi_pm.bus_suspend_cnt, 0);
-    }
 
 #ifdef CONFIG_PT_MODE
     dev_set_drvdata(&func->dev, g_drv_data);
@@ -272,9 +269,37 @@ static void  aml_sdio_remove(struct sdio_func *func)
     int ret = 0;
     u64 start_time_ns;
     u64 elapsed_time_ns = 0;
+    u64 wait_bt_time_ns = 8000000000; //wait bt 8s
     u64 wait_wifi_time_ns = 12000000000; //wait wifi 12s
-    struct sdio_func *func = dev_to_sdio_func(device);
-    unsigned int reg_value;
+
+    //bt open
+    if (aml_sdio_random_word_read(RG_BT_PMU_A16) & BIT(31))
+    {
+        start_time_ns = sched_clock();
+        //bt drv suspend set bit25
+        while ((aml_sdio_random_word_read(RG_AON_A24) & BIT(25)) &&
+                (bus_state_detect.bus_err == 0) &&
+                (bus_state_detect.is_recy_ongoing == 0) &&
+                (elapsed_time_ns < wait_bt_time_ns))
+        {
+            elapsed_time_ns = sched_clock() - start_time_ns;
+            msleep(10);
+        }
+
+        if (elapsed_time_ns >= wait_bt_time_ns)
+        {
+            AML_INFO("bt suspend fail, return\n");
+            return -1;
+        }
+
+        // Detect a bus error or ongoing recovery,
+        // exit immediately to prevent blocking the kernel USB resume call.
+        if (bus_state_detect.bus_err || bus_state_detect.is_recy_ongoing)
+        {
+            printk("Detect a bus error or ongoing recovery, return\n");
+            return -1;
+        }
+    }
 
     elapsed_time_ns = 0;
     if (atomic_read(&g_wifi_pm.wifi_enable))
@@ -308,23 +333,15 @@ static void  aml_sdio_remove(struct sdio_func *func)
             printk("Detect a bus error or ongoing recovery, return\n");
             return -1;
         }
-
-        if (func->num == SDIO_FUNC1) {
-            reg_value = aml_sdio_self_define_domain_read8(RG_SDIO_PMU_HOST_REQ);
-            reg_value |= HOST_SLEEP_REQ;
-            aml_sdio_self_define_domain_write8(RG_SDIO_PMU_HOST_REQ, reg_value);
-        }
     }
 
     ret = aml_sdio_suspend(device);
 
     atomic_inc(&g_wifi_pm.bus_suspend_cnt);
-
     if (atomic_read(&g_wifi_pm.bus_suspend_cnt) == FUNCNUM_SDIO_LAST)
     {
         AML_INFO("aml_sdio_pm_suspend, cnt:0x%x \n", atomic_read(&g_wifi_pm.bus_suspend_cnt));
     }
-
     return ret;
 }
 
@@ -410,12 +427,15 @@ int aml_wake_fw_req(void)
 int aml_sdio_pm_resume(struct device *device)
 {
     int ret = 0;
+    struct sdio_func *func = NULL;
 
-    struct sdio_func *func = dev_to_sdio_func(device);
+    func = dev_to_sdio_func(device);
 
     if (func->num == SDIO_FUNC1) {
-        if (aml_wake_fw_req() != 0)
+        if (aml_wake_fw_req() != 0) {
             AML_ERR("host wake fw fail \n");
+            return -1;
+        }
     }
 
     atomic_dec(&g_wifi_pm.bus_suspend_cnt);
@@ -500,10 +520,8 @@ int aml_sdio_init(void)
     LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0)
     /* kernel-4.9 needs to set sdio clock always on for data1 interrupt */
     sdio_clk_always_on(1);
-#elif defined(CONFIG_AML_SDIO_IRQ_VIA_GPIO)
-    AML_INFO("aml sdio auto clk\n");
-    sdio_clk_always_on(0);
 #endif
+
     err = sdio_register_driver(&aml_sdio_driver);
     if (err) {
         AML_ERR("failed to register sdio driver: %d \n", err);
@@ -549,7 +567,7 @@ try_again:
 
 #ifdef CONFIG_AML_PLATFORM_ANDROID
     msleep(100);
-    sdio_reinit();
+    sdio_reinit();  /* exported by meson-gx-mmx.c */
 #endif
 
     aml_sdio_init();

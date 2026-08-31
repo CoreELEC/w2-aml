@@ -523,6 +523,28 @@ void aml_tcp_delay_ack_deinit(struct aml_hw *aml_hw)
     }
 }
 
+void aml_check_tcpack_skb(struct aml_hw *aml_hw, struct sk_buff *skb, u32 len)
+{
+    struct aml_tcp_sess_info *tcp_info;
+    struct aml_tcp_sess_mgr *ack_mgr = &aml_hw->ack_mgr;
+    int i = 0;
+
+    if (!atomic_read(&ack_mgr->enable))
+        return;
+
+    if (len > MAX_TCP_ACK_LEN)
+        return;
+
+    for (i = 0; i < AML_TCP_SESS_NUM; i++) {
+        tcp_info = &ack_mgr->tcp_info[i];
+        write_seqlock_bh(&tcp_info->seqlock);
+        if (tcp_info->busy && (tcp_info->in_txq_skb == skb)) {
+            tcp_info->in_txq_skb = NULL;
+        }
+        write_sequnlock_bh(&tcp_info->seqlock);
+    }
+}
+
 static int aml_replace_tcp_ack(struct sk_buff *skb,
                                struct aml_tcp_sess_mgr *ack_mgr,
                                struct aml_tcp_sess_info *tcp_info,

@@ -242,9 +242,17 @@ int _aml_set_stbc(struct aml_hw *aml_hw, u8 vif_idx, u8 stbc_on);
 int aml_set_temp_start(struct aml_hw *aml_hw);
 int _aml_set_prot_type(struct aml_hw *aml_hw, u32 prot_type);
 
+int aml_mdns_reset_all(struct aml_hw *aml_hw);
+int aml_mdns_set_offload_state(struct aml_hw *aml_hw, int enable);
+int aml_mdns_set_passthrough_behavior(struct aml_hw *aml_hw, int behavior);
+int aml_mdns_get_reset_hit_counter(struct aml_hw *aml_hw, int index);
+int aml_mdns_add_passthrough_list(struct aml_hw *aml_hw, uint8_t *qname, int length);
+int aml_mdns_remove_passthrough_list(struct aml_hw *aml_hw, uint8_t *qname, int length);
+
 int aml_coex_cmd(struct net_device *dev, u32_l coex_cmd, u32_l cmd_ctxt_1, u32_l cmd_ctxt_2);
 int aml_set_coex_mode_cmd(struct net_device *dev, u32_l coex_cmd);
 int aml_tko_activate(struct aml_hw *aml_hw, struct aml_vif *vif, u8 active);
+int aml_coex_get_status(struct net_device *dev);
 int _aml_set_pt_calibration(struct aml_vif *aml_vif, int pt_cali_val);
 int aml_send_notify_ip(struct aml_vif *aml_vif,u8_l ip_ver,u8_l*ip_addr);
 int _aml_enable_wf(struct aml_vif *aml_vif, u32 addr);
@@ -281,6 +289,7 @@ int aml_mdns_set_passthrough_behavior(struct aml_hw *aml_hw, int behavior);
 int aml_set_mcc_ratio(struct aml_hw *aml_hw, int ratio);
 int aml_set_suspend_tx_flush(struct aml_hw *aml_hw, int tx_flush_enable);
 int aml_set_linkloss_threshold(struct aml_hw * aml_hw, int threshold);
+bool aml_check_suspend_resume_msg(struct aml_hw *aml_hw, struct lmac_msg *msg);
 #ifdef CONFIG_AML_APF
 int aml_apf_get_capabilities(struct aml_hw *aml_hw);
 int aml_apf_add_filter(struct aml_hw *aml_hw, u8_l * program, uint32_t program_len);
@@ -289,19 +298,17 @@ void aml_apf_read_filter_data(struct aml_hw *aml_hw, u8_l * buf, uint32_t buf_le
 int aml_apf_set_mode(struct aml_hw *aml_hw, bool apf_mode);
 int aml_apf_get_status(struct aml_hw *aml_hw);
 int aml_set_early_suspend_mode(struct aml_hw *aml_hw, bool early_suspend_mode);
-int aml_apf_set_mac_addr(struct net_device *dev, u8 mac_addr3, u8 mac_addr4, u8 mac_addr5);
+void aml_apf_set_mac_addr(struct net_device *dev, u8 mac_addr3, u8 mac_addr4, u8 mac_addr5);
 #endif /* APF */
 
-
+int aml_mdns_reset_all(struct aml_hw *aml_hw);
+int aml_mdns_set_offload_state(struct aml_hw *aml_hw, int enable);
+int aml_mdns_set_passthrough_behavior(struct aml_hw *aml_hw, int behavior);
+int aml_mdns_get_reset_hit_counter(struct aml_hw *aml_hw, int index);
+int aml_mdns_add_passthrough_list(struct aml_hw *aml_hw, uint8_t *qname, int length);
+int aml_mdns_remove_passthrough_list(struct aml_hw *aml_hw, uint8_t *qname, int length);
+int aml_coex_get_status(struct net_device *dev);
 int aml_ps_info_get(struct net_device *dev, struct ps_info_s * ind, int debug_type);
 int aml_regdom_en(struct aml_hw *aml_hw, uint32_t reg_en);
 int aml_set_phy_maskfilter_param_req(struct aml_hw *aml_hw, struct COUNTRY_PWR_LIMIT_CFG *country_pwr_limit_cfg, unsigned char ofdm_power);
-int _aml_trig_sec_test(struct aml_hw *aml_hw);
-int aml_get_radio_info(struct aml_hw *aml_hw, struct mm_get_radio_cfm *cfm);
-int aml_send_strlog_cmd(struct aml_hw *aml_hw, int mode);
-int aml_set_rf_tnum_cfg(struct aml_hw * aml_hw, u8 rf_tnum_cfg);
-int aml_set_wfa_rts_based_txop(struct aml_vif *aml_vif, int enable);
-int aml_set_wfa_agg_tx_cnt_thres(struct aml_vif *aml_vif, int enable);
-int aml_reset_edca(struct aml_vif *aml_vif, int enable);
-int aml_set_wmm_ie(struct aml_vif *aml_vif, int enable);
 #endif /* _AML_MSG_TX_H_ */

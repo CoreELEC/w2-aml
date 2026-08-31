@@ -16,7 +16,6 @@
 #include "aml_sap.h"
 
 #define AML_MIN_ROC_DUR   102
-#define SUSPEND_TX_REQ_FLUSH_READ   3000000000ULL //3s
 #define SUSPEND_TX_REQ_FLUSH_TO   5000000000 //5s
 #define SUSPEND_TX_FLUSH_TO       10000000000 //10s
 
@@ -29,7 +28,7 @@ int aml_cfg80211_change_iface(struct wiphy *wiphy,
                                       u32 *flags,
 #endif
                                       struct vif_params *params);
-const char *aml_get_version(struct aml_hw *aml_hw);
+const char *aml_get_version(void);
 void aml_cfg80211_sched_scan_results(struct wiphy *wiphy, uint64_t reqid);
 int aml_cancel_scan(struct aml_hw *aml_hw, struct aml_vif *vif);
 void aml_tx_rx_buf_init(struct aml_hw *aml_hw);
@@ -41,9 +40,5 @@ int aml_config_cali_param(struct aml_hw *aml_hw);
 void aml_set_scan_hang(struct aml_vif *aml_vif, int scan_hang, const char* func, u32 line);
 void aml_get_dbg_info(struct aml_hw *aml_hw);
 int aml_ps_wow_resume(struct aml_hw *aml_hw, bool wifi_suspend_err);
-void aml_del_csa(struct aml_vif *vif);
-void aml_del_bcn(struct aml_bcn *bcn);
-void aml_wdev_unregister(struct aml_hw *aml_hw);
-int aml_interface_add_all(struct aml_hw *aml_hw, bool custchan);
 
 #endif /* _AML_MAIN_H_ */

@@ -421,9 +421,12 @@ enum priv_e2a_tag {
     PRIV_MDNS_GET_HIT_CFM,
     PRIV_MDNS_GET_MISS_CFM,
     PRIV_EX_MM_VERSION_IND,
+    PRIV_SEND_FWLOG_CFM,
     PRIV_APF_GET_CAPABILITIES_CFM,
     PRIV_APF_GET_STATUS,
     PRIV_APF_DELETE_PGM,
+    PRIV_GET_PS_INFO_CFM,
+    PRIV_SET_RESUME_CFM,
     PRIV_SUB_E2A_MAX,
 };
 
@@ -498,6 +501,10 @@ enum mm_sub_a2e_tag {
     MM_SUB_SET_APF_MODE = 66,
     MM_SUB_GET_APF_STATUS = 67,
     MM_SUB_SET_EARLY_SUSPEND_REQ = 68,
+    MM_SUB_GET_PS_INFO = 69,
+    MM_SUB_SET_PROT_TYPE = 70,
+    MM_SUB_REGDOM_EN = 71,
+    MM_SUB_PHY_CFG_MASKFILTER_REQ = 72,
     /// the MAX
     MM_SUB_A2E_MAX,
     /// New members cannot be added below
@@ -3676,6 +3683,11 @@ struct apf_set_mode_req
     u8_l resvd[3];
 };
 
+struct ps_info_get_req
+{
+    uint32_t debug_type;
+};
+
 struct apf_get_status_req
 {
     /// Boolean flag to enable (true) or disable (false) the APF feature
@@ -3691,4 +3703,9 @@ struct early_suspend_mode_req
     u8_l resvd[3];
 };
 
+/// Structure containing the parameters of the @ref MM_SUB_REGDOM_EN message.
+struct regdom_en_req
+{
+    uint32_t reg_en;
+};
 #endif // LMAC_MSG_H_

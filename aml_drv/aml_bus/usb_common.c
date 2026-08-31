@@ -1,10 +1,3 @@
-/* SPDX-License-Identifier: GPL-2.0 */
-/*
-* Copyright (C) 202X Original Author (retain original author information)
-* Copyright (C) 202X Amlogic, Inc. All rights reserved.
-*
-* Description:
-*/
 #define AML_MODULE  USB
 
 #include <linux/version.h>
@@ -206,10 +199,10 @@ void auc_shutdown(struct device *dev)
 
 static const struct usb_device_id auc_devices[] =
 {
-    {USB_DEVICE(W2u_VENDOR_AMLOGIC,W2u_PRODUCT_AMLOGIC)},
-    {USB_DEVICE(W2u_VENDOR_AMLOGIC_EFUSE,W2u_A_PRODUCT_AMLOGIC_EFUSE)},
-    {USB_DEVICE(W2u_VENDOR_AMLOGIC_EFUSE,W2u_B_PRODUCT_AMLOGIC_EFUSE)},
-    {USB_DEVICE(W2u_VENDOR_AMLOGIC_EFUSE,W2u_C_PRODUCT_AMLOGIC_EFUSE)},
+    {USB_DEVICE(W2_VENDOR,W2_PRODUCT)},
+    {USB_DEVICE(W2u_VENDOR_AMLOGIC_EFUSE,W2u_PRODUCT_A_AMLOGIC_EFUSE)},
+    {USB_DEVICE(W2u_VENDOR_AMLOGIC_EFUSE,W2u_PRODUCT_B_AMLOGIC_EFUSE)},
+    {USB_DEVICE(W2u_VENDOR_AMLOGIC_EFUSE,W2u_PRODUCT_C_AMLOGIC_EFUSE)},
     {}
 };
 
@@ -275,10 +268,7 @@ int aml_usb_insmod(void)
     }
     err = usb_register(&aml_usb_common_driver);
     if (err) {
-        FREE(g_cmd_buf, "cmd stage");
-        FREE(g_kmalloc_buf, "reg tmp");
         AML_INFO("failed to register usb driver: %d \n", err);
-        return err;
     }
     auc_driver_insmoded = 1;
     auc_wifi_in_insmod = 0;
@@ -292,6 +282,7 @@ int aml_usb_insmod(void)
              "bus_wakeup_source");
     if (!aml_wifi_wakeup_source) {
         AML_INFO("Failed to create wakeup source\n");
+        return -ENOMEM;
     }
 
     return 0;
@@ -321,17 +312,18 @@ void aml_usb_rmmod(void)
 }
 EXPORT_SYMBOL(aml_usb_rmmod);
 
-int aml_usb_reset(void)
+void aml_usb_reset(void)
 {
 #ifndef CONFIG_PT_MODE
     uint32_t count = 0;
     uint32_t try_cnt = 0;
 
 try_again:
-    AML_INFO(" ******* usb reset begin ******* :%d\n", g_usb_after_probe);
+    AML_INFO("******* usb reset begin *******\n");
 
+#ifndef CONFIG_PT_MODE
     aml_wifi_power_on(0);
-    while ((g_usb_after_probe) && (try_cnt < 1)) {
+    while ((g_usb_after_probe) && (try_cnt <= 3)) {
         msleep(5);
         count++;
         if (count > 200 && try_cnt < 1) {

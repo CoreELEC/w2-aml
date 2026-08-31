@@ -251,10 +251,6 @@ void aml_fw_trace_reset(struct aml_hw *aml_hw);
 int aml_dbgfs_txq(char *buf, size_t size, struct aml_txq *txq, int type, int tid, char *name);
 int aml_dbgfs_txq_sta(char *buf, size_t size, struct aml_sta *aml_sta, struct aml_hw *aml_hw);
 int aml_dbgfs_txq_vif(char *buf, size_t size, struct aml_vif *aml_vif, struct aml_hw *aml_hw);
-int print_rate(char *buf, int size, int format, int nss, int mcs, int bw,
-                      int sgi, int pre, int dcm, int *r_idx, bool bprint);
-int print_rate_from_cfg(char *buf, int size, u32 rate_config, int *r_idx, int ru_size, bool bprint);
-int compare_idx(const void *st1, const void *st2);
 
 #else
 

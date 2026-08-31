@@ -9,6 +9,14 @@
 #define _W2_USB_H_
 #include "usb_common.h"
 
+#define W2_PRODUCT  0x4c55
+#define W2_VENDOR  0x414D
+
+#define W2u_VENDOR_AMLOGIC_EFUSE 0x1B8E
+#define W2u_PRODUCT_A_AMLOGIC_EFUSE 0x0601
+#define W2u_PRODUCT_B_AMLOGIC_EFUSE 0x0641
+#define W2u_PRODUCT_C_AMLOGIC_EFUSE 0x0681
+
 /*auc--amlogic usb common*/
 struct auc_hif_ops {
     int (*hi_send_cmd)(unsigned int addr, unsigned int len);

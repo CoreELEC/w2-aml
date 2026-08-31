@@ -83,18 +83,6 @@ enum sdio_usb_ipc_ext_state {
     DYNAMIC_BUF_NOTIFY_FW_TX_STOP,      /* to f/w */
     DYNAMIC_BUF_LA_SWITCH_FINISH,
 
-    SDIO_USB_IPC_EXT_MAC_RST,
-    SDIO_USB_IPC_EXT_NOTIFY_FW_MAC_RST, /* to f/w */
-
-    EXCEPTION_IRQ,                      /* used by Rev-C ROM code */
-
-    /* host only */
-    SDIO_USB_IPC_EXT_E2A_DEFER  = (1 << 14),
-    SDIO_USB_IPC_EXT_SENT_TO_FW = (1 << 15),
-    SDIO_USB_IPC_EXT_HOST_ONLY  = (SDIO_USB_IPC_EXT_E2A_DEFER | SDIO_USB_IPC_EXT_SENT_TO_FW),
-    SDIO_USB_IPC_EXT_MAC_RST_FLAG = (1 << 31),
-};
-
 #define BUFFER_TX_USED             BIT(0)
 #define BUFFER_RX_USED             BIT(1)
 #define BUFFER_TX_NEED_ENLARGE     BIT(2)
@@ -108,19 +96,18 @@ enum sdio_usb_ipc_ext_state {
 #define BUFFER_RX_FORBID_REDUCE    BIT(10)
 #define BUFFER_RX_FORBID_ENLARGE   BIT(11)
 #define BUFFER_LA_USED             BIT(12)
-#define BUFFER_LA_FREE             BIT(13)
+#define BUFFER_TRACE_USED          BIT(13)
+#define BUFFER_LA_FREE             BIT(14)
+#define BUFFER_TRACE_FREE          BIT(15)
+#define DYNAMIC_BUF_IS_ON_TX  ((sdio_buffer_ctrl.buffer_status) & (BUFFER_TX_USED))
+#define DYNAMIC_BUF_IS_ON_RX  ((sdio_buffer_ctrl.buffer_status) & (BUFFER_RX_USED))
 
-#define RX_ENLARGE_READ_RX_DATA_FINISH BIT(25)
-#define HOST_RXBUF_ENLARGE_FINISH      BIT(26)
-#define RX_REDUCE_READ_RX_DATA_FINISH  BIT(27)
-#define HOST_RXBUF_REDUCE_FINISH       BIT(28)
-
-// the E2A flags in RG_WIFI_IF_FW2HST_IRQ_CFG
+//RG_WIFI_IF_FW2HST_IRQ_CFG buffer flag for firmware to host
 #define RX_WRAP_TEMP_FLAG               BIT(19)
 #define FW_BUFFER_NARROW                BIT(20)
 #define FW_BUFFER_EXPAND                BIT(21)
 
-// the A2E flags in SDIO_USB_A2E_RX_CONFIRM
+//CMD_DOWN_FIFO_FDH_ADDR + 4 buffer flag for host to firmware
 #define RX_ENLARGE_READ_RX_DATA_FINISH  BIT(25)
 #define HOST_RXBUF_ENLARGE_FINISH       BIT(26)
 #define RX_REDUCE_READ_RX_DATA_FINISH   BIT(27)

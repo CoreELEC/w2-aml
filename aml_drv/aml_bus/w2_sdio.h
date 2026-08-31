@@ -9,6 +9,19 @@
 #define _W2_SDIO_H_
 #include "sdio_common.h"
 
+#define W2_PRODUCT_AMLOGIC  0x8888
+#define W2_VENDOR_AMLOGIC  0x8888
+
+//sdio manufacturer code, usually vendor ID, 'a'=0x61, 'm'=0x6d
+#define W2_VENDOR_AMLOGIC_EFUSE ('a'|('m'<<8))
+//sdio manufacturer info, usually product ID
+#define W2_PRODUCT_AMLOGIC_EFUSE (0x9007)
+
+#define W2s_VENDOR_AMLOGIC_EFUSE 0x1B8E
+#define W2s_A_PRODUCT_AMLOGIC_EFUSE 0x0600
+#define W2s_B_PRODUCT_AMLOGIC_EFUSE 0x0640
+#define W2s_C_PRODUCT_AMLOGIC_EFUSE 0x0680
+
 #define SDIO_MAX_BLK_CNT    511
 
 #define SDIO_BLKSIZE 512

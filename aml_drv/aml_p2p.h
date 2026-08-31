@@ -67,6 +67,6 @@ void aml_change_p2p_intent(struct aml_vif *vif, u8 *buf, u32 frame_len, u32 *fra
 void aml_change_p2p_operchan(struct aml_vif *vif, u8 *buf, u32 frame_len, struct cfg80211_chan_def chan_def);
 
 void aml_rx_parse_p2p_chan_list(u8 *buf, u32 frame_len);
-extern bool aml_filter_rtsp_frame(struct aml_vif *vif, u32 len, u8 *data, AML_SP_STATUS_E sp_status);
+extern bool aml_filter_rtsp_frame(struct aml_vif *vif, u32 len, const u8 *data, AML_SP_STATUS_E sp_status);
 
 #endif /* _AML_P2P_H_ */
