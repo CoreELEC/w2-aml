@@ -1,6 +1,6 @@
 #define AML_VERS_REV "c8090ae2"
-#define AML_VERS_MOD "v2.1.0_2025-07.18-w2 driver:c8090ae2"
-#define AML_VERS_BANNER "v2.1.0_2025-07.18-w2 driver:c8090ae2"
+#define AML_VERS_MOD "v2.1.1_2025-07.25-w2 driver:c8090ae2+571636"
+#define AML_VERS_BANNER "v2.1.1_2025-07.25-w2 driver:c8090ae2+571636"
 #define AML_DRIVER_COMPILE_INFO "driver compile date: W2.2025.W28.05,driver hash: c8090ae279e54936ca84ddb1f640d8fa43829294"
 #define FIRMWARE_INFO "fw compile date: 2025-07-18 14:42:36,fw hash: c8090ae279e54936ca84ddb1f640d8fa43829294,fw size: 1843020"
 #define COMMON_INFO "common: last commit: 2025/Jul/9 19:40:50  hash: 08bcdfc4f30ff3db33944b2884e6f5f4079ebca6"

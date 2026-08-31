@@ -1,4 +1,4 @@
-AML_VERS_NUM=v2.1.0_2025-07.18-w2 driver:c8090ae2
+AML_VERS_NUM=v2.1.1_2025-07.25-w2 driver:c8090ae2+571636
 # KERNELDIR ?= /usr/lib/modules/$(shell uname -r)/build
 PWD=$(shell pwd)
 ifeq ($(ARCH),)

@@ -142,9 +142,6 @@ static void aml_pci_remove(struct pci_dev *pci_dev)
 }
 
 bool g_pcie_suspend = 0;
-extern uint32_t aml_pci_read_for_bt(int base, u32 offset);
-extern void aml_pci_write_for_bt(u32 val, int base, u32 offset);
-
 static int aml_pci_suspend(struct pci_dev *pdev, pm_message_t state)
 #endif
 
@@ -154,7 +151,6 @@ static int aml_pci_suspend(struct pci_dev *pdev, pm_message_t state)
     u64 elapsed_time_ns = 0;
     u64 wait_bt_time_ns = 8000000000; //wait bt 8s
     u64 wait_wifi_time_ns = 12000000000; //wait wifi 12s
-    unsigned int reg_value;
 
     //bt open
     if (aml_pci_read_for_bt(AML_ADDR_AON, RG_BT_PMU_A16) & BIT(31))
@@ -219,7 +215,8 @@ static int aml_pci_suspend(struct pci_dev *pdev, pm_message_t state)
         }
     }
 
-
+    g_pcie_suspend = 1;
+    atomic_set(&g_wifi_pm.bus_suspend_cnt, 1);
     AML_INFO("%s\n", __func__);
     //aml_suspend_dump_cfgregs(bus, "BEFORE_EP_SUSPEND");
     pci_save_state(pdev);
@@ -229,12 +226,6 @@ static int aml_pci_suspend(struct pci_dev *pdev, pm_message_t state)
     if (ret) {
         ERROR_DEBUG_OUT("pci_set_power_state error %d\n", ret);
     }
-
-    reg_value = aml_pci_read_for_bt(AML_ADDR_AON, RG_AON_A25);
-    reg_value |= BIT(1);
-    aml_pci_write_for_bt(reg_value, AML_ADDR_AON, RG_AON_A25);
-    g_pcie_suspend = 1;
-    atomic_set(&g_wifi_pm.bus_suspend_cnt, 1);
     //Delay 100ms to ensure ltssm enters L1 completion, delaying PCIe PHY power-off.
     usleep_range(100000, 120000);
     AML_FN_EXIT();
@@ -249,7 +240,6 @@ static int aml_pci_resume(struct pci_dev *pdev)
 #endif
 {
     int err;
-    unsigned int reg_value;
     bool pci_resume_ok = false;
     AML_FN_ENTRY();
     pci_restore_state(pdev);
@@ -268,21 +258,14 @@ static int aml_pci_resume(struct pci_dev *pdev)
         goto out;
     }
     g_pcie_suspend = 0;
-
     AML_INFO(" ok exit\n");
 out:
     atomic_set(&g_wifi_pm.bus_suspend_cnt, 0);
-
-    // clear pci suspend flag
-    reg_value = aml_pci_read_for_bt(AML_ADDR_AON, RG_AON_A25);
-    reg_value &= ~ BIT(1);
-    aml_pci_write_for_bt(reg_value, AML_ADDR_AON, RG_AON_A25);
-
-    AML_INFO(" clear pci suspend flag 0x%x\n", aml_pci_read_for_bt(AML_ADDR_AON, RG_AON_A25));
     return err;
 }
 
-
+extern uint32_t aml_pci_read_for_bt(int base, u32 offset);
+extern void aml_pci_write_for_bt(u32 val, int base, u32 offset);
 extern lp_shutdown_func g_lp_shutdown_func;
 extern bt_shutdown_func g_bt_shutdown_func;
 
