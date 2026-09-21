@@ -420,6 +420,6 @@ struct aml_txdesc_trigger {
     u8 tx_pcie_ths;
 };
 
-extern unsigned char g_pci_msg_suspend;
+extern unsigned char w2_g_pci_msg_suspend;
 
 #endif // _IPC_HOST_H_

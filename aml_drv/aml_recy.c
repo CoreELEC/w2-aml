@@ -39,11 +39,11 @@
 
 struct aml_recy *aml_recy = NULL;
 
-extern struct aml_pm_type g_wifi_pm;
+extern struct aml_pm_type w2_g_wifi_pm;
 extern struct aml_hw *g_pst_aml_hw;
 
 extern int g_cali_cfg_done;
-extern struct wakeup_source *aml_wifi_wakeup_source;
+extern struct wakeup_source *w2_aml_wifi_wakeup_source;
 extern struct log_file_info trace_log_file_info;
 extern struct aml_trace_nl_info g_trace_nl_info;
 
@@ -258,9 +258,9 @@ static int aml_recy_sta_connect(struct aml_hw *aml_hw, void *data, int len)
 }
 
 extern void aml_platform_off(struct aml_hw *aml_hw, void **config);
-extern unsigned char g_usb_after_probe;
-extern void aml_sdio_reset(void);
-extern struct usb_device *g_udev;
+extern unsigned char w2_g_usb_after_probe;
+extern void w2_aml_sdio_reset(void);
+extern struct usb_device *w2_g_udev;
 int aml_recy_fw_reload_for_usb_sdio(struct aml_hw *aml_hw)
 {
     int ret = 0;
@@ -271,38 +271,38 @@ int aml_recy_fw_reload_for_usb_sdio(struct aml_hw *aml_hw)
     AML_DBG("reload fw start");
 
     aml_recy_flags_set(AML_RECY_FW_ONGOING | AML_RECY_IPC_ONGOING);
-    bus_state_detect.is_recy_ongoing = 1;
+    w2_bus_state_detect.is_recy_ongoing = 1;
 #ifndef CONFIG_PT_MODE
 Try_again:
 #endif
-    if (aml_bus_type == USB_MODE) {
-        bus_state_detect.bus_reset_ongoing = 1;
+    if (w2_aml_bus_type == USB_MODE) {
+        w2_bus_state_detect.bus_reset_ongoing = 1;
         aml_platform_off(aml_hw, NULL);
-        ret = aml_usb_reset();
+        ret = w2_aml_usb_reset();
         if (ret) {
         #ifdef CONFIG_AML_USB_HOTPLUG
-            AML_DBG("set aml_usb_reset  fail");
-            bus_state_detect.is_recy_ongoing = 0;
+            AML_DBG("set w2_aml_usb_reset  fail");
+            w2_bus_state_detect.is_recy_ongoing = 0;
             aml_recy_flags_clr(AML_RECY_STATE_ONGOING | AML_RECY_FW_ONGOING
                                | AML_RECY_IPC_ONGOING | AML_RECY_USB_SUSPEND);
-            bus_state_detect.auc_wifi_disable_func();
+            w2_bus_state_detect.auc_wifi_disable_func();
             return -EPERM;
         #endif
         }
 
         /* realloc usb_dev in function@auc_probe when usb do reset, it need to reinit data */
-        aml_hw->plat->usb_dev = g_udev;
+        aml_hw->plat->usb_dev = w2_g_udev;
         dev_set_drvdata(&aml_hw->plat->usb_dev->dev, aml_hw);
         aml_hw->dev = aml_platform_get_dev(aml_hw->plat);
         set_wiphy_dev(aml_hw->wiphy, aml_hw->dev);
-        bus_state_detect.bus_reset_ongoing = 0;
+        w2_bus_state_detect.bus_reset_ongoing = 0;
         aml_hw->state = WIFI_SUSPEND_STATE_NONE;
     }
-    if (aml_bus_type == SDIO_MODE) {
+    if (w2_aml_bus_type == SDIO_MODE) {
         struct sdio_func *func;
         aml_platform_off(aml_hw, NULL);
-        aml_sdio_reset();
-        func = aml_priv_to_func(SDIO_FUNC7);
+        w2_aml_sdio_reset();
+        func = w2_aml_priv_to_func(SDIO_FUNC7);
         dev_set_drvdata(&func->dev, aml_hw);
     }
     if (aml_platform_on(aml_hw, NULL)) {
@@ -340,7 +340,7 @@ out:
         goto Try_again;
     }
 #endif
-    bus_state_detect.is_recy_ongoing = 0;
+    w2_bus_state_detect.is_recy_ongoing = 0;
     aml_recy_flags_clr(AML_RECY_FW_ONGOING);
     return ret;
 }
@@ -429,7 +429,7 @@ static int aml_recy_fw_reload(struct aml_hw *aml_hw)
 {
     int ret = 0;
 
-    if (aml_bus_type != PCIE_MODE) {
+    if (w2_aml_bus_type != PCIE_MODE) {
         ret = aml_recy_fw_reload_for_usb_sdio(aml_hw);
     } else {
         ret = aml_recy_fw_reload_for_pcie(aml_hw);
@@ -635,12 +635,12 @@ int aml_recy_doit(struct aml_hw *aml_hw, void *reason, int len)
     spin_unlock_bh(&cmd_mgr->lock);
 
     AML_INFO("%s", fbuf);
-    if (aml_wifi_wakeup_source && (!aml_wifi_wakeup_source->active)) {
-        __pm_stay_awake(aml_wifi_wakeup_source);
+    if (w2_aml_wifi_wakeup_source && (!w2_aml_wifi_wakeup_source->active)) {
+        __pm_stay_awake(w2_aml_wifi_wakeup_source);
     } else {
-        AML_INFO("aml_wifi_wakeup_source is not initialized or active already\n");
+        AML_INFO("w2_aml_wifi_wakeup_source is not initialized or active already\n");
     }
-    if (aml_bus_type != PCIE_MODE)
+    if (w2_aml_bus_type != PCIE_MODE)
         aml_send_err_info_to_diag(fbuf, strlen(fbuf));
 
     if (aml_recy_flags_chk(flags)) {
@@ -649,15 +649,15 @@ int aml_recy_doit(struct aml_hw *aml_hw, void *reason, int len)
         aml_recy->reason = 0;
         spin_unlock_bh(&cmd_mgr->lock);
 
-        if ((aml_bus_type != PCIE_MODE) && (bus_state_detect.bus_err == 1)) {
-            bus_state_detect.bus_reset_ongoing = 0;
+        if ((w2_aml_bus_type != PCIE_MODE) && (w2_bus_state_detect.bus_err == 1)) {
+            w2_bus_state_detect.bus_reset_ongoing = 0;
         }
     #ifdef CONFIG_AML_USB_HOTPLUG
         if (aml_recy_flags_chk(AML_RECY_USB_UNPLUG)) {
-            if (aml_wifi_wakeup_source && aml_wifi_wakeup_source->active) {
-                __pm_relax(aml_wifi_wakeup_source);
+            if (w2_aml_wifi_wakeup_source && w2_aml_wifi_wakeup_source->active) {
+                __pm_relax(w2_aml_wifi_wakeup_source);
             } else {
-                AML_INFO("aml_wifi_wakeup_source is not initialized or not active\n");
+                AML_INFO("w2_aml_wifi_wakeup_source is not initialized or not active\n");
             }
         }
     #endif
@@ -694,7 +694,7 @@ int aml_recy_doit(struct aml_hw *aml_hw, void *reason, int len)
     aml_hw->sched_request = NULL;
     spin_unlock_bh(&aml_hw->scan_req_lock);
 
-    if (aml_bus_type != PCIE_MODE)
+    if (w2_aml_bus_type != PCIE_MODE)
         aml_sdio_usb_rx_stop(&aml_hw->rx);
 
     ret = aml_recy_vif_reset(aml_hw);
@@ -725,7 +725,7 @@ int aml_recy_doit(struct aml_hw *aml_hw, void *reason, int len)
                 /* 0x500000:convert dccm addr from fw to host */
                 trace_log_file_info.trace_buf = cfm.trace_buf | 0x500000;
                 trace_log_file_info.end = cfm.end | 0x500000;
-                AML_INFO("aml_bus_type:%d cfm.trace_buf:%x, cfm.end:%x, trace_buf:%x, end:%x", aml_bus_type,
+                AML_INFO("w2_aml_bus_type:%d cfm.trace_buf:%x, cfm.end:%x, trace_buf:%x, end:%x", w2_aml_bus_type,
                         cfm.trace_buf, cfm.end, trace_log_file_info.trace_buf, trace_log_file_info.end);
             }
             aml_send_sync_trace(aml_hw);
@@ -738,31 +738,31 @@ out:
     aml_recy->link_loss.is_requested = 0;
     // recovery ps mode
     /* clear suspend state flag */
-    atomic_set(&g_wifi_pm.bus_suspend_cnt, 0);
-    atomic_set(&g_wifi_pm.drv_suspend_cnt, 0);
-    atomic_set(&g_wifi_pm.is_shut_down, 0);
-    atomic_set(&g_wifi_pm.wifi_suspend_state, 0);
+    atomic_set(&w2_g_wifi_pm.bus_suspend_cnt, 0);
+    atomic_set(&w2_g_wifi_pm.drv_suspend_cnt, 0);
+    atomic_set(&w2_g_wifi_pm.is_shut_down, 0);
+    atomic_set(&w2_g_wifi_pm.wifi_suspend_state, 0);
     aml_hw->state = WIFI_SUSPEND_STATE_NONE;
     spin_lock_bh(&aml_recy->aml_hw->cmd_mgr.lock);
     aml_recy->reason = 0;
     spin_unlock_bh(&aml_recy->aml_hw->cmd_mgr.lock);
     aml_recy_flags_clr(AML_RECY_STATE_ONGOING | AML_RECY_DROP_XMIT_PKT);
 
-    if (aml_wifi_wakeup_source && aml_wifi_wakeup_source->active) {
-        __pm_relax(aml_wifi_wakeup_source);
+    if (w2_aml_wifi_wakeup_source && w2_aml_wifi_wakeup_source->active) {
+        __pm_relax(w2_aml_wifi_wakeup_source);
     } else {
-        AML_INFO("aml_wifi_wakeup_source is not initialized or not active\n");
+        AML_INFO("w2_aml_wifi_wakeup_source is not initialized or not active\n");
     }
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 10, 0)
-    if (aml_bus_type == USB_MODE)
+    if (w2_aml_bus_type == USB_MODE)
     {
-        struct device_link * dev_link = device_link_add(&aml_hw->wiphy->dev, &g_udev->dev, DL_FLAG_PM_RUNTIME);
+        struct device_link * dev_link = device_link_add(&aml_hw->wiphy->dev, &w2_g_udev->dev, DL_FLAG_PM_RUNTIME);
 
         if (!dev_link) {
             AML_INFO("device_link_add fail\n");
         }
     }
-    else if (aml_bus_type == SDIO_MODE)
+    else if (w2_aml_bus_type == SDIO_MODE)
         aml_sdio_wifi_pm_link(aml_hw);
 #endif
     AML_INFO("Recovery Finished\n");
@@ -791,7 +791,7 @@ static int aml_recy_detection(void)
 
 #ifndef CONFIG_AML_PLATFORM_ANDROID
     // mutex_lock can't run in timer_cb, so pcie does only
-    if (aml_bus_type == PCIE_MODE) {
+    if (w2_aml_bus_type == PCIE_MODE) {
         // channel is exception when pc pointer is 0xffffffff, and it can not recover now
         if (AML_REG_READ(aml_recy->aml_hw->plat, AML_ADDR_MAC_PHY, AML_FW_PC_POINTER) == 0xffffffff) {
             return 0;
@@ -816,10 +816,10 @@ static int aml_recy_detection(void)
         ret = true;
     }
 
-    if (aml_bus_type != PCIE_MODE) {
-        if (!bus_state_detect.bus_reset_ongoing &&
-            (bus_state_detect.bus_err == 1)) {
-            bus_state_detect.bus_reset_ongoing = 1;
+    if (w2_aml_bus_type != PCIE_MODE) {
+        if (!w2_bus_state_detect.bus_reset_ongoing &&
+            (w2_bus_state_detect.bus_err == 1)) {
+            w2_bus_state_detect.bus_reset_ongoing = 1;
             aml_recy->reason = RECY_REASON_CODE_BUS_ERR;
             ret = true;
         }
@@ -840,9 +840,9 @@ int usb_check_fail_cnt = 0;
 #ifndef CONFIG_PT_MODE
 static void aml_recy_timer_cb(struct timer_list *t)
 {
-    if (aml_bus_type == USB_MODE)
+    if (w2_aml_bus_type == USB_MODE)
     {
-        if (g_udev->state == USB_STATE_DEFAULT)
+        if (w2_g_udev->state == USB_STATE_DEFAULT)
         {
             usb_check_fail_cnt++;
         }
@@ -853,8 +853,8 @@ static void aml_recy_timer_cb(struct timer_list *t)
 
         if (usb_check_fail_cnt == 3)
         {
-            AML_INFO("usb_check_fail, USB_STATE %d, do recovery straightforward\n", g_udev->state);
-            aml_usb_set_bus_err(1);
+            AML_INFO("usb_check_fail, USB_STATE %d, do recovery straightforward\n", w2_g_udev->state);
+            w2_aml_usb_set_bus_err(1);
             aml_recy->ps_state = 0;
             usb_check_fail_cnt = 0;
         }
@@ -1047,7 +1047,7 @@ void aml_usb_disconnect_wifi_process(void)
         return;
     }
 
-    bus_state_detect.usb_unplug = 1;
+    w2_bus_state_detect.usb_unplug = 1;
 
     AML_INFO("aml_usb_disconnect_wifi_process start\n");
 
@@ -1084,26 +1084,26 @@ void aml_usb_probe_wifi_process(void)
         return;
     }
 
-    if (aml_wifi_wakeup_source && (!aml_wifi_wakeup_source->active)) {
-        __pm_stay_awake(aml_wifi_wakeup_source);
+    if (w2_aml_wifi_wakeup_source && (!w2_aml_wifi_wakeup_source->active)) {
+        __pm_stay_awake(w2_aml_wifi_wakeup_source);
     } else {
-        AML_INFO("aml_wifi_wakeup_source is not initialized or active already\n");
+        AML_INFO("w2_aml_wifi_wakeup_source is not initialized or active already\n");
     }
 
     AML_INFO("aml_usb_probe_wifi_process start\n");
 
-    if (g_usb_after_probe == 0) {
-        AML_INFO("aml_usb_probe_wifi_process g_usb_after_probe is 0\n");
-        if (aml_wifi_wakeup_source && aml_wifi_wakeup_source->active) {
-            __pm_relax(aml_wifi_wakeup_source);
+    if (w2_g_usb_after_probe == 0) {
+        AML_INFO("aml_usb_probe_wifi_process w2_g_usb_after_probe is 0\n");
+        if (w2_aml_wifi_wakeup_source && w2_aml_wifi_wakeup_source->active) {
+            __pm_relax(w2_aml_wifi_wakeup_source);
         } else {
-            AML_INFO("aml_wifi_wakeup_source is not initialized or not active\n");
+            AML_INFO("w2_aml_wifi_wakeup_source is not initialized or not active\n");
         }
         return;
     }
 
-    aml_usb_set_bus_err(0);
-    bus_state_detect.bus_reset_ongoing = 0;
+    w2_aml_usb_set_bus_err(0);
+    w2_bus_state_detect.bus_reset_ongoing = 0;
 
     if (g_pst_aml_hw)
         aml_hw = g_pst_aml_hw;
@@ -1112,9 +1112,9 @@ void aml_usb_probe_wifi_process(void)
         return;
     }
 
-    if (aml_bus_type == USB_MODE) {
+    if (w2_aml_bus_type == USB_MODE) {
         /* realloc usb_dev in function@auc_probe when usb do reset, it need to reinit data */
-        aml_hw->plat->usb_dev = g_udev;
+        aml_hw->plat->usb_dev = w2_g_udev;
         dev_set_drvdata(&aml_hw->plat->usb_dev->dev, aml_hw);
         aml_hw->dev = aml_platform_get_dev(aml_hw->plat);
     }
@@ -1152,8 +1152,8 @@ void aml_usb_probe_wifi_process(void)
      */
     set_wiphy_dev(aml_hw->wiphy, aml_hw->dev);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 10, 0)
-    if (g_udev) {
-        struct device_link * dev_link = device_link_add(&aml_hw->wiphy->dev, &g_udev->dev, DL_FLAG_PM_RUNTIME);
+    if (w2_g_udev) {
+        struct device_link * dev_link = device_link_add(&aml_hw->wiphy->dev, &w2_g_udev->dev, DL_FLAG_PM_RUNTIME);
         if (!dev_link) {
             AML_INFO("device_link_add fail\n");
         }
@@ -1162,10 +1162,10 @@ void aml_usb_probe_wifi_process(void)
 
     aml_recy_enable();
 
-    if (aml_wifi_wakeup_source && aml_wifi_wakeup_source->active) {
-        __pm_relax(aml_wifi_wakeup_source);
+    if (w2_aml_wifi_wakeup_source && w2_aml_wifi_wakeup_source->active) {
+        __pm_relax(w2_aml_wifi_wakeup_source);
     } else {
-        AML_INFO("aml_wifi_wakeup_source is not initialized or not active\n");
+        AML_INFO("w2_aml_wifi_wakeup_source is not initialized or not active\n");
     }
 
     AML_INFO("aml_usb_probe_wifi_process finish!!!\n");
@@ -1175,16 +1175,16 @@ err:
     AML_INFO("aml_usb_probe_wifi_process break!!!\n");
     //aml_usb_disconnect_wifi_process();
 
-    if (g_usb_after_probe == 1) {
-        aml_wifi_power_on(0);
+    if (w2_g_usb_after_probe == 1) {
+        w2_aml_wifi_power_on(0);
         msleep(10);
-        aml_wifi_power_on(1);
+        w2_aml_wifi_power_on(1);
     }
 
-    if (aml_wifi_wakeup_source && aml_wifi_wakeup_source->active) {
-        __pm_relax(aml_wifi_wakeup_source);
+    if (w2_aml_wifi_wakeup_source && w2_aml_wifi_wakeup_source->active) {
+        __pm_relax(w2_aml_wifi_wakeup_source);
     } else {
-        AML_INFO("aml_wifi_wakeup_source is not initialized or not active\n");
+        AML_INFO("w2_aml_wifi_wakeup_source is not initialized or not active\n");
     }
 
     return;
