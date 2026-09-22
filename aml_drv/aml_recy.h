@@ -144,8 +144,8 @@ void aml_wake_source_init(struct aml_hw *aml_hw);
 void aml_usb_probe_wifi_process(void);
 void aml_usb_disconnect_wifi_process(void);
 
-extern unsigned char g_usb_after_probe;
-extern void aml_sdio_reset(void);
-extern struct usb_device *g_udev;
+extern unsigned char w2_g_usb_after_probe;
+extern void w2_aml_sdio_reset(void);
+extern struct usb_device *w2_g_udev;
 void aml_recy_light_reset(struct aml_hw *aml_hw);
 #endif  //__AML_RECY__

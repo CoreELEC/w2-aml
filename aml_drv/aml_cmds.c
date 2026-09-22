@@ -23,7 +23,7 @@
 #include "aml_msg_rx.h"
 #include "chip_intf_reg.h"
 
-extern unsigned int aml_bus_type;
+extern unsigned int w2_aml_bus_type;
 extern char *bus_type;
 
 /**
@@ -153,7 +153,7 @@ int aml_msg_task(void *data)
 /**
  *
  */
-extern struct aml_bus_state_detect bus_state_detect;
+extern struct aml_bus_state_detect w2_bus_state_detect;
 unsigned char g_fw_recovery_flag = 0;
 static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
 {
@@ -192,7 +192,7 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
         if (cmd->flags & AML_CMD_FLAG_NONBLOCK)
             kfree(cmd);
         spin_unlock_bh(&cmd_mgr->lock);
-        if (aml_bus_type == PCIE_MODE) {
+        if (w2_aml_bus_type == PCIE_MODE) {
             for (i = 0; i < NX_VIRT_DEV_MAX; i++) {
                 if (aml_hw->vif_table[i] != NULL) {
                     struct aml_vif *vif = aml_hw->vif_table[i];
@@ -241,7 +241,7 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
 
     if (!defer_push) {
         spin_lock_bh(&cmd_mgr->lock);
-        if ((aml_bus_type != PCIE_MODE) && (cmd->flags & AML_CMD_FLAG_CALL_THREAD)) {
+        if ((w2_aml_bus_type != PCIE_MODE) && (cmd->flags & AML_CMD_FLAG_CALL_THREAD)) {
             cmd->flags |= AML_CMD_FLAG_WAIT_PUSH;
             up(&aml_hw->aml_msg_sem);
         } else {
@@ -316,7 +316,7 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
             }
             spin_unlock_bh(&cmd_mgr->lock);
             AML_ERR("cmd timed-out\n");
-            if (aml_bus_type == SDIO_MODE) {
+            if (w2_aml_bus_type == SDIO_MODE) {
                 u32 regs[2] = {0};
 
                 AML_ERR("irq clr:%08x\n", AML_REG_READ(aml_hw->plat, 0, RG_WIFI_IF_FW2HST_CLR));
@@ -334,8 +334,8 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
             }
             spin_unlock_bh(&cmd_mgr->lock);
 #ifdef CONFIG_PT_MODE
-            if (aml_bus_type == SDIO_MODE) {
-                if (bus_state_detect.is_drv_load_finished) {
+            if (w2_aml_bus_type == SDIO_MODE) {
+                if (w2_bus_state_detect.is_drv_load_finished) {
                     if (!g_fw_recovery_ongoing) {
                         g_fw_recovery_ongoing = 1;
                         g_fw_recovery_flag = 1;
@@ -345,7 +345,7 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
                 }
             }
 #endif
-            if (aml_bus_type != USB_MODE) {
+            if (w2_aml_bus_type != USB_MODE) {
                 for (i = 0; i < CMD_CRASH_FW_PC_NUM; i++) {
                     AML_INFO("fw_pc:%08x\n", AML_REG_READ(aml_hw->plat, AML_ADDR_MAC_PHY, AML_FW_PC_POINTER)/0x40);
                     mdelay(100);
@@ -434,7 +434,7 @@ static int cmd_mgr_llind(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
     }
 
     if (next && !defer_push) {
-       if (aml_bus_type != PCIE_MODE) {
+       if (w2_aml_bus_type != PCIE_MODE) {
            up(&aml_hw->aml_msg_sem);
        } else {
            cmd_mgr_next_cmd(aml_hw, cmd_mgr, next);
@@ -500,7 +500,7 @@ static int cmd_mgr_msgind(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd_e2amsg *ms
         }
     }
     if (found && (next != NULL) && (next->flags & AML_CMD_FLAG_WAIT_PUSH)) {
-        if (aml_bus_type == PCIE_MODE) {
+        if (w2_aml_bus_type == PCIE_MODE) {
             cmd_mgr_next_cmd(aml_hw, cmd_mgr, next);
         }
         else {

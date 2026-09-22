@@ -43,11 +43,11 @@ enum prealloc_buf_type {
     PREALLOC_BUF_TYPE_MAX,
 };
 
-void *__aml_mem_prealloc(enum prealloc_buf_type buf_type, size_t req_size, size_t *actual_size);
+void *w2___aml_mem_prealloc(enum prealloc_buf_type buf_type, size_t req_size, size_t *actual_size);
 
 static inline void *aml_mem_prealloc(enum prealloc_buf_type buf_type, size_t req_size)
 {
-    return __aml_mem_prealloc(buf_type, req_size, NULL);
+    return w2___aml_mem_prealloc(buf_type, req_size, NULL);
 }
 
 int aml_init_wlan_mem(void);

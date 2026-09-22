@@ -18,8 +18,8 @@
 
 #define AML_SYNC_TRACE_MON_INTERVAL    (60 * HZ)
 
-extern unsigned char g_pci_shutdown;
-extern unsigned char g_pci_msg_suspend;
+extern unsigned char w2_g_pci_shutdown;
+extern unsigned char w2_g_pci_msg_suspend;
 
 #define AML_WAKE_REASON_NUM 10
 

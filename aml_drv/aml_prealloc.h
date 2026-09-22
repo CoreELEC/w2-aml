@@ -21,7 +21,7 @@ static inline void *aml_prealloc_get_ex(enum prealloc_buf_type buf_type,
                                         size_t req_size,
                                         size_t *actual_size)
 {
-    return __aml_mem_prealloc(buf_type, req_size, actual_size);
+    return w2___aml_mem_prealloc(buf_type, req_size, actual_size);
 }
 
 static inline void *aml_prealloc_get(enum prealloc_buf_type buf_type, size_t req_size)

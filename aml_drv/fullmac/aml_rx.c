@@ -120,7 +120,7 @@ static int aml_rx_data_skb(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
 
     __skb_queue_head_init(&list);
 
-    BUG_ON(aml_bus_type != PCIE_MODE);
+    BUG_ON(w2_aml_bus_type != PCIE_MODE);
     {
         if (amsdu) {
             u32 mpdu_len = le32_to_cpu(rxhdr->hwvect.len);
@@ -1107,7 +1107,7 @@ u8 aml_unsup_rx_vec_ind(void *pthis, void *arg) {
     struct rx_vector_desc rx_vect_desc;
     u8 rtap_len, vend_rtap_len = sizeof(*rtap);
 
-    if (aml_bus_type != PCIE_MODE) {
+    if (w2_aml_bus_type != PCIE_MODE) {
         return -1;
     }
 
@@ -1345,7 +1345,7 @@ int aml_pci_rxdataind(void *pthis, void *hostid)
     int nb_buff = 1;
     u16_l status;
 
-    BUG_ON(aml_bus_type != PCIE_MODE);
+    BUG_ON(w2_aml_bus_type != PCIE_MODE);
 
     REG_SW_SET_PROFILING(aml_hw, SW_PROF_AMLDATAIND);
 
@@ -1591,7 +1591,7 @@ check_alloc:
         }
 
         while (nb_buff--) {
-            if ((aml_bus_type == PCIE_MODE) && atomic_read(&g_wifi_pm.bus_suspend_cnt)) {
+            if ((w2_aml_bus_type == PCIE_MODE) && atomic_read(&w2_g_wifi_pm.bus_suspend_cnt)) {
                 aml_hw->repush_rxbuff_cnt++;
             } else {
                 aml_ipc_rxbuf_alloc(aml_hw);
@@ -1603,7 +1603,7 @@ end:
     REG_SW_CLEAR_PROFILING(aml_hw, SW_PROF_AMLDATAIND);
 
     /*if suspend,repush when resume*/
-    if ((aml_bus_type == PCIE_MODE) && atomic_read(&g_wifi_pm.bus_suspend_cnt)) {
+    if ((w2_aml_bus_type == PCIE_MODE) && atomic_read(&w2_g_wifi_pm.bus_suspend_cnt)) {
         struct rxdesc_tag *rxdesc = ipc_desc->addr;
         /* coverity[LOCK_EVASION] - ignore coverity warning */
         rxdesc->status = 0;

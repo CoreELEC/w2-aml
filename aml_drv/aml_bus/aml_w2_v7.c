@@ -14,7 +14,7 @@
 #include "aml_w2_v7.h"
 #include "aml_log.h"
 
-u8* ipc_basic_address = 0;
+u8* w2_ipc_basic_address = 0;
 
 #ifdef CONFIG_AML_FPGA_PCIE
 static void aml_v7_platform_deinit(struct aml_plat_pci *aml_plat_pci)
@@ -119,7 +119,7 @@ int aml_v7_platform_init(struct pci_dev *pci_dev, struct aml_plat_pci **aml_plat
         ret = -ENOMEM;
         goto out_bar5;
     }
-    ipc_basic_address = aml_v7->pci_bar5_vaddr;
+    w2_ipc_basic_address = aml_v7->pci_bar5_vaddr;
 
     (*aml_plat_pci)->deinit = aml_v7_platform_deinit;
 
@@ -381,7 +381,7 @@ int aml_v7_platform_init(struct pci_dev *pci_dev, struct aml_plat_pci **aml_plat
 
     AML_INFO("bar4 0x%lx\n", (unsigned long)aml_v7->pci_bar4_vaddr);
 
-    ipc_basic_address = aml_v7->pci_bar4_vaddr + PCIE_BAR4_TABLE2_OFFSET; // bar4 table2 0x60800000
+    w2_ipc_basic_address = aml_v7->pci_bar4_vaddr + PCIE_BAR4_TABLE2_OFFSET; // bar4 table2 0x60800000
     (*aml_plat_pci)->deinit = aml_v7_platform_deinit;
 
     aml_pcie_speed_check(pci_dev);
@@ -405,5 +405,5 @@ int aml_v7_platform_init(struct pci_dev *pci_dev, struct aml_plat_pci **aml_plat
 
 #endif
 
-EXPORT_SYMBOL(ipc_basic_address);
+EXPORT_SYMBOL(w2_ipc_basic_address);
 
